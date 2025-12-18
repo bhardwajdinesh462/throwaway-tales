@@ -1,49 +1,48 @@
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { motion } from "framer-motion";
-import { Calendar, User, ArrowRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Calendar, User, ArrowRight, Clock, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
-const blogPosts = [
-  {
-    id: 1,
-    title: "Why Temporary Emails Are Essential for Online Privacy",
-    excerpt: "In an age of data breaches and spam, temporary emails provide a crucial layer of privacy protection...",
-    author: "Alex Chen",
-    date: "Dec 15, 2024",
-    category: "Privacy",
-    readTime: "5 min read",
-  },
-  {
-    id: 2,
-    title: "10 Ways to Use Disposable Emails Effectively",
-    excerpt: "From testing to signing up for newsletters, discover the best use cases for temporary email addresses...",
-    author: "Sarah Johnson",
-    date: "Dec 12, 2024",
-    category: "Tips",
-    readTime: "7 min read",
-  },
-  {
-    id: 3,
-    title: "The Technology Behind Instant Email Generation",
-    excerpt: "A deep dive into how services like TrashMails create and manage millions of disposable email addresses...",
-    author: "Mike Rodriguez",
-    date: "Dec 8, 2024",
-    category: "Technology",
-    readTime: "8 min read",
-  },
-  {
-    id: 4,
-    title: "Protecting Your Digital Identity in 2024",
-    excerpt: "The latest trends in digital privacy and how you can safeguard your personal information online...",
-    author: "Emma Wilson",
-    date: "Dec 5, 2024",
-    category: "Security",
-    readTime: "6 min read",
-  },
-];
+interface BlogPost {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt: string | null;
+  featured_image_url: string | null;
+  author: string;
+  category: string;
+  reading_time: number;
+  created_at: string;
+}
 
 const Blog = () => {
+  const [posts, setPosts] = useState<BlogPost[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchPosts = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("blogs")
+          .select("id, title, slug, excerpt, featured_image_url, author, category, reading_time, created_at")
+          .eq("published", true)
+          .order("created_at", { ascending: false });
+        
+        if (error) throw error;
+        setPosts(data || []);
+      } catch (error) {
+        console.error("Error fetching blog posts:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPosts();
+  }, []);
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -64,57 +63,72 @@ const Blog = () => {
             </p>
           </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-            {blogPosts.map((post, index) => (
-              <motion.article
-                key={post.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="glass-card p-6 group cursor-pointer hover:border-primary/30 transition-all"
-              >
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="text-xs font-medium px-3 py-1 rounded-full bg-primary/20 text-primary">
-                    {post.category}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{post.readTime}</span>
-                </div>
+          {isLoading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : posts.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">No blog posts available yet.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+              {posts.map((post, index) => (
+                <motion.article
+                  key={post.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                >
+                  <Link 
+                    to={`/blog/${post.slug}`}
+                    className="glass-card p-6 block group cursor-pointer hover:border-primary/30 transition-all h-full"
+                  >
+                    {post.featured_image_url && (
+                      <div className="w-full h-48 rounded-lg overflow-hidden mb-4 bg-secondary/50">
+                        <img 
+                          src={post.featured_image_url} 
+                          alt={post.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className="text-xs font-medium px-3 py-1 rounded-full bg-primary/20 text-primary">
+                        {post.category}
+                      </span>
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {post.reading_time} min read
+                      </span>
+                    </div>
 
-                <h2 className="text-xl font-semibold mb-3 text-foreground group-hover:text-primary transition-colors">
-                  {post.title}
-                </h2>
+                    <h2 className="text-xl font-semibold mb-3 text-foreground group-hover:text-primary transition-colors">
+                      {post.title}
+                    </h2>
 
-                <p className="text-muted-foreground text-sm mb-4 line-clamp-2">
-                  {post.excerpt}
-                </p>
+                    <p className="text-muted-foreground text-sm mb-4 line-clamp-2">
+                      {post.excerpt}
+                    </p>
 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <User className="w-4 h-4" />
-                      {post.author}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-4 h-4" />
-                      {post.date}
-                    </span>
-                  </div>
-                  <ArrowRight className="w-5 h-5 text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-              </motion.article>
-            ))}
-          </div>
-
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            className="text-center mt-12"
-          >
-            <Button variant="glass" size="lg">
-              Load More Articles
-            </Button>
-          </motion.div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <User className="w-4 h-4" />
+                          {post.author}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-4 h-4" />
+                          {new Date(post.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </Link>
+                </motion.article>
+              ))}
+            </div>
+          )}
         </div>
       </main>
       <Footer />

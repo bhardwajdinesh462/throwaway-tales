@@ -12,6 +12,7 @@ import { EmailServiceProvider } from "@/contexts/EmailServiceContext";
 import CacheRefresh from "@/components/CacheRefresh";
 import Index from "./pages/Index";
 import Blog from "./pages/Blog";
+import BlogPost from "./pages/BlogPost";
 import Contact from "./pages/Contact";
 import Auth from "./pages/Auth";
 import History from "./pages/History";
@@ -80,6 +81,7 @@ const App = () => (
                   <Routes>
                     <Route path="/" element={<Index />} />
                     <Route path="/blog" element={<Blog />} />
+                    <Route path="/blog/:slug" element={<BlogPost />} />
                     <Route path="/contact" element={<Contact />} />
                     <Route path="/auth" element={<Auth />} />
                     <Route path="/history" element={<History />} />

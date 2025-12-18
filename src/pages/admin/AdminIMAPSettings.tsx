@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
-import { Mail, Save, Eye, EyeOff, RefreshCw, CheckCircle, XCircle } from "lucide-react";
+import { Mail, Save, Eye, EyeOff, RefreshCw, CheckCircle, XCircle, Download, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 const IMAP_SETTINGS_KEY = 'trashmails_imap_settings';
 
@@ -43,7 +44,13 @@ const AdminIMAPSettings = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [isFetching, setIsFetching] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [fetchResult, setFetchResult] = useState<{ 
+    success: boolean; 
+    message: string; 
+    stats?: { totalMessages: number; unseenMessages: number; stored: number; failed: number } 
+  } | null>(null);
 
   const handleSave = () => {
     setIsSaving(true);
@@ -54,7 +61,7 @@ const AdminIMAPSettings = () => {
     }, 500);
   };
 
-  const handleTestConnection = () => {
+  const handleTestConnection = async () => {
     if (!settings.host || !settings.username || !settings.password) {
       toast.error("Please fill in all required fields before testing");
       return;
@@ -63,18 +70,54 @@ const AdminIMAPSettings = () => {
     setIsTesting(true);
     setConnectionStatus('idle');
     
-    // Simulate connection test - in production this would call an edge function
-    setTimeout(() => {
-      setIsTesting(false);
-      // For demo purposes, show success if all fields are filled
-      if (settings.host && settings.username && settings.password) {
+    try {
+      // Call the fetch edge function to test connection
+      const { data, error } = await supabase.functions.invoke('fetch-imap-emails', {});
+
+      if (error) throw error;
+
+      if (data.success) {
         setConnectionStatus('success');
-        toast.success("IMAP connection test successful! Server is reachable.");
+        toast.success("IMAP connection successful!");
       } else {
         setConnectionStatus('error');
-        toast.error("Connection failed. Please check your settings.");
+        toast.error(data.error || "Connection failed");
       }
-    }, 2000);
+    } catch (error: any) {
+      setConnectionStatus('error');
+      toast.error(error.message || "Connection test failed");
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleFetchEmails = async () => {
+    setIsFetching(true);
+    setFetchResult(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('fetch-imap-emails', {});
+
+      if (error) throw error;
+
+      if (data.success) {
+        setFetchResult({
+          success: true,
+          message: data.message,
+          stats: data.stats
+        });
+        toast.success(`Fetched ${data.stats.stored} new emails!`);
+      } else {
+        setFetchResult({ success: false, message: data.error });
+        toast.error(data.error || "Failed to fetch emails");
+      }
+    } catch (error: any) {
+      const errorMessage = error.message || "Failed to fetch emails";
+      setFetchResult({ success: false, message: errorMessage });
+      toast.error(errorMessage);
+    } finally {
+      setIsFetching(false);
+    }
   };
 
   const updateSetting = <K extends keyof IMAPSettings>(key: K, value: IMAPSettings[K]) => {
@@ -96,6 +139,14 @@ const AdminIMAPSettings = () => {
           <Button variant="outline" onClick={handleTestConnection} disabled={isTesting}>
             <RefreshCw className={`w-4 h-4 mr-2 ${isTesting ? 'animate-spin' : ''}`} />
             {isTesting ? 'Testing...' : 'Test Connection'}
+          </Button>
+          <Button variant="outline" onClick={handleFetchEmails} disabled={isFetching}>
+            {isFetching ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4 mr-2" />
+            )}
+            {isFetching ? 'Fetching...' : 'Fetch Emails Now'}
           </Button>
           <Button onClick={handleSave} disabled={isSaving}>
             <Save className="w-4 h-4 mr-2" />
@@ -119,6 +170,43 @@ const AdminIMAPSettings = () => {
               : 'Connection failed. Please verify your credentials and server settings.'}
           </span>
         </div>
+      )}
+
+      {fetchResult && (
+        <Card className={fetchResult.success ? 'border-green-500/50' : 'border-destructive/50'}>
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              {fetchResult.success ? (
+                <CheckCircle className="w-5 h-5 text-green-500 mt-0.5" />
+              ) : (
+                <XCircle className="w-5 h-5 text-destructive mt-0.5" />
+              )}
+              <div className="flex-1">
+                <p className="font-medium">{fetchResult.message}</p>
+                {fetchResult.stats && (
+                  <div className="grid grid-cols-4 gap-4 mt-4">
+                    <div className="text-center p-3 bg-muted rounded-lg">
+                      <p className="text-2xl font-bold">{fetchResult.stats.totalMessages}</p>
+                      <p className="text-xs text-muted-foreground">Total Messages</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted rounded-lg">
+                      <p className="text-2xl font-bold">{fetchResult.stats.unseenMessages}</p>
+                      <p className="text-xs text-muted-foreground">Unseen</p>
+                    </div>
+                    <div className="text-center p-3 bg-green-500/10 rounded-lg">
+                      <p className="text-2xl font-bold text-green-500">{fetchResult.stats.stored}</p>
+                      <p className="text-xs text-muted-foreground">Stored</p>
+                    </div>
+                    <div className="text-center p-3 bg-destructive/10 rounded-lg">
+                      <p className="text-2xl font-bold text-destructive">{fetchResult.stats.failed}</p>
+                      <p className="text-xs text-muted-foreground">Failed</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <Card>

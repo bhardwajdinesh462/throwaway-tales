@@ -108,12 +108,21 @@ export const useEmailService = () => {
   }, [domains, currentEmail, generateEmail]);
 
   // Load received emails for current temp email
-  useEffect(() => {
+  const loadReceivedEmails = useCallback(() => {
     if (!currentEmail) return;
 
     const allReceived = storage.get<ReceivedEmail[]>(STORAGE_KEYS.RECEIVED_EMAILS, []);
     setReceivedEmails(allReceived.filter(e => e.temp_email_id === currentEmail.id));
   }, [currentEmail]);
+
+  useEffect(() => {
+    loadReceivedEmails();
+  }, [loadReceivedEmails]);
+
+  // Refetch emails (for real-time updates)
+  const refetch = useCallback(() => {
+    loadReceivedEmails();
+  }, [loadReceivedEmails]);
 
   // Simulate receiving an email (for demo purposes)
   const simulateIncomingEmail = () => {
@@ -235,5 +244,6 @@ export const useEmailService = () => {
     addCustomDomain,
     loadFromHistory,
     simulateIncomingEmail, // For demo
+    refetch, // For real-time updates
   };
 };

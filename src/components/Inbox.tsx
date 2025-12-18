@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, RefreshCw, Trash2, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube, Loader2 } from "lucide-react";
+import { Mail, RefreshCw, Trash2, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube, Loader2, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEmailService, ReceivedEmail } from "@/hooks/useLocalEmailService";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatDistanceToNow } from "date-fns";
 import { storage } from "@/lib/storage";
+import { useRealtimeEmails } from "@/hooks/useRealtimeEmails";
 
 interface NotificationPreferences {
   soundEnabled: boolean;
@@ -19,7 +20,7 @@ interface NotificationPreferences {
 const Inbox = () => {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const { receivedEmails, isLoading, markAsRead, saveEmail, currentEmail, simulateIncomingEmail } = useEmailService();
+  const { receivedEmails, isLoading, markAsRead, saveEmail, currentEmail, simulateIncomingEmail, refetch } = useEmailService();
   const [selectedEmail, setSelectedEmail] = useState<ReceivedEmail | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [savedEmails, setSavedEmails] = useState<Set<string>>(new Set());
@@ -28,6 +29,24 @@ const Inbox = () => {
   const [countdown, setCountdown] = useState(30);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const refreshRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Get notification preferences
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  
+  // Real-time email notifications
+  const handleNewEmail = useCallback((email: any) => {
+    // Refetch emails when a new one arrives
+    if (refetch) {
+      refetch();
+    }
+  }, [refetch]);
+
+  const { newEmailCount, resetCount } = useRealtimeEmails({
+    tempEmailId: currentEmail?.id,
+    onNewEmail: handleNewEmail,
+    showToast: true,
+    playSound: soundEnabled,
+  });
 
   // Load user preferences
   useEffect(() => {
@@ -42,6 +61,7 @@ const Inbox = () => {
       setAutoRefreshEnabled(prefs.autoRefresh);
       setRefreshInterval(prefs.refreshInterval);
       setCountdown(prefs.refreshInterval);
+      setSoundEnabled(prefs.soundEnabled);
     }
   }, [user]);
 
@@ -139,6 +159,16 @@ const Inbox = () => {
             <span className="bg-primary/20 text-primary text-xs px-2 py-1 rounded-full">
               {receivedEmails.filter(e => !e.is_read).length} new
             </span>
+            {newEmailCount > 0 && (
+              <motion.span 
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                className="bg-green-500 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1"
+              >
+                <Bell className="w-3 h-3" />
+                {newEmailCount} live
+              </motion.span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {/* Auto-refresh indicator */}

@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
-import { Cog, Save, Eye, EyeOff, Send, CheckCircle, XCircle } from "lucide-react";
+import { Cog, Save, Eye, EyeOff, Send, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { supabase } from "@/integrations/supabase/client";
 
 const SMTP_SETTINGS_KEY = 'trashmails_smtp_settings';
 
@@ -52,6 +53,7 @@ const AdminSMTPSettings = () => {
   const [testEmailDialogOpen, setTestEmailDialogOpen] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const handleSave = () => {
     setIsSaving(true);
@@ -75,15 +77,15 @@ const AdminSMTPSettings = () => {
       setIsTesting(false);
       if (settings.host && settings.username && settings.password) {
         setConnectionStatus('success');
-        toast.success("SMTP connection test successful!");
+        toast.success("SMTP settings validated!");
       } else {
         setConnectionStatus('error');
-        toast.error("Connection failed. Please check your settings.");
+        toast.error("Please fill in all required fields.");
       }
-    }, 1500);
+    }, 1000);
   };
 
-  const handleSendTestEmail = () => {
+  const handleSendTestEmail = async () => {
     if (!testEmail) {
       toast.error("Please enter a recipient email address");
       return;
@@ -95,14 +97,41 @@ const AdminSMTPSettings = () => {
     }
 
     setIsSendingTest(true);
+    setTestResult(null);
     
-    // Simulate sending test email - in production this would call an edge function
-    setTimeout(() => {
+    try {
+      const { data, error } = await supabase.functions.invoke('send-test-email', {
+        body: {
+          recipientEmail: testEmail,
+          smtpConfig: {
+            host: settings.host,
+            port: settings.port,
+            username: settings.username,
+            password: settings.password,
+            encryption: settings.encryption,
+            fromEmail: settings.fromEmail,
+            fromName: settings.fromName,
+          }
+        }
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        setTestResult({ success: true, message: data.message });
+        toast.success(`Test email sent to ${testEmail}!`);
+      } else {
+        setTestResult({ success: false, message: data.error });
+        toast.error(data.error || "Failed to send test email");
+      }
+    } catch (error: any) {
+      console.error("Error sending test email:", error);
+      const errorMessage = error.message || "Failed to send test email";
+      setTestResult({ success: false, message: errorMessage });
+      toast.error(errorMessage);
+    } finally {
       setIsSendingTest(false);
-      setTestEmailDialogOpen(false);
-      toast.success(`Test email sent to ${testEmail}! Check your inbox.`);
-      setTestEmail('');
-    }, 2000);
+    }
   };
 
   const updateSetting = <K extends keyof SMTPSettings>(key: K, value: SMTPSettings[K]) => {
@@ -155,13 +184,32 @@ const AdminSMTPSettings = () => {
                   <p><strong>Subject:</strong> Test Email from Nullsto</p>
                   <p><strong>Body:</strong> This is a test email to verify your SMTP configuration.</p>
                 </div>
+                {testResult && (
+                  <div className={`p-4 rounded-lg flex items-center gap-2 ${
+                    testResult.success ? 'bg-green-500/10 text-green-500' : 'bg-destructive/10 text-destructive'
+                  }`}>
+                    {testResult.success ? (
+                      <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                    ) : (
+                      <XCircle className="w-5 h-5 flex-shrink-0" />
+                    )}
+                    <span className="text-sm">{testResult.message}</span>
+                  </div>
+                )}
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setTestEmailDialogOpen(false)}>
+                <Button variant="outline" onClick={() => {
+                  setTestEmailDialogOpen(false);
+                  setTestResult(null);
+                }}>
                   Cancel
                 </Button>
                 <Button onClick={handleSendTestEmail} disabled={isSendingTest}>
-                  <Send className="w-4 h-4 mr-2" />
+                  {isSendingTest ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4 mr-2" />
+                  )}
                   {isSendingTest ? 'Sending...' : 'Send Test Email'}
                 </Button>
               </DialogFooter>

@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.fetch-imap-emails]
 verify_jwt = false
+
+[functions.email-webhook]
+verify_jwt = false

@@ -66,8 +66,23 @@ export const useSecureEmailService = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   
+  // Debug / instance identity (helps verify there is only one provider instance)
+  const instanceIdRef = useRef(`${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
   // Ref to prevent duplicate initialization
   const initStartedRef = useRef(false);
+
+  // Debug logs
+  useEffect(() => {
+    console.info(`[email-service:${instanceIdRef.current}] mounted`);
+    return () => console.info(`[email-service:${instanceIdRef.current}] unmounted`);
+  }, []);
+
+  useEffect(() => {
+    console.info(
+      `[email-service:${instanceIdRef.current}] currentEmail: ${currentEmail?.address || "(none)"} (${currentEmail?.id || "-"})`
+    );
+  }, [currentEmail?.id]);
 
   // Load domains from Supabase
   useEffect(() => {
@@ -330,7 +345,7 @@ export const useSecureEmailService = () => {
     try {
       console.log('Triggering IMAP fetch...');
       const { data, error } = await supabase.functions.invoke('fetch-imap-emails', {
-        body: {},
+        body: { mode: 'latest', limit: 20 },
       });
 
       if (error) {

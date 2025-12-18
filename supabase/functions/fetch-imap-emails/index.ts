@@ -15,6 +15,8 @@ interface ParsedEmail {
   receivedAt: Date;
 }
 
+const EMAIL_REGEX = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+
 // Decode quoted-printable encoding
 function decodeQuotedPrintable(str: string): string {
   return str
@@ -126,6 +128,19 @@ serve(async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Request options (defaults keep polling fast)
+  let mode: 'latest' | 'unseen' = 'latest';
+  let limit = 20;
+  try {
+    const body = await req.json();
+    if (body?.mode === 'unseen' || body?.mode === 'latest') mode = body.mode;
+    if (typeof body?.limit === 'number' && Number.isFinite(body.limit)) {
+      limit = Math.max(1, Math.min(50, Math.floor(body.limit)));
+    }
+  } catch {
+    // ignore (e.g. empty body)
+  }
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -224,42 +239,60 @@ serve(async (req: Request): Promise<Response> => {
     const messageCount = existsMatch ? parseInt(existsMatch[1]) : 0;
     console.log(`Found ${messageCount} messages in INBOX`);
 
-    const searchResponse = await sendCommand("SEARCH UNSEEN", tagNum++);
-    const unseenMatch = searchResponse.match(/\* SEARCH ([\d\s]+)/);
-    const unseenIds = unseenMatch ? unseenMatch[1].trim().split(/\s+/).filter(id => id) : [];
-    console.log(`Found ${unseenIds.length} unseen messages`);
-
     const storedCount = { success: 0, failed: 0, skipped: 0 };
 
-    // Fetch the NEWEST unseen messages first
-    const newestUnseenIds = unseenIds.slice(-50).reverse();
-    console.log(`Processing ${newestUnseenIds.length} newest unseen messages`);
+    let newestMessageIds: string[] = [];
 
-    for (const msgId of newestUnseenIds) {
+    if (mode === 'unseen') {
+      const searchResponse = await sendCommand("SEARCH UNSEEN", tagNum++);
+      const unseenMatch = searchResponse.match(/\* SEARCH ([\d\s]+)/);
+      const unseenIds = unseenMatch ? unseenMatch[1].trim().split(/\s+/).filter(id => id) : [];
+      console.log(`Found ${unseenIds.length} unseen messages`);
+      newestMessageIds = unseenIds.slice(-limit).reverse();
+      console.log(`Processing ${newestMessageIds.length} newest unseen messages`);
+    } else {
+      // Super-fast mode: only look at the latest N message sequence numbers, and skip those already seen.
+      const start = Math.max(1, messageCount - limit + 1);
+      newestMessageIds = [];
+      for (let i = messageCount; i >= start; i--) newestMessageIds.push(String(i));
+      console.log(`Latest mode: scanning last ${newestMessageIds.length} messages`);
+    }
+
+    for (const msgId of newestMessageIds) {
       try {
-        // Fetch full message including body
-        const fetchResponse = await sendCommand(`FETCH ${msgId} (BODY[HEADER] BODY[TEXT])`, tagNum++);
-        
+        // Fast pass: fetch flags + headers only (small)
+        const headerResponse = await sendCommand(`FETCH ${msgId} (FLAGS BODY[HEADER])`, tagNum++);
+
+        const isSeen = /FLAGS\s*\([^)]*\\Seen/i.test(headerResponse);
+        if (mode === 'latest' && isSeen) {
+          storedCount.skipped++;
+          continue;
+        }
+
         // Parse headers
-        const fromMatch = fetchResponse.match(/From:\s*([^\r\n]+)/i);
-        const toMatch = fetchResponse.match(/To:\s*([^\r\n]+)/i);
-        const subjectMatch = fetchResponse.match(/Subject:\s*([^\r\n]+)/i);
-        const dateMatch = fetchResponse.match(/Date:\s*([^\r\n]+)/i);
-        const contentTypeMatch = fetchResponse.match(/Content-Type:\s*([^\r\n]+)/i);
-        
-        // Extract recipient email (prefer envelope/delivery headers; fall back to any matching domain)
+        const fromMatch = headerResponse.match(/From:\s*([^\r\n]+)/i);
+        const toMatch = headerResponse.match(/To:\s*([^\r\n]+)/i);
+        const subjectMatch = headerResponse.match(/Subject:\s*([^\r\n]+)/i);
+        const dateMatch = headerResponse.match(/Date:\s*([^\r\n]+)/i);
+
+        const deliveryTo = headerResponse.match(/Delivered-To:\s*([^\r\n]+)/i)?.[1] || '';
+        const originalTo = headerResponse.match(/X-Original-To:\s*([^\r\n]+)/i)?.[1] || '';
+        const envelopeTo = headerResponse.match(/Envelope-To:\s*([^\r\n]+)/i)?.[1] || '';
+
         const toAddress = toMatch?.[1]?.trim() || "";
 
-        const allEmails = (fetchResponse.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) || [])
+        const headerCandidates = `${deliveryTo} ${originalTo} ${envelopeTo} ${toAddress}`;
+        const headerEmails = (headerCandidates.match(EMAIL_REGEX) || []).map((e) => e.toLowerCase().trim());
+
+        const allEmails = (headerResponse.match(EMAIL_REGEX) || [])
+          .concat(headerEmails)
           .map((e) => e.toLowerCase().trim());
 
         const domainMatched = allowedDomainSuffixes.length
-          ? allEmails.filter((e) => allowedDomainSuffixes.some((suffix) => e.endsWith(suffix))).pop()
+          ? allEmails.findLast((e) => allowedDomainSuffixes.some((suffix) => e.endsWith(suffix)))
           : undefined;
 
-        // Fallback: parse the To: header specifically
-        const toEmailMatch = toAddress.match(/<([^>]+)>/) || [null, toAddress];
-        const recipientEmail = (domainMatched || (toEmailMatch[1] || toAddress)).toLowerCase().trim();
+        const recipientEmail = (domainMatched || headerEmails[0] || '').toLowerCase().trim();
 
         // Extract sender email (clean it up)
         let fromAddress = fromMatch?.[1]?.trim() || "unknown@unknown.com";
@@ -283,6 +316,13 @@ serve(async (req: Request): Promise<Response> => {
           }
         }
 
+        if (!recipientEmail) {
+          console.log(`Could not resolve recipient for msg ${msgId}; marking seen`);
+          storedCount.skipped++;
+          await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
+          continue;
+        }
+
         // Find the matching temp_email
         const { data: tempEmail } = await supabase
           .from("temp_emails")
@@ -292,18 +332,20 @@ serve(async (req: Request): Promise<Response> => {
           .single();
 
         if (tempEmail) {
+          // Fetch body (bigger)
+          const bodyResponse = await sendCommand(`FETCH ${msgId} (BODY[TEXT])`, tagNum++);
+
           // Extract body content from BODY[TEXT] {n}\r\n... using the IMAP byte count
           let rawBody = '';
-          const bodyMarker = /BODY\[TEXT\]\s*\{(\d+)\}\r?\n/i.exec(fetchResponse);
+          const bodyMarker = /BODY\[TEXT\]\s*\{(\d+)\}\r?\n/i.exec(bodyResponse);
 
           if (bodyMarker && typeof bodyMarker.index === 'number') {
             const bodyLength = parseInt(bodyMarker[1], 10);
             const bodyStartIndex = bodyMarker.index + bodyMarker[0].length;
-            rawBody = fetchResponse.slice(bodyStartIndex, bodyStartIndex + bodyLength);
+            rawBody = bodyResponse.slice(bodyStartIndex, bodyStartIndex + bodyLength);
           } else {
-            // Fallback: take everything after the last header/body separator
-            const bodyStart = fetchResponse.lastIndexOf('\r\n\r\n');
-            rawBody = bodyStart > -1 ? fetchResponse.substring(bodyStart + 4) : fetchResponse;
+            const bodyStart = bodyResponse.lastIndexOf('\r\n\r\n');
+            rawBody = bodyStart > -1 ? bodyResponse.substring(bodyStart + 4) : bodyResponse;
           }
 
           // Parse MIME content (also strips IMAP protocol artifacts)
@@ -372,10 +414,11 @@ serve(async (req: Request): Promise<Response> => {
     return new Response(
       JSON.stringify({
         success: true,
-        message: `Fetched and processed ${newestUnseenIds.length} emails`,
+        message: `Fetched and processed ${newestMessageIds.length} emails`,
         stats: {
+          mode,
+          limit,
           totalMessages: messageCount,
-          unseenMessages: unseenIds.length,
           stored: storedCount.success,
           failed: storedCount.failed,
           skipped: storedCount.skipped,

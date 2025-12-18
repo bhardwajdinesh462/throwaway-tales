@@ -38,25 +38,37 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // Get SMTP settings from environment or request
+    // Determine source of SMTP settings for logging
+    const usingRequestConfig = !!(smtpConfig?.host && smtpConfig?.username && smtpConfig?.password);
+    
+    // Get SMTP settings from request first, then environment
     const host = smtpConfig?.host || Deno.env.get("SMTP_HOST");
     const port = smtpConfig?.port || parseInt(Deno.env.get("SMTP_PORT") || "587");
     const username = smtpConfig?.username || Deno.env.get("SMTP_USER");
     const password = smtpConfig?.password || Deno.env.get("SMTP_PASSWORD");
-    const fromEmail = smtpConfig?.fromEmail || username;
+    // IMPORTANT: Default fromEmail to username if not provided (most SMTP servers require this)
+    const fromEmail = smtpConfig?.fromEmail || smtpConfig?.username || username;
     const fromName = smtpConfig?.fromName || "Nullsto";
 
+    console.log(`[send-test-email] Config source: ${usingRequestConfig ? 'REQUEST' : 'ENV VARIABLES'}`);
+    console.log(`[send-test-email] SMTP Host: ${host}, Port: ${port}, Username: ${username}, From: ${fromEmail}`);
+
     if (!host || !username || !password) {
+      const missing = [];
+      if (!host) missing.push('host');
+      if (!username) missing.push('username');
+      if (!password) missing.push('password');
+      console.error(`[send-test-email] Missing SMTP config: ${missing.join(', ')}`);
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: "SMTP configuration is incomplete. Please configure SMTP settings in the admin panel." 
+          error: `SMTP configuration incomplete. Missing: ${missing.join(', ')}. Please configure SMTP settings in Admin → Email → SMTP Settings.` 
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`Attempting to send test email to ${recipientEmail} via ${host}:${port}`);
+    console.log(`[send-test-email] Sending to ${recipientEmail} via ${host}:${port} from ${fromEmail}`);
 
     // Use Deno's SMTP client to send email
     // Note: Deno doesn't have a built-in SMTP client, so we'll use a third-party module
@@ -115,23 +127,35 @@ serve(async (req: Request): Promise<Response> => {
     );
 
   } catch (error: any) {
-    console.error("Error sending test email:", error);
+    console.error("[send-test-email] Error:", error);
     
     let errorMessage = error.message || "Failed to send email";
+    let hint = "";
     
-    // Provide more helpful error messages
-    if (errorMessage.includes("Authentication")) {
-      errorMessage = "SMTP authentication failed. Please check your username and password.";
-    } else if (errorMessage.includes("Connection")) {
-      errorMessage = "Could not connect to SMTP server. Please check the host and port.";
-    } else if (errorMessage.includes("TLS") || errorMessage.includes("SSL")) {
-      errorMessage = "SSL/TLS connection failed. Try changing the encryption setting.";
+    // Provide more helpful error messages with hints
+    if (errorMessage.includes("Authentication") || errorMessage.includes("auth")) {
+      errorMessage = "SMTP authentication failed.";
+      hint = "Check your username and password are correct.";
+    } else if (errorMessage.includes("Connection") || errorMessage.includes("connect")) {
+      errorMessage = "Could not connect to SMTP server.";
+      hint = "Verify the host and port are correct and the server is reachable.";
+    } else if (errorMessage.includes("TLS") || errorMessage.includes("SSL") || errorMessage.includes("tls")) {
+      errorMessage = "SSL/TLS connection failed.";
+      hint = "Try changing the encryption setting (SSL for port 465, TLS for port 587).";
+    } else if (errorMessage.includes("550") || errorMessage.includes("Cannot send")) {
+      errorMessage = "SMTP server rejected the From address.";
+      hint = "Your From Email must match your SMTP username (e.g., use the same email address).";
+    } else if (errorMessage.includes("DNS") || errorMessage.includes("getaddrinfo") || errorMessage.includes("ENOTFOUND")) {
+      errorMessage = "Could not resolve SMTP hostname.";
+      hint = "Check that the SMTP host is correct and publicly accessible.";
     }
+
+    console.error(`[send-test-email] Friendly error: ${errorMessage}. Hint: ${hint}. Raw: ${error.message}`);
 
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: errorMessage,
+        error: hint ? `${errorMessage} ${hint}` : errorMessage,
         details: error.message
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

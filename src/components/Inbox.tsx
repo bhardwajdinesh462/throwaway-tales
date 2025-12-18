@@ -162,7 +162,7 @@ const Inbox = () => {
     }
   };
 
-  // Send a test email to the currently generated temp address (uses SMTP settings)
+  // Send a test email to the currently generated temp address (uses stored SMTP settings)
   const handleSendTestEmail = async () => {
     if (!currentEmail?.address) {
       toast.error('No active email address yet');
@@ -171,17 +171,49 @@ const Inbox = () => {
 
     setIsSendingTest(true);
     try {
-      const { error } = await supabase.functions.invoke('send-test-email', {
+      // Load SMTP settings from local storage (same as Admin SMTP panel)
+      const storedSmtp = storage.get<{
+        host: string;
+        port: number;
+        username: string;
+        password: string;
+        encryption: 'none' | 'ssl' | 'tls';
+        fromEmail: string;
+        fromName: string;
+      } | null>('smtp_settings', null);
+
+      // Build smtpConfig - use username as fromEmail if fromEmail is empty
+      const smtpConfig = storedSmtp ? {
+        host: storedSmtp.host,
+        port: storedSmtp.port,
+        username: storedSmtp.username,
+        password: storedSmtp.password,
+        encryption: storedSmtp.encryption,
+        fromEmail: storedSmtp.fromEmail || storedSmtp.username, // Default to username
+        fromName: storedSmtp.fromName || 'Nullsto',
+      } : undefined;
+
+      if (!smtpConfig?.host || !smtpConfig?.username) {
+        toast.error('SMTP not configured. Please set up SMTP in Admin → Email → SMTP Settings');
+        setIsSendingTest(false);
+        return;
+      }
+
+      console.log('[Test Email] Using SMTP:', smtpConfig.host, smtpConfig.port, 'from:', smtpConfig.fromEmail);
+
+      const { data, error } = await supabase.functions.invoke('send-test-email', {
         body: {
           recipientEmail: currentEmail.address,
           subject: 'Nullsto inbox test',
           body: `<p>Test message for <strong>${currentEmail.address}</strong></p>`,
+          smtpConfig,
         },
       });
 
       if (error) throw error;
+      if (data?.success === false) throw new Error(data?.error || 'Send failed');
 
-      toast.success('Test email sent! Waiting for delivery...');
+      toast.success(`Test email sent via ${smtpConfig.host}! Waiting for delivery...`);
 
       // Wait a bit for SMTP delivery before fetching
       await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -200,7 +232,8 @@ const Inbox = () => {
       }
     } catch (error: any) {
       console.error('Error sending test email:', error);
-      toast.error(error?.message || 'Failed to send test email');
+      const msg = error?.message || 'Failed to send test email';
+      toast.error(msg);
     } finally {
       setIsSendingTest(false);
     }

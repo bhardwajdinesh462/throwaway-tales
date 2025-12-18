@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.auto-delete-emails]
 verify_jwt = false
+
+[functions.check-email-config]
+verify_jwt = false

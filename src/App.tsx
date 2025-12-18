@@ -49,6 +49,8 @@ import AdminCache from "./pages/admin/AdminCache";
 import AdminAdvancedSettings from "./pages/admin/AdminAdvancedSettings";
 import AdminBanners from "./pages/admin/AdminBanners";
 import AdminAuditLogs from "./pages/admin/AdminAuditLogs";
+import AdminEmailSetup from "./pages/admin/AdminEmailSetup";
+import AdminDeployGuide from "./pages/admin/AdminDeployGuide";
 
 // Initialize default data on app load
 initializeDefaultData();
@@ -93,6 +95,8 @@ const App = () => (
                   <Route path="general-settings" element={<AdminGeneralSettings />} />
                   <Route path="smtp" element={<AdminSMTPSettings />} />
                   <Route path="imap" element={<AdminIMAPSettings />} />
+                  <Route path="email-setup" element={<AdminEmailSetup />} />
+                  <Route path="deploy-guide" element={<AdminDeployGuide />} />
                   <Route path="appearance" element={<AdminAppearance />} />
                   <Route path="user-settings" element={<AdminUserSettings />} />
                   <Route path="admins" element={<AdminAdmins />} />

@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
-import { Cog, Save, Eye, EyeOff, Send, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Cog, Save, Eye, EyeOff, Send, CheckCircle, XCircle, Loader2, AlertTriangle, ExternalLink } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +30,16 @@ interface SMTPSettings {
   fromEmail: string;
   fromName: string;
   enabled: boolean;
+}
+
+interface ConfigStatus {
+  name: string;
+  configured: boolean;
+}
+
+interface EmailConfig {
+  smtp: { configured: boolean; secrets: ConfigStatus[] };
+  imap: { configured: boolean; secrets: ConfigStatus[] };
 }
 
 const defaultSettings: SMTPSettings = {
@@ -54,13 +65,32 @@ const AdminSMTPSettings = () => {
   const [testEmail, setTestEmail] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [backendConfig, setBackendConfig] = useState<EmailConfig | null>(null);
+  const [isLoadingConfig, setIsLoadingConfig] = useState(true);
+
+  useEffect(() => {
+    fetchBackendConfig();
+  }, []);
+
+  const fetchBackendConfig = async () => {
+    setIsLoadingConfig(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('check-email-config');
+      if (error) throw error;
+      setBackendConfig(data);
+    } catch (error: any) {
+      console.error("Error fetching config:", error);
+    } finally {
+      setIsLoadingConfig(false);
+    }
+  };
 
   const handleSave = () => {
     setIsSaving(true);
     storage.set(SMTP_SETTINGS_KEY, settings);
     setTimeout(() => {
       setIsSaving(false);
-      toast.success("SMTP settings saved successfully!");
+      toast.success("SMTP settings saved locally for testing!");
     }, 500);
   };
 
@@ -222,6 +252,63 @@ const AdminSMTPSettings = () => {
         </div>
       </div>
 
+      {/* Backend Configuration Status */}
+      <Card className={backendConfig?.smtp.configured ? 'border-green-500/50' : 'border-yellow-500/50'}>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              Backend Configuration Status
+              {isLoadingConfig ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : backendConfig?.smtp.configured ? (
+                <Badge className="bg-green-500">Configured</Badge>
+              ) : (
+                <Badge variant="outline" className="border-yellow-500 text-yellow-500">Not Configured</Badge>
+              )}
+            </span>
+            <Button variant="outline" size="sm" onClick={fetchBackendConfig}>
+              Refresh
+            </Button>
+          </CardTitle>
+          <CardDescription>
+            The backend edge functions use these secrets to send emails. Configure them in the Lovable Cloud backend.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-4 gap-2 mb-4">
+            {backendConfig?.smtp.secrets.map((secret) => (
+              <div key={secret.name} className="flex items-center gap-2 p-2 bg-muted rounded">
+                {secret.configured ? (
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                ) : (
+                  <XCircle className="w-4 h-4 text-destructive" />
+                )}
+                <code className="text-xs">{secret.name}</code>
+              </div>
+            ))}
+          </div>
+          
+          {!backendConfig?.smtp.configured && (
+            <div className="bg-yellow-500/10 border border-yellow-500/50 p-3 rounded-lg mb-4">
+              <div className="flex gap-2">
+                <AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-yellow-500">Backend secrets not configured</p>
+                  <p className="text-muted-foreground">
+                    The form below is for testing only. To enable actual email sending, configure the secrets in the backend panel.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <Button variant="outline" onClick={() => window.location.href = '/admin/email-setup'}>
+            <ExternalLink className="w-4 h-4 mr-2" />
+            Go to Email Setup Wizard
+          </Button>
+        </CardContent>
+      </Card>
+
       {connectionStatus !== 'idle' && (
         <div className={`flex items-center gap-2 p-4 rounded-lg ${
           connectionStatus === 'success' ? 'bg-green-500/10 text-green-500' : 'bg-destructive/10 text-destructive'
@@ -242,7 +329,7 @@ const AdminSMTPSettings = () => {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
-            SMTP Configuration
+            <span>SMTP Configuration (Testing)</span>
             <div className="flex items-center gap-2">
               <Label htmlFor="smtp-enabled">Enable SMTP</Label>
               <Switch
@@ -252,7 +339,9 @@ const AdminSMTPSettings = () => {
               />
             </div>
           </CardTitle>
-          <CardDescription>Configure your SMTP server for sending emails</CardDescription>
+          <CardDescription>
+            Use this form to test SMTP settings. Values entered here are used for the "Send Test Email" feature.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">

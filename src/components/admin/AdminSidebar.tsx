@@ -23,6 +23,8 @@ import {
   MailOpen,
   UserCog,
   BarChart3,
+  Wand2,
+  Rocket,
 } from "lucide-react";
 import {
   Sidebar,
@@ -72,6 +74,7 @@ const AdminSidebar = () => {
     { title: t('themes'), url: "/admin/themes", icon: Palette },
     { title: "User & Guest", url: "/admin/user-settings", icon: UserCog },
     { title: "Admins", url: "/admin/admins", icon: Shield },
+    { title: "Email Setup", url: "/admin/email-setup", icon: Wand2 },
     { title: "SMTP", url: "/admin/smtp", icon: Cog },
     { title: "IMAP", url: "/admin/imap", icon: MailOpen },
     { title: "SEO", url: "/admin/seo", icon: Search },
@@ -80,6 +83,7 @@ const AdminSidebar = () => {
   ];
 
   const advancedMenuItems = [
+    { title: "Deploy Guide", url: "/admin/deploy-guide", icon: Rocket },
     { title: "Audit Logs", url: "/admin/audit-logs", icon: Shield },
     { title: "Advanced", url: "/admin/advanced", icon: Cog },
     { title: "Banners", url: "/admin/banners", icon: Megaphone },

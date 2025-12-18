@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
-import { Mail, Save, Eye, EyeOff, RefreshCw, CheckCircle, XCircle, Download, Loader2 } from "lucide-react";
+import { Mail, Save, Eye, EyeOff, RefreshCw, CheckCircle, XCircle, Download, Loader2, AlertTriangle, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 const IMAP_SETTINGS_KEY = 'trashmails_imap_settings';
@@ -22,6 +23,16 @@ interface IMAPSettings {
   pollingInterval: number;
   deleteAfterFetch: boolean;
   enabled: boolean;
+}
+
+interface ConfigStatus {
+  name: string;
+  configured: boolean;
+}
+
+interface EmailConfig {
+  smtp: { configured: boolean; secrets: ConfigStatus[] };
+  imap: { configured: boolean; secrets: ConfigStatus[] };
 }
 
 const defaultSettings: IMAPSettings = {
@@ -51,19 +62,38 @@ const AdminIMAPSettings = () => {
     message: string; 
     stats?: { totalMessages: number; unseenMessages: number; stored: number; failed: number } 
   } | null>(null);
+  const [backendConfig, setBackendConfig] = useState<EmailConfig | null>(null);
+  const [isLoadingConfig, setIsLoadingConfig] = useState(true);
+
+  useEffect(() => {
+    fetchBackendConfig();
+  }, []);
+
+  const fetchBackendConfig = async () => {
+    setIsLoadingConfig(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('check-email-config');
+      if (error) throw error;
+      setBackendConfig(data);
+    } catch (error: any) {
+      console.error("Error fetching config:", error);
+    } finally {
+      setIsLoadingConfig(false);
+    }
+  };
 
   const handleSave = () => {
     setIsSaving(true);
     storage.set(IMAP_SETTINGS_KEY, settings);
     setTimeout(() => {
       setIsSaving(false);
-      toast.success("IMAP settings saved successfully!");
+      toast.success("IMAP settings saved locally!");
     }, 500);
   };
 
   const handleTestConnection = async () => {
-    if (!settings.host || !settings.username || !settings.password) {
-      toast.error("Please fill in all required fields before testing");
+    if (!backendConfig?.imap.configured) {
+      toast.error("Backend IMAP secrets are not configured. Please configure them first.");
       return;
     }
     
@@ -71,7 +101,6 @@ const AdminIMAPSettings = () => {
     setConnectionStatus('idle');
     
     try {
-      // Call the fetch edge function to test connection
       const { data, error } = await supabase.functions.invoke('fetch-imap-emails', {});
 
       if (error) throw error;
@@ -92,6 +121,11 @@ const AdminIMAPSettings = () => {
   };
 
   const handleFetchEmails = async () => {
+    if (!backendConfig?.imap.configured) {
+      toast.error("Backend IMAP secrets are not configured. Please configure them first.");
+      return;
+    }
+
     setIsFetching(true);
     setFetchResult(null);
 
@@ -136,11 +170,11 @@ const AdminIMAPSettings = () => {
           <p className="text-muted-foreground">Configure incoming email server to receive emails</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleTestConnection} disabled={isTesting}>
+          <Button variant="outline" onClick={handleTestConnection} disabled={isTesting || !backendConfig?.imap.configured}>
             <RefreshCw className={`w-4 h-4 mr-2 ${isTesting ? 'animate-spin' : ''}`} />
             {isTesting ? 'Testing...' : 'Test Connection'}
           </Button>
-          <Button variant="outline" onClick={handleFetchEmails} disabled={isFetching}>
+          <Button variant="outline" onClick={handleFetchEmails} disabled={isFetching || !backendConfig?.imap.configured}>
             {isFetching ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             ) : (
@@ -154,6 +188,63 @@ const AdminIMAPSettings = () => {
           </Button>
         </div>
       </div>
+
+      {/* Backend Configuration Status */}
+      <Card className={backendConfig?.imap.configured ? 'border-green-500/50' : 'border-yellow-500/50'}>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              Backend Configuration Status
+              {isLoadingConfig ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : backendConfig?.imap.configured ? (
+                <Badge className="bg-green-500">Configured</Badge>
+              ) : (
+                <Badge variant="outline" className="border-yellow-500 text-yellow-500">Not Configured</Badge>
+              )}
+            </span>
+            <Button variant="outline" size="sm" onClick={fetchBackendConfig}>
+              Refresh
+            </Button>
+          </CardTitle>
+          <CardDescription>
+            The backend edge functions use these secrets to fetch emails. Configure them in the Lovable Cloud backend.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-4 gap-2 mb-4">
+            {backendConfig?.imap.secrets.map((secret) => (
+              <div key={secret.name} className="flex items-center gap-2 p-2 bg-muted rounded">
+                {secret.configured ? (
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                ) : (
+                  <XCircle className="w-4 h-4 text-destructive" />
+                )}
+                <code className="text-xs">{secret.name}</code>
+              </div>
+            ))}
+          </div>
+          
+          {!backendConfig?.imap.configured && (
+            <div className="bg-yellow-500/10 border border-yellow-500/50 p-3 rounded-lg mb-4">
+              <div className="flex gap-2">
+                <AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-yellow-500">Backend secrets not configured</p>
+                  <p className="text-muted-foreground">
+                    The "Test Connection" and "Fetch Emails" buttons use backend secrets. Configure them in the backend panel first.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <Button variant="outline" onClick={() => window.location.href = '/admin/email-setup'}>
+            <ExternalLink className="w-4 h-4 mr-2" />
+            Go to Email Setup Wizard
+          </Button>
+        </CardContent>
+      </Card>
 
       {connectionStatus !== 'idle' && (
         <div className={`flex items-center gap-2 p-4 rounded-lg ${
@@ -212,7 +303,7 @@ const AdminIMAPSettings = () => {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
-            IMAP Configuration
+            <span>IMAP Configuration (Reference)</span>
             <div className="flex items-center gap-2">
               <Label htmlFor="imap-enabled">Enable IMAP</Label>
               <Switch
@@ -222,7 +313,9 @@ const AdminIMAPSettings = () => {
               />
             </div>
           </CardTitle>
-          <CardDescription>Configure your IMAP server for receiving emails to temporary addresses</CardDescription>
+          <CardDescription>
+            Reference form showing typical IMAP settings. Actual configuration is done via backend secrets.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
@@ -360,17 +453,22 @@ const AdminIMAPSettings = () => {
             </p>
           </div>
           <div className="space-y-2">
-            <h4 className="font-medium">3. Enter IMAP Credentials</h4>
+            <h4 className="font-medium">3. Configure Backend Secrets</h4>
             <p className="text-sm text-muted-foreground">
-              Enter the IMAP server details above for the catch-all mailbox. The system will poll this mailbox and route emails to the correct temporary addresses.
+              Add IMAP_HOST, IMAP_PORT, IMAP_USER, and IMAP_PASSWORD as secrets in the Lovable Cloud backend panel.
             </p>
           </div>
           <div className="space-y-2">
             <h4 className="font-medium">4. Test Connection</h4>
             <p className="text-sm text-muted-foreground">
-              Click "Test Connection" to verify your settings are correct before enabling.
+              Click "Test Connection" to verify your backend secrets are correct before enabling.
             </p>
           </div>
+          
+          <Button variant="outline" onClick={() => window.location.href = '/admin/email-setup'}>
+            <ExternalLink className="w-4 h-4 mr-2" />
+            View Full Setup Guide
+          </Button>
         </CardContent>
       </Card>
     </div>

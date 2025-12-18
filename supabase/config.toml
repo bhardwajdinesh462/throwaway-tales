@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.imap-poll-cron]
 verify_jwt = false
+
+[functions.auto-delete-emails]
+verify_jwt = false

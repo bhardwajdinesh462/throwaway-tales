@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, RefreshCw, Trash2, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube, Loader2, Bell } from "lucide-react";
+import { Mail, RefreshCw, Trash2, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube, Loader2, Bell, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEmailService, ReceivedEmail } from "@/hooks/useLocalEmailService";
 import { useAuth } from "@/hooks/useSupabaseAuth";
@@ -8,7 +8,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { formatDistanceToNow } from "date-fns";
 import { storage } from "@/lib/storage";
 import { useRealtimeEmails } from "@/hooks/useRealtimeEmails";
-
+import EmailAttachments, { Attachment } from "@/components/EmailAttachments";
+import { supabase } from "@/integrations/supabase/client";
 interface NotificationPreferences {
   soundEnabled: boolean;
   pushEnabled: boolean;
@@ -34,6 +35,8 @@ const Inbox = () => {
   const [refreshInterval, setRefreshInterval] = useState(30);
   const [countdown, setCountdown] = useState(30);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [loadingAttachments, setLoadingAttachments] = useState(false);
   
   // 4. All useRef hooks together
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
@@ -116,10 +119,29 @@ const Inbox = () => {
     }
   };
 
-  const handleSelectEmail = (email: ReceivedEmail) => {
+  const handleSelectEmail = async (email: ReceivedEmail) => {
     setSelectedEmail(email);
+    setAttachments([]);
+    
     if (!email.is_read) {
       markAsRead(email.id);
+    }
+
+    // Fetch attachments for this email
+    setLoadingAttachments(true);
+    try {
+      const { data, error } = await supabase
+        .from("email_attachments")
+        .select("*")
+        .eq("received_email_id", email.id);
+      
+      if (!error && data) {
+        setAttachments(data as Attachment[]);
+      }
+    } catch (error) {
+      console.error("Error fetching attachments:", error);
+    } finally {
+      setLoadingAttachments(false);
     }
   };
 
@@ -363,6 +385,16 @@ const Inbox = () => {
                     <p className="text-foreground/80 whitespace-pre-wrap">{selectedEmail.body || t('noContent')}</p>
                   )}
                 </div>
+                
+                {/* Attachments */}
+                {loadingAttachments ? (
+                  <div className="mt-4 flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Loading attachments...</span>
+                  </div>
+                ) : (
+                  <EmailAttachments attachments={attachments} emailId={selectedEmail.id} />
+                )}
               </div>
             </motion.div>
           )}

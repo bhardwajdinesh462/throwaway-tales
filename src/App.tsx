@@ -33,6 +33,7 @@ import AdminThemes from "./pages/admin/AdminThemes";
 import AdminCustomDomains from "./pages/admin/AdminCustomDomains";
 import AdminGeneralSettings from "./pages/admin/AdminGeneralSettings";
 import AdminSMTPSettings from "./pages/admin/AdminSMTPSettings";
+import AdminIMAPSettings from "./pages/admin/AdminIMAPSettings";
 import AdminAppearance from "./pages/admin/AdminAppearance";
 import AdminUserSettings from "./pages/admin/AdminUserSettings";
 import AdminAdmins from "./pages/admin/AdminAdmins";
@@ -91,6 +92,7 @@ const App = () => (
                   <Route path="settings" element={<AdminSettings />} />
                   <Route path="general-settings" element={<AdminGeneralSettings />} />
                   <Route path="smtp" element={<AdminSMTPSettings />} />
+                  <Route path="imap" element={<AdminIMAPSettings />} />
                   <Route path="appearance" element={<AdminAppearance />} />
                   <Route path="user-settings" element={<AdminUserSettings />} />
                   <Route path="admins" element={<AdminAdmins />} />

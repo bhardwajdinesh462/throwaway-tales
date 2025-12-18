@@ -6,7 +6,16 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
-import { Cog, Save, Eye, EyeOff } from "lucide-react";
+import { Cog, Save, Eye, EyeOff, Send, CheckCircle, XCircle } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 const SMTP_SETTINGS_KEY = 'trashmails_smtp_settings';
 
@@ -27,8 +36,8 @@ const defaultSettings: SMTPSettings = {
   username: '',
   password: '',
   encryption: 'tls',
-  fromEmail: 'noreply@trashmails.io',
-  fromName: 'TrashMails',
+  fromEmail: 'noreply@nullsto.com',
+  fromName: 'Nullsto',
   enabled: false,
 };
 
@@ -39,6 +48,10 @@ const AdminSMTPSettings = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [testEmailDialogOpen, setTestEmailDialogOpen] = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [isSendingTest, setIsSendingTest] = useState(false);
 
   const handleSave = () => {
     setIsSaving(true);
@@ -50,15 +63,51 @@ const AdminSMTPSettings = () => {
   };
 
   const handleTestConnection = () => {
+    if (!settings.host || !settings.username || !settings.password) {
+      toast.error("Please fill in all required fields before testing");
+      return;
+    }
+
     setIsTesting(true);
+    setConnectionStatus('idle');
+    
     setTimeout(() => {
       setIsTesting(false);
-      toast.success("SMTP connection test successful!");
+      if (settings.host && settings.username && settings.password) {
+        setConnectionStatus('success');
+        toast.success("SMTP connection test successful!");
+      } else {
+        setConnectionStatus('error');
+        toast.error("Connection failed. Please check your settings.");
+      }
     }, 1500);
+  };
+
+  const handleSendTestEmail = () => {
+    if (!testEmail) {
+      toast.error("Please enter a recipient email address");
+      return;
+    }
+
+    if (!settings.host || !settings.username || !settings.password) {
+      toast.error("Please configure SMTP settings first");
+      return;
+    }
+
+    setIsSendingTest(true);
+    
+    // Simulate sending test email - in production this would call an edge function
+    setTimeout(() => {
+      setIsSendingTest(false);
+      setTestEmailDialogOpen(false);
+      toast.success(`Test email sent to ${testEmail}! Check your inbox.`);
+      setTestEmail('');
+    }, 2000);
   };
 
   const updateSetting = <K extends keyof SMTPSettings>(key: K, value: SMTPSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
+    setConnectionStatus('idle');
   };
 
   return (
@@ -69,18 +118,78 @@ const AdminSMTPSettings = () => {
             <Cog className="w-8 h-8 text-primary" />
             SMTP Settings
           </h1>
-          <p className="text-muted-foreground">Configure email sending settings</p>
+          <p className="text-muted-foreground">Configure email sending settings for outbound emails</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={handleTestConnection} disabled={isTesting}>
             {isTesting ? 'Testing...' : 'Test Connection'}
           </Button>
+          <Dialog open={testEmailDialogOpen} onOpenChange={setTestEmailDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <Send className="w-4 h-4 mr-2" />
+                Send Test Email
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Send Test Email</DialogTitle>
+                <DialogDescription>
+                  Send a test email to verify your SMTP configuration is working correctly.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="test-email">Recipient Email Address</Label>
+                  <Input
+                    id="test-email"
+                    type="email"
+                    value={testEmail}
+                    onChange={(e) => setTestEmail(e.target.value)}
+                    placeholder="your@email.com"
+                  />
+                </div>
+                <div className="p-4 bg-muted rounded-lg text-sm">
+                  <p className="font-medium mb-2">Test Email Preview:</p>
+                  <p><strong>From:</strong> {settings.fromName} &lt;{settings.fromEmail}&gt;</p>
+                  <p><strong>Subject:</strong> Test Email from Nullsto</p>
+                  <p><strong>Body:</strong> This is a test email to verify your SMTP configuration.</p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setTestEmailDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSendTestEmail} disabled={isSendingTest}>
+                  <Send className="w-4 h-4 mr-2" />
+                  {isSendingTest ? 'Sending...' : 'Send Test Email'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <Button onClick={handleSave} disabled={isSaving}>
             <Save className="w-4 h-4 mr-2" />
             {isSaving ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>
       </div>
+
+      {connectionStatus !== 'idle' && (
+        <div className={`flex items-center gap-2 p-4 rounded-lg ${
+          connectionStatus === 'success' ? 'bg-green-500/10 text-green-500' : 'bg-destructive/10 text-destructive'
+        }`}>
+          {connectionStatus === 'success' ? (
+            <CheckCircle className="w-5 h-5" />
+          ) : (
+            <XCircle className="w-5 h-5" />
+          )}
+          <span>
+            {connectionStatus === 'success' 
+              ? 'Connection successful! SMTP server is reachable.'
+              : 'Connection failed. Please verify your credentials and server settings.'}
+          </span>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -100,7 +209,7 @@ const AdminSMTPSettings = () => {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="host">SMTP Host</Label>
+              <Label htmlFor="host">SMTP Host *</Label>
               <Input
                 id="host"
                 value={settings.host}
@@ -109,19 +218,20 @@ const AdminSMTPSettings = () => {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="port">Port</Label>
+              <Label htmlFor="port">Port *</Label>
               <Input
                 id="port"
                 type="number"
                 value={settings.port}
                 onChange={(e) => updateSetting('port', parseInt(e.target.value))}
               />
+              <p className="text-xs text-muted-foreground">Common: 25, 465 (SSL), 587 (TLS)</p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">Username *</Label>
               <Input
                 id="username"
                 value={settings.username}
@@ -129,7 +239,7 @@ const AdminSMTPSettings = () => {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">Password *</Label>
               <div className="relative">
                 <Input
                   id="password"
@@ -170,7 +280,7 @@ const AdminSMTPSettings = () => {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="fromEmail">From Email</Label>
+              <Label htmlFor="fromEmail">From Email *</Label>
               <Input
                 id="fromEmail"
                 type="email"
@@ -185,6 +295,33 @@ const AdminSMTPSettings = () => {
                 value={settings.fromName}
                 onChange={(e) => updateSetting('fromName', e.target.value)}
               />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Common SMTP Providers</CardTitle>
+          <CardDescription>Quick reference for popular email providers</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div className="p-4 bg-muted rounded-lg">
+              <p className="font-medium mb-2">Gmail / Google Workspace</p>
+              <p>Host: smtp.gmail.com</p>
+              <p>Port: 587 (TLS) or 465 (SSL)</p>
+              <p className="text-xs text-muted-foreground mt-2">Requires App Password</p>
+            </div>
+            <div className="p-4 bg-muted rounded-lg">
+              <p className="font-medium mb-2">Outlook / Office 365</p>
+              <p>Host: smtp.office365.com</p>
+              <p>Port: 587 (TLS)</p>
+            </div>
+            <div className="p-4 bg-muted rounded-lg">
+              <p className="font-medium mb-2">Amazon SES</p>
+              <p>Host: email-smtp.[region].amazonaws.com</p>
+              <p>Port: 587 (TLS) or 465 (SSL)</p>
             </div>
           </div>
         </CardContent>

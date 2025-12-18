@@ -35,6 +35,7 @@ export interface ReceivedEmail {
 }
 
 const TOKEN_STORAGE_KEY = 'nullsto_email_tokens';
+const CURRENT_EMAIL_ID_KEY = 'nullsto_current_email_id';
 
 // Helper to store and retrieve tokens locally
 const getStoredToken = (tempEmailId: string): string | null => {
@@ -207,33 +208,66 @@ export const useSecureEmailService = () => {
       initStartedRef.current = true;
 
       // Check localStorage for existing session email
-      const storedTokens = localStorage.getItem(TOKEN_STORAGE_KEY);
-      if (storedTokens) {
-        try {
-          const tokens = JSON.parse(storedTokens);
-          const emailIds = Object.keys(tokens);
-          
-          if (emailIds.length > 0) {
-            // Try to load the most recent valid email
-            const { data: existingEmail, error } = await supabase
-              .from('temp_emails')
-              .select('id, address, domain_id, user_id, expires_at, is_active, created_at')
-              .in('id', emailIds)
-              .eq('is_active', true)
-              .gt('expires_at', new Date().toISOString())
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .single();
+      const storedTokensRaw = localStorage.getItem(TOKEN_STORAGE_KEY);
+      let tokens: Record<string, string> = {};
 
-            if (!error && existingEmail) {
-              console.log('Found existing valid email:', existingEmail.address);
-              setCurrentEmail({ ...existingEmail, secret_token: tokens[existingEmail.id] });
-              setIsLoading(false);
-              return;
-            }
-          }
+      if (storedTokensRaw) {
+        try {
+          tokens = JSON.parse(storedTokensRaw) || {};
         } catch (e) {
           console.error('Error parsing stored tokens:', e);
+          tokens = {};
+        }
+      }
+
+      // 1) Prefer the explicitly-stored current email id (prevents generator/inbox divergence)
+      const preferredId = localStorage.getItem(CURRENT_EMAIL_ID_KEY);
+      if (preferredId && tokens[preferredId]) {
+        const { data: preferredEmail, error: preferredError } = await supabase
+          .from('temp_emails')
+          .select('id, address, domain_id, user_id, expires_at, is_active, created_at')
+          .eq('id', preferredId)
+          .eq('is_active', true)
+          .gt('expires_at', new Date().toISOString())
+          .single();
+
+        if (!preferredError && preferredEmail) {
+          setCurrentEmail({ ...preferredEmail, secret_token: tokens[preferredEmail.id] });
+          setIsLoading(false);
+          return;
+        }
+
+        // If the preferred email is no longer valid, clear the pointer.
+        try {
+          localStorage.removeItem(CURRENT_EMAIL_ID_KEY);
+        } catch {
+          // ignore
+        }
+      }
+
+      // 2) Fallback: pick the most recent valid email from all stored tokens
+      const emailIds = Object.keys(tokens);
+      if (emailIds.length > 0) {
+        const { data: existingEmail, error } = await supabase
+          .from('temp_emails')
+          .select('id, address, domain_id, user_id, expires_at, is_active, created_at')
+          .in('id', emailIds)
+          .eq('is_active', true)
+          .gt('expires_at', new Date().toISOString())
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (!error && existingEmail) {
+          try {
+            localStorage.setItem(CURRENT_EMAIL_ID_KEY, existingEmail.id);
+          } catch {
+            // ignore
+          }
+
+          setCurrentEmail({ ...existingEmail, secret_token: tokens[existingEmail.id] });
+          setIsLoading(false);
+          return;
         }
       }
 
@@ -404,6 +438,11 @@ export const useSecureEmailService = () => {
   const loadFromHistory = useCallback(async (emailId: string) => {
     const email = emailHistory.find(e => e.id === emailId);
     if (email) {
+      try {
+        localStorage.setItem(CURRENT_EMAIL_ID_KEY, email.id);
+      } catch {
+        // ignore
+      }
       setCurrentEmail(email);
       // The fetchSecureEmails will be triggered by the useEffect
     }

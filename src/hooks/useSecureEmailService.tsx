@@ -169,9 +169,16 @@ export const useSecureEmailService = () => {
         storeToken(newEmail.id, newEmail.secret_token);
       }
 
+      // Persist the "current" email id so Generator + Inbox always agree across reloads
+      try {
+        localStorage.setItem(CURRENT_EMAIL_ID_KEY, newEmail.id);
+      } catch {
+        // ignore
+      }
+
       setCurrentEmail(newEmail);
       setReceivedEmails([]);
-      
+
       if (user) {
         setEmailHistory(prev => [newEmail, ...prev]);
       }

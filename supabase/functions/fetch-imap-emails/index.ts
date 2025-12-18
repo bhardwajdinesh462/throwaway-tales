@@ -150,6 +150,21 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log(`Connecting to IMAP server: ${host}:${port}`);
 
+    // Load allowed domains so we can reliably match recipient emails
+    const { data: activeDomains, error: domainsError } = await supabase
+      .from("domains")
+      .select("name")
+      .eq("is_active", true);
+
+    if (domainsError) {
+      console.error("Failed to load domains:", domainsError);
+    }
+
+    const allowedDomainSuffixes = (activeDomains || [])
+      .map((d: any) => String(d.name || "").toLowerCase())
+      .map((name) => (name.startsWith("@") ? name.slice(1) : name))
+      .filter(Boolean);
+
     const conn = await Deno.connect({
       hostname: host,
       port: port,
@@ -219,7 +234,7 @@ serve(async (req: Request): Promise<Response> => {
     // Fetch the NEWEST unseen messages first
     const newestUnseenIds = unseenIds.slice(-50).reverse();
     console.log(`Processing ${newestUnseenIds.length} newest unseen messages`);
-    
+
     for (const msgId of newestUnseenIds) {
       try {
         // Fetch full message including body
@@ -232,10 +247,19 @@ serve(async (req: Request): Promise<Response> => {
         const dateMatch = fetchResponse.match(/Date:\s*([^\r\n]+)/i);
         const contentTypeMatch = fetchResponse.match(/Content-Type:\s*([^\r\n]+)/i);
         
-        // Extract recipient email
+        // Extract recipient email (prefer envelope/delivery headers; fall back to any matching domain)
         const toAddress = toMatch?.[1]?.trim() || "";
+
+        const allEmails = (fetchResponse.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) || [])
+          .map((e) => e.toLowerCase().trim());
+
+        const domainMatched = allowedDomainSuffixes.length
+          ? allEmails.filter((e) => allowedDomainSuffixes.some((suffix) => e.endsWith(suffix))).pop()
+          : undefined;
+
+        // Fallback: parse the To: header specifically
         const toEmailMatch = toAddress.match(/<([^>]+)>/) || [null, toAddress];
-        const recipientEmail = (toEmailMatch[1] || toAddress).toLowerCase().trim();
+        const recipientEmail = (domainMatched || (toEmailMatch[1] || toAddress)).toLowerCase().trim();
 
         // Extract sender email (clean it up)
         let fromAddress = fromMatch?.[1]?.trim() || "unknown@unknown.com";
@@ -310,25 +334,29 @@ serve(async (req: Request): Promise<Response> => {
               received_at: dateMatch?.[1] ? new Date(dateMatch[1]).toISOString() : new Date().toISOString(),
             });
 
-          if (insertError) {
-            if (insertError.code === '23505') {
-              console.log(`Email already exists for ${recipientEmail}`);
-              storedCount.skipped++;
-            } else {
-              console.error("Error storing email:", insertError);
-              storedCount.failed++;
-            }
-          } else {
-            storedCount.success++;
-            console.log(`Stored email for ${recipientEmail}: "${subject}"`);
-            
-            // Mark as seen in IMAP
-            await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
-          }
-        } else {
-          console.log(`No matching temp email found for ${recipientEmail}`);
-          storedCount.skipped++;
-        }
+           if (insertError) {
+             if (insertError.code === '23505') {
+               console.log(`Email already exists for ${recipientEmail}`);
+               storedCount.skipped++;
+               // Mark as seen to avoid re-processing the same message forever
+               await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
+             } else {
+               console.error("Error storing email:", insertError);
+               storedCount.failed++;
+             }
+           } else {
+             storedCount.success++;
+             console.log(`Stored email for ${recipientEmail}: "${subject}"`);
+             
+             // Mark as seen in IMAP
+             await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
+           }
+         } else {
+           console.log(`No matching temp email found for ${recipientEmail}`);
+           storedCount.skipped++;
+           // Mark as seen so we can move past irrelevant/old messages and keep polling fast
+           await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
+         }
 
       } catch (emailError) {
         console.error(`Error processing message ${msgId}:`, emailError);

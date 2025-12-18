@@ -1,0 +1,199 @@
+import { useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import { storage } from "@/lib/storage";
+import { Settings, Save } from "lucide-react";
+
+const GENERAL_SETTINGS_KEY = 'trashmails_general_settings';
+
+interface GeneralSettings {
+  siteName: string;
+  siteTagline: string;
+  siteDescription: string;
+  contactEmail: string;
+  supportEmail: string;
+  timezone: string;
+  dateFormat: string;
+  maintenanceMode: boolean;
+  registrationEnabled: boolean;
+}
+
+const defaultSettings: GeneralSettings = {
+  siteName: 'TrashMails',
+  siteTagline: 'Protect Your Privacy with Disposable Emails',
+  siteDescription: 'Generate instant, anonymous email addresses. Perfect for sign-ups, testing, and keeping your real inbox spam-free.',
+  contactEmail: 'contact@trashmails.io',
+  supportEmail: 'support@trashmails.io',
+  timezone: 'UTC',
+  dateFormat: 'YYYY-MM-DD',
+  maintenanceMode: false,
+  registrationEnabled: true,
+};
+
+const AdminGeneralSettings = () => {
+  const [settings, setSettings] = useState<GeneralSettings>(() =>
+    storage.get(GENERAL_SETTINGS_KEY, defaultSettings)
+  );
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = () => {
+    setIsSaving(true);
+    storage.set(GENERAL_SETTINGS_KEY, settings);
+    setTimeout(() => {
+      setIsSaving(false);
+      toast.success("General settings saved successfully!");
+    }, 500);
+  };
+
+  const updateSetting = <K extends keyof GeneralSettings>(key: K, value: GeneralSettings[K]) => {
+    setSettings(prev => ({ ...prev, [key]: value }));
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            <Settings className="w-8 h-8 text-primary" />
+            General Settings
+          </h1>
+          <p className="text-muted-foreground">Configure basic site settings</p>
+        </div>
+        <Button onClick={handleSave} disabled={isSaving}>
+          <Save className="w-4 h-4 mr-2" />
+          {isSaving ? 'Saving...' : 'Save Changes'}
+        </Button>
+      </div>
+
+      <div className="grid gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Site Information</CardTitle>
+            <CardDescription>Basic information about your site</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="siteName">Site Name</Label>
+                <Input
+                  id="siteName"
+                  value={settings.siteName}
+                  onChange={(e) => updateSetting('siteName', e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="siteTagline">Tagline</Label>
+                <Input
+                  id="siteTagline"
+                  value={settings.siteTagline}
+                  onChange={(e) => updateSetting('siteTagline', e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="siteDescription">Site Description</Label>
+              <Textarea
+                id="siteDescription"
+                value={settings.siteDescription}
+                onChange={(e) => updateSetting('siteDescription', e.target.value)}
+                rows={3}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Contact Information</CardTitle>
+            <CardDescription>Email addresses for contact and support</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="contactEmail">Contact Email</Label>
+                <Input
+                  id="contactEmail"
+                  type="email"
+                  value={settings.contactEmail}
+                  onChange={(e) => updateSetting('contactEmail', e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="supportEmail">Support Email</Label>
+                <Input
+                  id="supportEmail"
+                  type="email"
+                  value={settings.supportEmail}
+                  onChange={(e) => updateSetting('supportEmail', e.target.value)}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Regional Settings</CardTitle>
+            <CardDescription>Timezone and date format preferences</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="timezone">Timezone</Label>
+                <Input
+                  id="timezone"
+                  value={settings.timezone}
+                  onChange={(e) => updateSetting('timezone', e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="dateFormat">Date Format</Label>
+                <Input
+                  id="dateFormat"
+                  value={settings.dateFormat}
+                  onChange={(e) => updateSetting('dateFormat', e.target.value)}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Site Status</CardTitle>
+            <CardDescription>Control site availability and features</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Maintenance Mode</Label>
+                <p className="text-sm text-muted-foreground">Enable to show maintenance page to visitors</p>
+              </div>
+              <Switch
+                checked={settings.maintenanceMode}
+                onCheckedChange={(checked) => updateSetting('maintenanceMode', checked)}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>User Registration</Label>
+                <p className="text-sm text-muted-foreground">Allow new users to register</p>
+              </div>
+              <Switch
+                checked={settings.registrationEnabled}
+                onCheckedChange={(checked) => updateSetting('registrationEnabled', checked)}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+};
+
+export default AdminGeneralSettings;

@@ -73,6 +73,7 @@ const AdminSidebar = () => {
     { title: "User & Guest", url: "/admin/user-settings", icon: UserCog },
     { title: "Admins", url: "/admin/admins", icon: Shield },
     { title: "SMTP", url: "/admin/smtp", icon: Cog },
+    { title: "IMAP", url: "/admin/imap", icon: MailOpen },
     { title: "SEO", url: "/admin/seo", icon: Search },
     { title: "Blog Settings", url: "/admin/blog-settings", icon: Newspaper },
     { title: "Languages", url: "/admin/languages", icon: Languages },

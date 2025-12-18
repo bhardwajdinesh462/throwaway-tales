@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
-import { Paintbrush, Save, Upload } from "lucide-react";
+import { Paintbrush, Save, Upload, Image, Trash2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 const APPEARANCE_SETTINGS_KEY = 'trashmails_appearance_settings';
 
@@ -29,7 +30,7 @@ const defaultSettings: AppearanceSettings = {
   darkMode: true,
   showAnimations: true,
   customCss: '',
-  footerText: '© 2024 TrashMails. All rights reserved.',
+  footerText: '© 2024 Nullsto. All rights reserved.',
 };
 
 const AdminAppearance = () => {
@@ -37,6 +38,10 @@ const AdminAppearance = () => {
     storage.get(APPEARANCE_SETTINGS_KEY, defaultSettings)
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isUploadingFavicon, setIsUploadingFavicon] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const faviconInputRef = useRef<HTMLInputElement>(null);
 
   const handleSave = () => {
     setIsSaving(true);
@@ -49,6 +54,71 @@ const AdminAppearance = () => {
 
   const updateSetting = <K extends keyof AppearanceSettings>(key: K, value: AppearanceSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleFileUpload = async (
+    file: File,
+    type: 'logo' | 'favicon',
+    setUploading: (v: boolean) => void
+  ) => {
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/x-icon', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Invalid file type. Please upload an image file.');
+      return;
+    }
+
+    // Validate file size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('File too large. Maximum size is 2MB.');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${type}-${Date.now()}.${fileExt}`;
+      const filePath = `branding/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('banners')
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('banners')
+        .getPublicUrl(filePath);
+
+      if (type === 'logo') {
+        updateSetting('logoUrl', publicUrl);
+      } else {
+        updateSetting('faviconUrl', publicUrl);
+      }
+
+      toast.success(`${type === 'logo' ? 'Logo' : 'Favicon'} uploaded successfully!`);
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      toast.error(`Failed to upload ${type}: ${error.message}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileUpload(file, 'logo', setIsUploadingLogo);
+    }
+  };
+
+  const handleFaviconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileUpload(file, 'favicon', setIsUploadingFavicon);
+    }
   };
 
   return (
@@ -71,36 +141,121 @@ const AdminAppearance = () => {
         <Card>
           <CardHeader>
             <CardTitle>Branding</CardTitle>
-            <CardDescription>Logo and favicon settings</CardDescription>
+            <CardDescription>Upload your logo and favicon</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="logoUrl">Logo URL</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="logoUrl"
-                    value={settings.logoUrl}
-                    onChange={(e) => updateSetting('logoUrl', e.target.value)}
-                    placeholder="/logo.png"
-                  />
-                  <Button variant="outline" size="icon">
-                    <Upload className="w-4 h-4" />
-                  </Button>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-2 gap-6">
+              {/* Logo Upload */}
+              <div className="space-y-4">
+                <Label>Site Logo</Label>
+                <div className="flex flex-col gap-4">
+                  <div className="border-2 border-dashed border-border rounded-lg p-4 text-center">
+                    {settings.logoUrl ? (
+                      <div className="space-y-3">
+                        <img
+                          src={settings.logoUrl}
+                          alt="Logo preview"
+                          className="max-h-24 mx-auto object-contain"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateSetting('logoUrl', '')}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Remove
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="py-4">
+                        <Image className="w-12 h-12 mx-auto text-muted-foreground mb-2" />
+                        <p className="text-sm text-muted-foreground">No logo uploaded</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      value={settings.logoUrl}
+                      onChange={(e) => updateSetting('logoUrl', e.target.value)}
+                      placeholder="Enter logo URL or upload"
+                      className="flex-1"
+                    />
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoUpload}
+                      className="hidden"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={() => logoInputRef.current?.click()}
+                      disabled={isUploadingLogo}
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      {isUploadingLogo ? 'Uploading...' : 'Upload'}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Recommended: PNG or SVG, max 2MB
+                  </p>
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="faviconUrl">Favicon URL</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="faviconUrl"
-                    value={settings.faviconUrl}
-                    onChange={(e) => updateSetting('faviconUrl', e.target.value)}
-                    placeholder="/favicon.ico"
-                  />
-                  <Button variant="outline" size="icon">
-                    <Upload className="w-4 h-4" />
-                  </Button>
+
+              {/* Favicon Upload */}
+              <div className="space-y-4">
+                <Label>Favicon</Label>
+                <div className="flex flex-col gap-4">
+                  <div className="border-2 border-dashed border-border rounded-lg p-4 text-center">
+                    {settings.faviconUrl ? (
+                      <div className="space-y-3">
+                        <img
+                          src={settings.faviconUrl}
+                          alt="Favicon preview"
+                          className="w-16 h-16 mx-auto object-contain"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateSetting('faviconUrl', '')}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Remove
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="py-4">
+                        <Image className="w-12 h-12 mx-auto text-muted-foreground mb-2" />
+                        <p className="text-sm text-muted-foreground">No favicon uploaded</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      value={settings.faviconUrl}
+                      onChange={(e) => updateSetting('faviconUrl', e.target.value)}
+                      placeholder="Enter favicon URL or upload"
+                      className="flex-1"
+                    />
+                    <input
+                      ref={faviconInputRef}
+                      type="file"
+                      accept="image/*,.ico"
+                      onChange={handleFaviconUpload}
+                      className="hidden"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={() => faviconInputRef.current?.click()}
+                      disabled={isUploadingFavicon}
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      {isUploadingFavicon ? 'Uploading...' : 'Upload'}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Recommended: ICO or PNG, 32x32 or 64x64 pixels
+                  </p>
                 </div>
               </div>
             </div>

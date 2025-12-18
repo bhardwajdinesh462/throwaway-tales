@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, RefreshCw, Trash2, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube, Loader2, Bell, Paperclip, Shield } from "lucide-react";
+import { Mail, RefreshCw, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube, Loader2, Bell, Paperclip, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ReceivedEmail } from "@/hooks/useSecureEmailService";
 import { useEmailService } from "@/contexts/EmailServiceContext";

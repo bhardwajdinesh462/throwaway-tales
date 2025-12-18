@@ -1,10 +1,11 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Mail, Menu, X, User, LogOut, Settings, History, Globe } from "lucide-react";
+import { Mail, Menu, X, User, LogOut, Settings, History, Globe, Sun, Moon } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useLocalAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,7 +26,19 @@ const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, isAdmin, signOut } = useAuth();
   const { t, language, setLanguage, languages, isRTL } = useLanguage();
+  const { theme, themes, setTheme } = useTheme();
   const navigate = useNavigate();
+
+  const toggleTheme = () => {
+    const darkThemes = themes.filter(t => t.isDark);
+    const lightThemes = themes.filter(t => !t.isDark);
+    
+    if (theme.isDark) {
+      setTheme(lightThemes[0]?.id || 'light-minimal');
+    } else {
+      setTheme(darkThemes[0]?.id || 'cyber-dark');
+    }
+  };
 
   const navItems = [
     { label: t('features'), href: "/#features" },
@@ -86,6 +99,38 @@ const Header = () => {
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Theme Toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="relative overflow-hidden"
+            >
+              <AnimatePresence mode="wait">
+                {theme.isDark ? (
+                  <motion.div
+                    key="moon"
+                    initial={{ rotate: -90, opacity: 0 }}
+                    animate={{ rotate: 0, opacity: 1 }}
+                    exit={{ rotate: 90, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <Moon className="w-5 h-5" />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="sun"
+                    initial={{ rotate: 90, opacity: 0 }}
+                    animate={{ rotate: 0, opacity: 1 }}
+                    exit={{ rotate: -90, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <Sun className="w-5 h-5 text-yellow-500" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </Button>
 
             {user ? (
               <DropdownMenu>
@@ -152,20 +197,39 @@ const Header = () => {
             className="md:hidden glass border-t border-primary/10"
           >
             <nav className="container mx-auto px-4 py-4 flex flex-col gap-4">
-              {/* Language Selector Mobile */}
-              <Select value={language} onValueChange={(value: any) => setLanguage(value)}>
-                <SelectTrigger className="w-full bg-secondary/50">
-                  <Globe className="w-4 h-4 mr-2" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {languages.map((lang) => (
-                    <SelectItem key={lang.code} value={lang.code}>
-                      {lang.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* Theme Toggle and Language - Mobile */}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={toggleTheme}
+                  className="flex-1"
+                >
+                  {theme.isDark ? (
+                    <>
+                      <Moon className="w-4 h-4 mr-2" />
+                      Dark Mode
+                    </>
+                  ) : (
+                    <>
+                      <Sun className="w-4 h-4 mr-2 text-yellow-500" />
+                      Light Mode
+                    </>
+                  )}
+                </Button>
+                <Select value={language} onValueChange={(value: any) => setLanguage(value)}>
+                  <SelectTrigger className="flex-1 bg-secondary/50">
+                    <Globe className="w-4 h-4 mr-2" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {languages.map((lang) => (
+                      <SelectItem key={lang.code} value={lang.code}>
+                        {lang.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
               {navItems.map((item) => (
                 <a

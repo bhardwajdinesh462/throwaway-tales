@@ -1,7 +1,13 @@
 import { Link } from "react-router-dom";
-import { Mail, Github, Twitter, Linkedin } from "lucide-react";
+import { Github, Twitter, Linkedin } from "lucide-react";
+import { useGeneralSettings } from "@/hooks/useGeneralSettings";
+import { useAppearanceSettings } from "@/hooks/useAppearanceSettings";
+import nullstoLogo from "@/assets/nullsto-logo.png";
 
 const Footer = () => {
+  const { settings: generalSettings } = useGeneralSettings();
+  const { settings: appearanceSettings } = useAppearanceSettings();
+
   const footerLinks = {
     Product: [
       { label: "Features", href: "#features" },
@@ -42,12 +48,15 @@ const Footer = () => {
           {/* Brand */}
           <div className="col-span-2">
             <Link to="/" className="flex items-center gap-2 mb-4">
-              <Mail className="w-8 h-8 text-primary" />
-              <span className="text-xl font-bold gradient-text">Nullsto</span>
+              <img 
+                src={appearanceSettings.logoUrl || nullstoLogo} 
+                alt={generalSettings.siteName} 
+                className="h-8 w-auto object-contain" 
+              />
+              <span className="text-xl font-bold gradient-text">{generalSettings.siteName}</span>
             </Link>
             <p className="text-muted-foreground text-sm mb-4 max-w-xs">
-              Secure, anonymous, and instant disposable email addresses. 
-              Protect your privacy with Nullsto.
+              {generalSettings.siteDescription}
             </p>
             <div className="flex gap-3">
               {socialLinks.map((social) => (
@@ -97,10 +106,20 @@ const Footer = () => {
         {/* Bottom */}
         <div className="pt-8 border-t border-border flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-sm text-muted-foreground">
-            © {new Date().getFullYear()} Nullsto. All rights reserved.
+            © {new Date().getFullYear()} {generalSettings.siteName}. All rights reserved.
           </p>
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span>Made with ❤️ for privacy</span>
+            <span>
+              Made by{' '}
+              <a 
+                href="https://nullsto.com" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary hover:underline font-medium"
+              >
+                Nullsto.com
+              </a>
+            </span>
           </div>
         </div>
       </div>

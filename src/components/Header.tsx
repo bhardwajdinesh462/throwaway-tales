@@ -1,12 +1,14 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Mail, Menu, X, User, LogOut, Settings, History, Globe, Sun, Moon } from "lucide-react";
+import { Menu, X, User, LogOut, Settings, History, Globe, Sun, Moon } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAppearanceSettings } from "@/hooks/useAppearanceSettings";
+import { useGeneralSettings } from "@/hooks/useGeneralSettings";
+import nullstoLogo from "@/assets/nullsto-logo.png";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +31,7 @@ const Header = () => {
   const { t, language, setLanguage, languages, isRTL } = useLanguage();
   const { theme, themes, setTheme } = useTheme();
   const { settings: appearanceSettings } = useAppearanceSettings();
+  const { settings: generalSettings } = useGeneralSettings();
   const navigate = useNavigate();
 
   const toggleTheme = () => {
@@ -65,19 +68,12 @@ const Header = () => {
         <div className={`flex items-center justify-between h-16 ${isRTL ? 'flex-row-reverse' : ''}`}>
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 group">
-            {appearanceSettings.logoUrl ? (
-              <img 
-                src={appearanceSettings.logoUrl} 
-                alt="Nullsto" 
-                className="h-8 w-auto object-contain transition-transform group-hover:scale-110" 
-              />
-            ) : (
-              <div className="relative">
-                <Mail className="w-8 h-8 text-primary transition-transform group-hover:scale-110" />
-                <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full" />
-              </div>
-            )}
-            <span className="text-xl font-bold gradient-text">Nullsto</span>
+            <img 
+              src={appearanceSettings.logoUrl || nullstoLogo} 
+              alt={generalSettings.siteName} 
+              className="h-8 w-auto object-contain transition-transform group-hover:scale-110" 
+            />
+            <span className="text-xl font-bold gradient-text">{generalSettings.siteName}</span>
           </Link>
 
           {/* Desktop Navigation */}

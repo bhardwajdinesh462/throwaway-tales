@@ -1,4 +1,6 @@
 import { useEffect } from 'react';
+import { useSEOSettings } from '@/hooks/useSEOSettings';
+import { useGeneralSettings } from '@/hooks/useGeneralSettings';
 
 interface SEOHeadProps {
   title?: string;
@@ -15,19 +17,32 @@ interface SEOHeadProps {
 }
 
 const SEOHead = ({
-  title = 'TrashMails - Free Disposable Email Service',
-  description = 'Generate instant, anonymous email addresses. Perfect for sign-ups, testing, and keeping your real inbox spam-free. 100% free, no registration required.',
-  keywords = 'disposable email, temporary email, trash mail, anonymous email, fake email, temp mail, burner email, spam protection',
-  image = '/og-image.png',
+  title: propTitle,
+  description: propDescription,
+  keywords: propKeywords,
+  image: propImage,
   url = typeof window !== 'undefined' ? window.location.href : '',
   type = 'website',
-  siteName = 'TrashMails',
+  siteName: propSiteName,
   twitterCard = 'summary_large_image',
-  author = 'TrashMails Team',
+  author,
   publishedTime,
   noIndex = false,
 }: SEOHeadProps) => {
+  const { settings: seoSettings, isLoading: seoLoading } = useSEOSettings();
+  const { settings: generalSettings, isLoading: generalLoading } = useGeneralSettings();
+
   useEffect(() => {
+    if (seoLoading || generalLoading) return;
+
+    // Use props if provided, otherwise fall back to settings
+    const title = propTitle || seoSettings.siteTitle;
+    const description = propDescription || seoSettings.metaDescription;
+    const keywords = propKeywords || seoSettings.metaKeywords;
+    const image = propImage || seoSettings.ogImage;
+    const siteName = propSiteName || generalSettings.siteName;
+    const authorName = author || `${generalSettings.siteName} Team`;
+
     // Update document title
     document.title = title;
 
@@ -46,7 +61,7 @@ const SEOHead = ({
     // Basic meta tags
     setMetaTag('description', description);
     setMetaTag('keywords', keywords);
-    setMetaTag('author', author);
+    setMetaTag('author', authorName);
     
     // Robots
     if (noIndex) {
@@ -68,11 +83,22 @@ const SEOHead = ({
     setMetaTag('twitter:title', title);
     setMetaTag('twitter:description', description);
     setMetaTag('twitter:image', image);
+    if (seoSettings.twitterHandle) {
+      setMetaTag('twitter:site', seoSettings.twitterHandle);
+    }
 
     // Article specific
     if (type === 'article' && publishedTime) {
       setMetaTag('article:published_time', publishedTime, true);
-      setMetaTag('article:author', author, true);
+      setMetaTag('article:author', authorName, true);
+    }
+
+    // Site verification tags
+    if (seoSettings.googleSiteVerification) {
+      setMetaTag('google-site-verification', seoSettings.googleSiteVerification);
+    }
+    if (seoSettings.bingSiteVerification) {
+      setMetaTag('msvalidate.01', seoSettings.bingSiteVerification);
     }
 
     // Canonical URL
@@ -84,7 +110,33 @@ const SEOHead = ({
     }
     canonical.href = url;
 
-  }, [title, description, keywords, image, url, type, siteName, twitterCard, author, publishedTime, noIndex]);
+    // Inject custom CSS
+    if (seoSettings.customCss) {
+      let styleTag = document.getElementById('custom-css-injected') as HTMLStyleElement;
+      if (!styleTag) {
+        styleTag = document.createElement('style');
+        styleTag.id = 'custom-css-injected';
+        document.head.appendChild(styleTag);
+      }
+      styleTag.textContent = seoSettings.customCss;
+    }
+
+    // Inject custom JS (deferred)
+    if (seoSettings.customJs) {
+      let scriptTag = document.getElementById('custom-js-injected') as HTMLScriptElement;
+      if (!scriptTag) {
+        scriptTag = document.createElement('script');
+        scriptTag.id = 'custom-js-injected';
+        document.body.appendChild(scriptTag);
+      }
+      scriptTag.textContent = seoSettings.customJs;
+    }
+
+  }, [
+    propTitle, propDescription, propKeywords, propImage, propSiteName,
+    url, type, twitterCard, author, publishedTime, noIndex,
+    seoSettings, generalSettings, seoLoading, generalLoading
+  ]);
 
   return null;
 };

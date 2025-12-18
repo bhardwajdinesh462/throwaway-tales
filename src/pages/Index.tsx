@@ -6,10 +6,12 @@ import HowItWorks from "@/components/HowItWorks";
 import FAQSection from "@/components/FAQSection";
 import CTASection from "@/components/CTASection";
 import Footer from "@/components/Footer";
+import SEOHead from "@/components/SEOHead";
 
 const Index = () => {
   return (
     <div className="min-h-screen bg-background">
+      <SEOHead />
       <Header />
       <main>
         <HeroSection />

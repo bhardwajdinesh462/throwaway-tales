@@ -23,6 +23,7 @@ import AdminSettings from "./pages/admin/AdminSettings";
 import AdminBlogs from "./pages/admin/AdminBlogs";
 import AdminPages from "./pages/admin/AdminPages";
 import AdminThemes from "./pages/admin/AdminThemes";
+import AdminCustomDomains from "./pages/admin/AdminCustomDomains";
 
 // Initialize default data on app load
 initializeDefaultData();
@@ -56,6 +57,7 @@ const App = () => (
                   <Route path="blogs" element={<AdminBlogs />} />
                   <Route path="pages" element={<AdminPages />} />
                   <Route path="themes" element={<AdminThemes />} />
+                  <Route path="custom-domains" element={<AdminCustomDomains />} />
                 </Route>
 
                 <Route path="*" element={<NotFound />} />

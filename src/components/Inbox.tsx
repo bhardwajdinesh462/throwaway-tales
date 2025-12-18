@@ -140,17 +140,17 @@ const Inbox = () => {
   }, [currentEmail?.id]);
 
 
-  // Check for new emails from IMAP server - use 'unseen' mode for manual checks
+  // Check for new emails from IMAP server
+  // Use 'latest' mode to avoid huge UNSEEN scans on mailboxes with many unseen messages.
   const handleCheckMail = async () => {
     setIsCheckingMail(true);
     try {
-      // Use 'unseen' mode for manual check to specifically target unread messages
-      const result = await triggerImapFetch({ mode: "unseen", limit: 20 });
+      const result = await triggerImapFetch({ mode: "latest", limit: 20 });
       const stats = result?.stats;
       if (stats?.stored > 0) {
         toast.success(`Found ${stats.stored} new email${stats.stored > 1 ? 's' : ''}!`);
       } else if (stats?.noMatch > 0) {
-        toast.info(`${stats.noMatch} emails found but none matched your temp address`);
+        toast.info(`${stats.noMatch} emails scanned but none matched your temp address`);
       } else {
         toast.info('No new emails found');
       }
@@ -182,19 +182,19 @@ const Inbox = () => {
       if (error) throw error;
 
       toast.success('Test email sent! Waiting for delivery...');
-      
-      // Wait a few seconds for SMTP delivery before fetching
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
+
+      // Wait a bit for SMTP delivery before fetching
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+
       toast.loading('Checking for new mail...');
-      const result = await triggerImapFetch({ mode: "unseen", limit: 20 });
+      const result = await triggerImapFetch({ mode: "latest", limit: 20 });
       toast.dismiss();
-      
+
       const stats = result?.stats;
       if (stats?.stored > 0) {
         toast.success(`Email received! ${stats.stored} new message${stats.stored > 1 ? 's' : ''}`);
       } else if (stats?.noMatch > 0) {
-        toast.warning('Email arrived but did not match your temp address. Check the logs.');
+        toast.warning('Mail scanned but did not match your temp address. Check logs for recipient parsing.');
       } else {
         toast.info('No new emails yet. Try clicking Check Mail again in a few seconds.');
       }

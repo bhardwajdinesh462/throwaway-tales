@@ -280,26 +280,12 @@ serve(async (req: Request): Promise<Response> => {
       newestMessageIds = unseenIds.slice(-limit).reverse();
       console.log(`[IMAP] Processing ${newestMessageIds.length} newest UNSEEN: [${newestMessageIds.join(', ')}]`);
     } else {
-      // Latest mode: check the most recent N messages AND any UNSEEN
-      // First, get UNSEEN to ensure we don't miss newly arrived mail
-      const searchResponse = await sendCommand("SEARCH UNSEEN", tagNum++);
-      const unseenMatch = searchResponse.match(/\* SEARCH ([\d\s]+)/);
-      const unseenIds = unseenMatch ? unseenMatch[1].trim().split(/\s+/).filter(id => id) : [];
-      console.log(`[IMAP] Found ${unseenIds.length} UNSEEN in latest mode`);
-
-      // Also get the last N by sequence number
+      // Latest mode: only scan the last N message sequence numbers.
+      // NOTE: Some servers deliver new mail already marked as \Seen. We still want to store those.
       const start = Math.max(1, messageCount - limit + 1);
-      const latestIds: string[] = [];
-      for (let i = messageCount; i >= start; i--) latestIds.push(String(i));
-
-      // Merge: unseen first (priority), then latest (may overlap)
-      const idSet = new Set<string>();
-      for (const id of unseenIds) idSet.add(id);
-      for (const id of latestIds) idSet.add(id);
-      
-      // Sort descending (newest first)
-      newestMessageIds = Array.from(idSet).sort((a, b) => parseInt(b) - parseInt(a)).slice(0, limit);
-      console.log(`[IMAP] Latest+UNSEEN mode: processing ${newestMessageIds.length} messages: [${newestMessageIds.join(', ')}]`);
+      newestMessageIds = [];
+      for (let i = messageCount; i >= start; i--) newestMessageIds.push(String(i));
+      console.log(`[IMAP] Latest mode: processing ${newestMessageIds.length} messages: [${newestMessageIds.join(', ')}]`);
     }
 
     for (const msgId of newestMessageIds) {
@@ -308,14 +294,8 @@ serve(async (req: Request): Promise<Response> => {
         const headerResponse = await sendCommand(`FETCH ${msgId} (FLAGS BODY[HEADER])`, tagNum++);
 
         const isSeen = /FLAGS\s*\([^)]*\\Seen/i.test(headerResponse);
-        
-        // In latest mode, skip already-seen messages UNLESS they were in unseen list
-        // Actually for simplicity: always process if in our list (we merged unseen)
-        // But skip if seen to avoid reprocessing old messages
         if (isSeen) {
-          console.log(`[IMAP] Msg ${msgId}: already seen, skipping`);
-          storedCount.skipped++;
-          continue;
+          console.log(`[IMAP] Msg ${msgId}: already seen (will still attempt match/store)`);
         }
 
         // Parse headers

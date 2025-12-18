@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { ExternalLink } from "lucide-react";
+import DOMPurify from "dompurify";
 
 interface Banner {
   id: string;
@@ -110,7 +111,7 @@ const BannerDisplay = ({ position, className = "" }: BannerDisplayProps) => {
           {banner.type === "html" && (
             <div
               className="banner-html-content"
-              dangerouslySetInnerHTML={{ __html: banner.content }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.content) }}
             />
           )}
 
@@ -128,7 +129,7 @@ const BannerDisplay = ({ position, className = "" }: BannerDisplayProps) => {
           {banner.type === "script" && (
             <div
               className="banner-script-container"
-              dangerouslySetInnerHTML={{ __html: banner.content }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.content, { ADD_TAGS: ['script'], ADD_ATTR: ['src'] }) }}
             />
           )}
         </motion.div>

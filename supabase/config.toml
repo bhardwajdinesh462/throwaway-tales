@@ -20,3 +20,9 @@ verify_jwt = false
 
 [functions.email-health-check]
 verify_jwt = false
+
+[functions.secure-email-access]
+verify_jwt = false
+
+[functions.encrypt-incoming-email]
+verify_jwt = false

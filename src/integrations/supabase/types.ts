@@ -320,9 +320,11 @@ export type Database = {
       received_emails: {
         Row: {
           body: string | null
+          encryption_key_id: string | null
           from_address: string
           html_body: string | null
           id: string
+          is_encrypted: boolean | null
           is_read: boolean
           received_at: string
           subject: string | null
@@ -330,9 +332,11 @@ export type Database = {
         }
         Insert: {
           body?: string | null
+          encryption_key_id?: string | null
           from_address: string
           html_body?: string | null
           id?: string
+          is_encrypted?: boolean | null
           is_read?: boolean
           received_at?: string
           subject?: string | null
@@ -340,9 +344,11 @@ export type Database = {
         }
         Update: {
           body?: string | null
+          encryption_key_id?: string | null
           from_address?: string
           html_body?: string | null
           id?: string
+          is_encrypted?: boolean | null
           is_read?: boolean
           received_at?: string
           subject?: string | null
@@ -395,6 +401,7 @@ export type Database = {
           expires_at: string
           id: string
           is_active: boolean
+          secret_token: string
           user_id: string | null
         }
         Insert: {
@@ -404,6 +411,7 @@ export type Database = {
           expires_at?: string
           id?: string
           is_active?: boolean
+          secret_token?: string
           user_id?: string | null
         }
         Update: {
@@ -413,6 +421,7 @@ export type Database = {
           expires_at?: string
           id?: string
           is_active?: boolean
+          secret_token?: string
           user_id?: string | null
         }
         Relationships: [
@@ -479,6 +488,7 @@ export type Database = {
         Returns: boolean
       }
       cleanup_old_rate_limits: { Args: never; Returns: undefined }
+      generate_secret_token: { Args: never; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -495,6 +505,10 @@ export type Database = {
           p_table_name: string
         }
         Returns: string
+      }
+      verify_temp_email_token: {
+        Args: { p_temp_email_id: string; p_token: string }
+        Returns: boolean
       }
     }
     Enums: {

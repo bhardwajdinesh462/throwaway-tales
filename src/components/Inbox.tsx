@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, RefreshCw, Trash2, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube, Loader2, Bell, Paperclip, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useSecureEmailService, ReceivedEmail } from "@/hooks/useSecureEmailService";
+import { ReceivedEmail } from "@/hooks/useSecureEmailService";
+import { useEmailService } from "@/contexts/EmailServiceContext";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatDistanceToNow } from "date-fns";
@@ -26,7 +27,7 @@ const Inbox = () => {
   const { t } = useLanguage();
   
   // 2. Custom hooks - Using secure email service with token-based access
-  const { receivedEmails, isLoading, markAsRead, saveEmail, currentEmail, refetch, getAccessToken, triggerImapFetch } = useSecureEmailService();
+  const { receivedEmails, isLoading, markAsRead, saveEmail, currentEmail, refetch, triggerImapFetch } = useEmailService();
   
   // 3. All useState hooks together
   const [selectedEmail, setSelectedEmail] = useState<ReceivedEmail | null>(null);
@@ -39,6 +40,7 @@ const Inbox = () => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loadingAttachments, setLoadingAttachments] = useState(false);
   const [isCheckingMail, setIsCheckingMail] = useState(false);
+  const [isSendingTest, setIsSendingTest] = useState(false);
   
   // 4. All useRef hooks together
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
@@ -133,6 +135,36 @@ const Inbox = () => {
       toast.error('Failed to check for new emails');
     } finally {
       setIsCheckingMail(false);
+    }
+  };
+
+  // Send a test email to the currently generated temp address (uses SMTP settings)
+  const handleSendTestEmail = async () => {
+    if (!currentEmail?.address) {
+      toast.error('No active email address yet');
+      return;
+    }
+
+    setIsSendingTest(true);
+    try {
+      const { error } = await supabase.functions.invoke('send-test-email', {
+        body: {
+          recipientEmail: currentEmail.address,
+          subject: 'Nullsto inbox test',
+          body: `<p>Test message for <strong>${currentEmail.address}</strong></p>`,
+        },
+      });
+
+      if (error) throw error;
+
+      toast.success('Test email sent. Fetching new mail…');
+      await triggerImapFetch();
+      toast.success('Inbox updated');
+    } catch (error: any) {
+      console.error('Error sending test email:', error);
+      toast.error(error?.message || 'Failed to send test email');
+    } finally {
+      setIsSendingTest(false);
     }
   };
 
@@ -259,6 +291,18 @@ const Inbox = () => {
                 Enable Notifications
               </Button>
             )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSendTestEmail}
+              disabled={!currentEmail || isSendingTest}
+              className="border-accent/30 hover:bg-accent/10"
+              title="Send a test email to this temp address"
+            >
+              <TestTube className={`w-4 h-4 mr-1 ${isSendingTest ? 'animate-pulse' : ''}`} />
+              {isSendingTest ? 'Sending…' : 'Test'}
+            </Button>
             
             <Button
               variant="outline"

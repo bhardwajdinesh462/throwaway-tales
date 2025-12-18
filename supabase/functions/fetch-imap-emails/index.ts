@@ -36,81 +36,73 @@ function decodeBase64(str: string): string {
 function parseMimeContent(rawContent: string): { text: string; html: string } {
   let text = '';
   let html = '';
-  
-  // Check if it's multipart
-  const boundaryMatch = rawContent.match(/boundary[=\s]*"?([^"\r\n;]+)"?/i);
-  
-  if (boundaryMatch) {
-    const boundary = boundaryMatch[1];
-    const parts = rawContent.split(new RegExp(`--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-    
-    for (const part of parts) {
-      if (part.trim() === '' || part.trim() === '--') continue;
-      
-      const headerEndIndex = part.indexOf('\r\n\r\n');
-      if (headerEndIndex === -1) continue;
-      
-      const headers = part.substring(0, headerEndIndex).toLowerCase();
-      let content = part.substring(headerEndIndex + 4);
-      
-      // Remove trailing boundary markers
-      const nextBoundaryIndex = content.indexOf('--');
-      if (nextBoundaryIndex > 0) {
-        content = content.substring(0, nextBoundaryIndex);
-      }
-      
-      // Check content transfer encoding
-      const isQuotedPrintable = headers.includes('quoted-printable');
-      const isBase64 = headers.includes('base64');
-      
-      if (isQuotedPrintable) {
-        content = decodeQuotedPrintable(content);
-      } else if (isBase64) {
-        content = decodeBase64(content);
-      }
-      
-      // Determine content type
-      if (headers.includes('text/html')) {
-        html = content.trim();
-      } else if (headers.includes('text/plain')) {
-        text = content.trim();
-      }
+
+  // Strip IMAP protocol artifacts if they leaked into storage
+  const cleaned = rawContent
+    .replace(/^\s*BODY\[TEXT\]\s*\{\d+\}\s*\r?\n?/gmi, '')
+    .replace(/\r?\n\)\r?\nA\d{4}\s+(OK|NO|BAD)[\s\S]*$/i, '')
+    .trim();
+
+  const boundaryParam = cleaned.match(/boundary[=\s]*"?([^"\r\n;]+)"?/i)?.[1];
+  const boundaryFromBody = cleaned.match(/^\s*--([^\r\n]+)\r?\n/)?.[1]?.trim();
+  const boundary = boundaryParam || boundaryFromBody;
+
+  const parseSinglePart = (content: string) => {
+    const headerEndCrLf = content.indexOf('\r\n\r\n');
+    const headerEndLf = headerEndCrLf === -1 ? content.indexOf('\n\n') : -1;
+    const headerEnd = headerEndCrLf !== -1 ? headerEndCrLf : headerEndLf;
+    const sepLen = headerEndCrLf !== -1 ? 4 : 2;
+
+    if (headerEnd === -1) {
+      return { headers: '', body: content };
     }
-  } else {
-    // Not multipart - check for encoding in the content itself
-    const headerEndIndex = rawContent.indexOf('\r\n\r\n');
-    if (headerEndIndex > -1) {
-      const headers = rawContent.substring(0, headerEndIndex).toLowerCase();
-      let content = rawContent.substring(headerEndIndex + 4);
-      
-      const isQuotedPrintable = headers.includes('quoted-printable');
-      const isBase64 = headers.includes('base64');
-      
-      if (isQuotedPrintable) {
-        content = decodeQuotedPrintable(content);
-      } else if (isBase64) {
-        content = decodeBase64(content);
-      }
-      
-      if (headers.includes('text/html')) {
-        html = content.trim();
-      } else {
-        text = content.trim();
-      }
-    } else {
-      text = rawContent.trim();
+
+    return {
+      headers: content.substring(0, headerEnd),
+      body: content.substring(headerEnd + sepLen),
+    };
+  };
+
+  const decodePart = (headersLower: string, body: string) => {
+    if (headersLower.includes('quoted-printable')) return decodeQuotedPrintable(body);
+    if (headersLower.includes('base64')) return decodeBase64(body);
+    return body;
+  };
+
+  if (!boundary) {
+    const { headers, body } = parseSinglePart(cleaned);
+    const headersLower = headers.toLowerCase();
+    const decoded = decodePart(headersLower, body).trim();
+
+    if (headersLower.includes('text/html')) html = decoded;
+    else text = decoded;
+
+    return { text, html };
+  }
+
+  const escapedBoundary = boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts = cleaned.split(new RegExp(`--${escapedBoundary}`));
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed || trimmed === '--') continue;
+
+    const normalizedPart = part.replace(/^\r?\n/, '');
+    const { headers, body } = parseSinglePart(normalizedPart);
+    const headersLower = headers.toLowerCase();
+
+    const decoded = decodePart(headersLower, body).trim();
+
+    if (!decoded) continue;
+
+    if (headersLower.includes('text/html')) {
+      if (!html) html = decoded;
+    } else if (headersLower.includes('text/plain')) {
+      if (!text) text = decoded;
     }
   }
-  
-  // Clean up any remaining IMAP artifacts
-  text = text.replace(/^BODY\[TEXT\]\s*\{\d+\}/gm, '').trim();
-  html = html.replace(/^BODY\[TEXT\]\s*\{\d+\}/gm, '').trim();
-  
-  // Remove IMAP command suffixes
-  text = text.replace(/\)\s*A\d{4}\s+OK\s+.*$/s, '').trim();
-  html = html.replace(/\)\s*A\d{4}\s+OK\s+.*$/s, '').trim();
-  
-  return { text, html };
+
+  return { text: text.trim(), html: html.trim() };
 }
 
 // Extract clean text from HTML
@@ -276,47 +268,33 @@ serve(async (req: Request): Promise<Response> => {
           .single();
 
         if (tempEmail) {
-          // Extract body content from BODY[TEXT]
-          const bodyTextMatch = fetchResponse.match(/BODY\[TEXT\]\s*\{(\d+)\}/);
+          // Extract body content from BODY[TEXT] {n}\r\n... using the IMAP byte count
           let rawBody = '';
-          
-          if (bodyTextMatch) {
-            const bodyLength = parseInt(bodyTextMatch[1]);
-            const bodyStartIndex = fetchResponse.indexOf(bodyTextMatch[0]) + bodyTextMatch[0].length + 2;
-            rawBody = fetchResponse.substring(bodyStartIndex, bodyStartIndex + bodyLength);
+          const bodyMarker = /BODY\[TEXT\]\s*\{(\d+)\}\r?\n/i.exec(fetchResponse);
+
+          if (bodyMarker && typeof bodyMarker.index === 'number') {
+            const bodyLength = parseInt(bodyMarker[1], 10);
+            const bodyStartIndex = bodyMarker.index + bodyMarker[0].length;
+            rawBody = fetchResponse.slice(bodyStartIndex, bodyStartIndex + bodyLength);
           } else {
-            // Fallback: try to extract after double CRLF
+            // Fallback: take everything after the last header/body separator
             const bodyStart = fetchResponse.lastIndexOf('\r\n\r\n');
-            if (bodyStart > -1) {
-              rawBody = fetchResponse.substring(bodyStart + 4);
-            }
+            rawBody = bodyStart > -1 ? fetchResponse.substring(bodyStart + 4) : fetchResponse;
           }
 
-          // Include content-type header for MIME parsing
-          const contentType = contentTypeMatch?.[1] || '';
-          const fullContent = contentType.includes('multipart') 
-            ? `Content-Type: ${contentType}\r\n\r\n${rawBody}`
-            : rawBody;
+          // Parse MIME content (also strips IMAP protocol artifacts)
+          const { text, html } = parseMimeContent(rawBody);
 
-          // Parse MIME content
-          const { text, html } = parseMimeContent(fullContent);
-          
           // Use text body or extract from HTML
           let finalTextBody = text;
           let finalHtmlBody = html;
-          
+
           if (!finalTextBody && finalHtmlBody) {
             finalTextBody = extractTextFromHtml(finalHtmlBody);
           }
-          
+
           if (!finalTextBody && !finalHtmlBody) {
-            // Last resort: clean up raw body
-            finalTextBody = rawBody
-              .replace(/--[^\r\n]+/g, '')
-              .replace(/Content-[^\r\n]+/gi, '')
-              .replace(/\r?\n/g, '\n')
-              .replace(/\n{3,}/g, '\n\n')
-              .trim();
+            finalTextBody = rawBody.trim();
           }
 
           // Store the email

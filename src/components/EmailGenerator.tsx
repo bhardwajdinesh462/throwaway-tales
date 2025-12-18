@@ -20,22 +20,22 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { useSecureEmailService } from "@/hooks/useSecureEmailService";
+import { useEmailService } from "@/contexts/EmailServiceContext";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 const EmailGenerator = () => {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const { 
-    domains, 
-    currentEmail, 
-    isGenerating, 
-    generateEmail, 
+  const {
+    domains,
+    currentEmail,
+    isGenerating,
+    generateEmail,
     generateCustomEmail,
     changeDomain,
     addCustomDomain,
-  } = useSecureEmailService();
+  } = useEmailService();
   const [copied, setCopied] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);

@@ -9,6 +9,7 @@ import {
   FileText,
   Palette,
   Newspaper,
+  Link as LinkIcon,
 } from "lucide-react";
 import {
   Sidebar,
@@ -37,6 +38,7 @@ const AdminSidebar = () => {
     { title: t('dashboard'), url: "/admin", icon: LayoutDashboard },
     { title: t('users'), url: "/admin/users", icon: Users },
     { title: t('domains'), url: "/admin/domains", icon: Globe },
+    { title: "Custom Domains", url: "/admin/custom-domains", icon: LinkIcon },
     { title: t('emails'), url: "/admin/emails", icon: Mail },
     { title: t('blogs'), url: "/admin/blogs", icon: Newspaper },
     { title: t('pages'), url: "/admin/pages", icon: FileText },

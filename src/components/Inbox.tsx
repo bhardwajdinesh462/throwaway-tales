@@ -230,25 +230,33 @@ const Inbox = () => {
     >
       <div className="glass-card overflow-hidden">
         {/* Inbox Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <div className="flex items-center gap-3">
-            <Mail className="w-5 h-5 text-primary" />
-            <h2 className="font-semibold text-foreground">{t('inbox')}</h2>
-            <span className="bg-primary/20 text-primary text-xs px-2 py-1 rounded-full">
-              {receivedEmails.filter(e => !e.is_read).length} new
-            </span>
-            {newEmailCount > 0 && (
-              <motion.span 
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="bg-green-500 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1"
-              >
-                <Bell className="w-3 h-3" />
-                {newEmailCount} live
-              </motion.span>
-            )}
+        <div className="flex flex-col gap-3 p-4 border-b border-border sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-1 min-w-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <Mail className="w-5 h-5 text-primary" />
+              <h2 className="font-semibold text-foreground shrink-0">{t('inbox')}</h2>
+              <span className="bg-primary/20 text-primary text-xs px-2 py-1 rounded-full shrink-0">
+                {receivedEmails.filter(e => !e.is_read).length} new
+              </span>
+              {newEmailCount > 0 && (
+                <motion.span 
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="bg-green-500 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1 shrink-0"
+                >
+                  <Bell className="w-3 h-3" />
+                  {newEmailCount} live
+                </motion.span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 text-xs min-w-0">
+              <span className="text-muted-foreground shrink-0">Current Email:</span>
+              <span className="font-mono text-foreground truncate">{currentEmail?.address || "..."}</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             {/* Auto-refresh indicator */}
             <div 
               className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs cursor-pointer transition-all ${
@@ -323,6 +331,17 @@ const Inbox = () => {
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
               {t('refresh')}
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetLocalStorage}
+              className="border-destructive/30 hover:bg-destructive/10"
+              title="Clear local storage and restart (debug)"
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              Reset
             </Button>
           </div>
         </div>

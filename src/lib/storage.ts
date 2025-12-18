@@ -39,16 +39,10 @@ export const storage = {
 
 // Initialize default data
 export const initializeDefaultData = () => {
-  // Default domains
-  if (!localStorage.getItem(STORAGE_KEYS.DOMAINS)) {
-    storage.set(STORAGE_KEYS.DOMAINS, [
-      { id: '1', name: '@trashmail.io', is_active: true, is_premium: false, created_at: new Date().toISOString() },
-      { id: '2', name: '@tempbox.net', is_active: true, is_premium: false, created_at: new Date().toISOString() },
-      { id: '3', name: '@quickmail.xyz', is_active: true, is_premium: false, created_at: new Date().toISOString() },
-      { id: '4', name: '@disposable.email', is_active: true, is_premium: false, created_at: new Date().toISOString() },
-      { id: '5', name: '@burner.mail', is_active: true, is_premium: true, created_at: new Date().toISOString() },
-    ]);
-  }
+  // Default domains - always reset to nullsto.edu.pl
+  storage.set(STORAGE_KEYS.DOMAINS, [
+    { id: '1', name: '@nullsto.edu.pl', is_active: true, is_premium: false, created_at: new Date().toISOString() },
+  ]);
 
   // Default settings
   if (!localStorage.getItem(STORAGE_KEYS.SETTINGS)) {

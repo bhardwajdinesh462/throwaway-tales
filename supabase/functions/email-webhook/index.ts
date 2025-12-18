@@ -16,14 +16,14 @@ interface MailgunInboundEmail {
   "stripped-text"?: string;
   "stripped-html"?: string;
   timestamp?: string;
+  "attachment-count"?: string;
 }
 
-interface SendGridInboundEmail {
-  to: string;
-  from: string;
-  subject: string;
-  text?: string;
-  html?: string;
+interface Attachment {
+  filename: string;
+  contentType: string;
+  size: number;
+  content: Uint8Array;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -45,6 +45,7 @@ const handler = async (req: Request): Promise<Response> => {
       body: string;
       htmlBody: string;
     };
+    let attachments: Attachment[] = [];
 
     // Parse based on content type (Mailgun uses form data, SendGrid uses JSON)
     if (contentType.includes("multipart/form-data") || contentType.includes("application/x-www-form-urlencoded")) {
@@ -59,6 +60,7 @@ const handler = async (req: Request): Promise<Response> => {
         "body-html": formData.get("body-html") as string || "",
         "stripped-text": formData.get("stripped-text") as string || "",
         "stripped-html": formData.get("stripped-html") as string || "",
+        "attachment-count": formData.get("attachment-count") as string || "0",
       };
 
       emailData = {
@@ -69,7 +71,27 @@ const handler = async (req: Request): Promise<Response> => {
         htmlBody: mailgunData["stripped-html"] || mailgunData["body-html"] || "",
       };
 
-      console.log("Received Mailgun webhook:", { recipient: emailData.recipient, sender: emailData.sender, subject: emailData.subject });
+      // Extract attachments from Mailgun
+      const attachmentCount = parseInt(mailgunData["attachment-count"] || "0");
+      for (let i = 1; i <= attachmentCount; i++) {
+        const attachmentFile = formData.get(`attachment-${i}`) as File;
+        if (attachmentFile) {
+          const buffer = await attachmentFile.arrayBuffer();
+          attachments.push({
+            filename: attachmentFile.name,
+            contentType: attachmentFile.type,
+            size: attachmentFile.size,
+            content: new Uint8Array(buffer),
+          });
+        }
+      }
+
+      console.log("Received Mailgun webhook:", { 
+        recipient: emailData.recipient, 
+        sender: emailData.sender, 
+        subject: emailData.subject,
+        attachments: attachments.length 
+      });
     } else {
       // SendGrid or JSON format
       const jsonData = await req.json();
@@ -85,7 +107,28 @@ const handler = async (req: Request): Promise<Response> => {
         htmlBody: email.html || "",
       };
 
-      console.log("Received SendGrid/JSON webhook:", { recipient: emailData.recipient, sender: emailData.sender, subject: emailData.subject });
+      // Extract attachments from SendGrid format
+      if (email.attachments && Array.isArray(email.attachments)) {
+        for (const att of email.attachments) {
+          if (att.content) {
+            // SendGrid sends base64 encoded content
+            const content = Uint8Array.from(atob(att.content), c => c.charCodeAt(0));
+            attachments.push({
+              filename: att.filename || "attachment",
+              contentType: att.type || "application/octet-stream",
+              size: content.length,
+              content: content,
+            });
+          }
+        }
+      }
+
+      console.log("Received SendGrid/JSON webhook:", { 
+        recipient: emailData.recipient, 
+        sender: emailData.sender, 
+        subject: emailData.subject,
+        attachments: attachments.length 
+      });
     }
 
     // Find the temp email by address
@@ -134,11 +177,57 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("Email saved successfully:", insertedEmail.id);
 
+    // Process attachments
+    const savedAttachments: string[] = [];
+    for (const attachment of attachments) {
+      try {
+        // Generate unique storage path
+        const timestamp = Date.now();
+        const sanitizedFilename = attachment.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const storagePath = `${insertedEmail.id}/${timestamp}_${sanitizedFilename}`;
+
+        // Upload to storage
+        const { error: uploadError } = await supabase.storage
+          .from("email-attachments")
+          .upload(storagePath, attachment.content, {
+            contentType: attachment.contentType,
+            upsert: false,
+          });
+
+        if (uploadError) {
+          console.error("Error uploading attachment:", uploadError);
+          continue;
+        }
+
+        // Save attachment metadata to database
+        const { error: attachError } = await supabase
+          .from("email_attachments")
+          .insert({
+            received_email_id: insertedEmail.id,
+            file_name: attachment.filename,
+            file_type: attachment.contentType,
+            file_size: attachment.size,
+            storage_path: storagePath,
+          });
+
+        if (attachError) {
+          console.error("Error saving attachment metadata:", attachError);
+        } else {
+          savedAttachments.push(attachment.filename);
+          console.log(`Attachment saved: ${attachment.filename}`);
+        }
+      } catch (attError) {
+        console.error("Error processing attachment:", attError);
+      }
+    }
+
     return new Response(
       JSON.stringify({ 
         status: "success", 
         message: "Email received and stored",
-        email_id: insertedEmail.id 
+        email_id: insertedEmail.id,
+        attachments_saved: savedAttachments.length,
+        attachment_names: savedAttachments
       }),
       {
         status: 200,

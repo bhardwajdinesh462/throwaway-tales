@@ -136,8 +136,11 @@ serve(async (req: Request): Promise<Response> => {
     const fetchedEmails: ParsedEmail[] = [];
     const storedCount = { success: 0, failed: 0 };
 
-    // Fetch each unseen message
-    for (const msgId of unseenIds.slice(0, 50)) { // Limit to 50 messages per fetch
+    // Fetch the NEWEST unseen messages first (reverse the array and take last 50)
+    const newestUnseenIds = unseenIds.slice(-50).reverse();
+    console.log(`Processing ${newestUnseenIds.length} newest unseen messages`);
+    
+    for (const msgId of newestUnseenIds) {
       try {
         const fetchResponse = await sendCommand(`FETCH ${msgId} (BODY[HEADER.FIELDS (FROM TO SUBJECT DATE)] BODY[TEXT])`, tagNum++);
         

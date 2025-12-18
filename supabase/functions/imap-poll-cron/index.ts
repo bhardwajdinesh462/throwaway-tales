@@ -110,8 +110,11 @@ serve(async (req: Request): Promise<Response> => {
 
     const stats = { stored: 0, failed: 0, skipped: 0 };
 
-    // Fetch each unseen message (limit to 20 per cron run to prevent timeouts)
-    for (const msgId of unseenIds.slice(0, 20)) {
+    // Fetch the NEWEST unseen messages first (reverse and take last 20)
+    const newestUnseenIds = unseenIds.slice(-20).reverse();
+    console.log(`[IMAP CRON] Processing ${newestUnseenIds.length} newest unseen messages`);
+    
+    for (const msgId of newestUnseenIds) {
       try {
         const fetchResponse = await sendCommand(`FETCH ${msgId} (BODY[HEADER.FIELDS (FROM TO SUBJECT DATE)] BODY[TEXT])`, tagNum++);
         

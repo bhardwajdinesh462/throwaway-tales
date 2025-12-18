@@ -1,11 +1,20 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, RefreshCw, Trash2, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube } from "lucide-react";
+import { Mail, RefreshCw, Trash2, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEmailService, ReceivedEmail } from "@/hooks/useLocalEmailService";
 import { useAuth } from "@/hooks/useLocalAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatDistanceToNow } from "date-fns";
+import { storage } from "@/lib/storage";
+
+interface NotificationPreferences {
+  soundEnabled: boolean;
+  pushEnabled: boolean;
+  emailDigest: boolean;
+  autoRefresh: boolean;
+  refreshInterval: number;
+}
 
 const Inbox = () => {
   const { user } = useAuth();
@@ -14,10 +23,70 @@ const Inbox = () => {
   const [selectedEmail, setSelectedEmail] = useState<ReceivedEmail | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [savedEmails, setSavedEmails] = useState<Set<string>>(new Set());
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState(30);
+  const [countdown, setCountdown] = useState(30);
+  const countdownRef = useRef<NodeJS.Timeout | null>(null);
+  const refreshRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleRefresh = async () => {
+  // Load user preferences
+  useEffect(() => {
+    if (user) {
+      const prefs = storage.get<NotificationPreferences>(`notification_prefs_${user.id}`, {
+        soundEnabled: true,
+        pushEnabled: false,
+        emailDigest: false,
+        autoRefresh: true,
+        refreshInterval: 30,
+      });
+      setAutoRefreshEnabled(prefs.autoRefresh);
+      setRefreshInterval(prefs.refreshInterval);
+      setCountdown(prefs.refreshInterval);
+    }
+  }, [user]);
+
+  // Auto-refresh functionality
+  useEffect(() => {
+    if (!autoRefreshEnabled) {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      if (refreshRef.current) clearTimeout(refreshRef.current);
+      return;
+    }
+
+    // Countdown timer
+    countdownRef.current = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          return refreshInterval;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Refresh timer
+    refreshRef.current = setInterval(() => {
+      handleRefresh(true);
+    }, refreshInterval * 1000);
+
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      if (refreshRef.current) clearInterval(refreshRef.current);
+    };
+  }, [autoRefreshEnabled, refreshInterval]);
+
+  const handleRefresh = async (isAuto = false) => {
     setIsRefreshing(true);
-    setTimeout(() => setIsRefreshing(false), 1000);
+    setCountdown(refreshInterval);
+    
+    // Simulate refresh delay
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    setIsRefreshing(false);
+    
+    if (!isAuto) {
+      // Reset countdown on manual refresh
+      setCountdown(refreshInterval);
+    }
   };
 
   const handleSelectEmail = (email: ReceivedEmail) => {
@@ -39,12 +108,27 @@ const Inbox = () => {
     return formatDistanceToNow(new Date(dateString), { addSuffix: true });
   };
 
+  const toggleAutoRefresh = () => {
+    const newValue = !autoRefreshEnabled;
+    setAutoRefreshEnabled(newValue);
+    if (user) {
+      const prefs = storage.get<NotificationPreferences>(`notification_prefs_${user.id}`, {
+        soundEnabled: true,
+        pushEnabled: false,
+        emailDigest: false,
+        autoRefresh: true,
+        refreshInterval: 30,
+      });
+      storage.set(`notification_prefs_${user.id}`, { ...prefs, autoRefresh: newValue });
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, delay: 0.4 }}
-      className="w-full max-w-4xl mx-auto mt-8"
+      className="w-full"
     >
       <div className="glass-card overflow-hidden">
         {/* Inbox Header */}
@@ -57,6 +141,32 @@ const Inbox = () => {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            {/* Auto-refresh indicator */}
+            <div 
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs cursor-pointer transition-all ${
+                autoRefreshEnabled 
+                  ? 'bg-primary/10 text-primary border border-primary/20' 
+                  : 'bg-secondary/50 text-muted-foreground'
+              }`}
+              onClick={toggleAutoRefresh}
+              title={autoRefreshEnabled ? "Click to disable auto-refresh" : "Click to enable auto-refresh"}
+            >
+              {autoRefreshEnabled ? (
+                <>
+                  <motion.div
+                    className="relative w-4 h-4"
+                    animate={{ rotate: isRefreshing ? 360 : 0 }}
+                    transition={{ duration: 0.5, repeat: isRefreshing ? Infinity : 0, ease: "linear" }}
+                  >
+                    <Loader2 className="w-4 h-4" />
+                  </motion.div>
+                  <span className="font-mono">{countdown}s</span>
+                </>
+              ) : (
+                <span>Auto-refresh off</span>
+              )}
+            </div>
+            
             <Button 
               variant="ghost" 
               size="sm" 
@@ -69,7 +179,7 @@ const Inbox = () => {
             <Button 
               variant="ghost" 
               size="sm" 
-              onClick={handleRefresh}
+              onClick={() => handleRefresh(false)}
               disabled={isRefreshing}
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -77,6 +187,19 @@ const Inbox = () => {
             </Button>
           </div>
         </div>
+
+        {/* Refreshing Indicator Bar */}
+        <AnimatePresence>
+          {isRefreshing && (
+            <motion.div
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.5 }}
+              className="h-0.5 bg-gradient-to-r from-primary to-accent origin-left"
+            />
+          )}
+        </AnimatePresence>
 
         {/* Email List */}
         <div className="divide-y divide-border">
@@ -100,10 +223,15 @@ const Inbox = () => {
                 <p className="text-sm text-primary font-mono mt-2">
                   {currentEmail?.address || "..."}
                 </p>
-                <Button variant="glass" className="mt-4" onClick={simulateIncomingEmail}>
+                <Button variant="outline" className="mt-4 border-primary/30" onClick={simulateIncomingEmail}>
                   <TestTube className="w-4 h-4 mr-2" />
                   Send Test Email
                 </Button>
+                {autoRefreshEnabled && (
+                  <p className="text-xs text-muted-foreground mt-4">
+                    Auto-checking every {refreshInterval} seconds...
+                  </p>
+                )}
               </motion.div>
             ) : (
               receivedEmails.map((email, index) => (

@@ -1,0 +1,11 @@
+-- Fix function search_path security warning
+CREATE OR REPLACE FUNCTION public.generate_secret_token()
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN encode(gen_random_bytes(16), 'hex');
+END;
+$$;

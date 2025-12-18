@@ -18,29 +18,35 @@ interface NotificationPreferences {
 }
 
 const Inbox = () => {
+  // All hooks must be called in the same order on every render
+  // 1. Context hooks
   const { user } = useAuth();
   const { t } = useLanguage();
+  
+  // 2. Custom hooks
   const { receivedEmails, isLoading, markAsRead, saveEmail, currentEmail, simulateIncomingEmail, refetch } = useEmailService();
+  
+  // 3. All useState hooks together
   const [selectedEmail, setSelectedEmail] = useState<ReceivedEmail | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [savedEmails, setSavedEmails] = useState<Set<string>>(new Set());
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState(30);
   const [countdown, setCountdown] = useState(30);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  
+  // 4. All useRef hooks together
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const refreshRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Get notification preferences
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  
-  // Real-time email notifications
-  const handleNewEmail = useCallback((email: any) => {
-    // Refetch emails when a new one arrives
+  // 5. All useCallback hooks together
+  const handleNewEmail = useCallback(() => {
     if (refetch) {
       refetch();
     }
   }, [refetch]);
 
+  // 6. Real-time hook (must be called unconditionally)
   const { newEmailCount, resetCount } = useRealtimeEmails({
     tempEmailId: currentEmail?.id,
     onNewEmail: handleNewEmail,
@@ -48,6 +54,7 @@ const Inbox = () => {
     playSound: soundEnabled,
   });
 
+  // 7. All useEffect hooks together
   // Load user preferences
   useEffect(() => {
     if (user) {

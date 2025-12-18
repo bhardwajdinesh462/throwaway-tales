@@ -59,6 +59,82 @@ export type Database = {
         }
         Relationships: []
       }
+      email_attachments: {
+        Row: {
+          created_at: string
+          file_name: string
+          file_size: number
+          file_type: string
+          id: string
+          received_email_id: string
+          storage_path: string
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          file_size: number
+          file_type: string
+          id?: string
+          received_email_id: string
+          storage_path: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          file_size?: number
+          file_type?: string
+          id?: string
+          received_email_id?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_attachments_received_email_id_fkey"
+            columns: ["received_email_id"]
+            isOneToOne: false
+            referencedRelation: "received_emails"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_forwarding: {
+        Row: {
+          created_at: string
+          forward_to_address: string
+          id: string
+          is_active: boolean
+          temp_email_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          forward_to_address: string
+          id?: string
+          is_active?: boolean
+          temp_email_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          forward_to_address?: string
+          id?: string
+          is_active?: boolean
+          temp_email_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_forwarding_temp_email_id_fkey"
+            columns: ["temp_email_id"]
+            isOneToOne: true
+            referencedRelation: "temp_emails"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -88,6 +164,47 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      push_subscriptions: {
+        Row: {
+          auth_key: string
+          created_at: string
+          endpoint: string
+          id: string
+          is_active: boolean
+          p256dh: string
+          temp_email_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          auth_key: string
+          created_at?: string
+          endpoint: string
+          id?: string
+          is_active?: boolean
+          p256dh: string
+          temp_email_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          auth_key?: string
+          created_at?: string
+          endpoint?: string
+          id?: string
+          is_active?: boolean
+          p256dh?: string
+          temp_email_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_subscriptions_temp_email_id_fkey"
+            columns: ["temp_email_id"]
+            isOneToOne: false
+            referencedRelation: "temp_emails"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       received_emails: {
         Row: {

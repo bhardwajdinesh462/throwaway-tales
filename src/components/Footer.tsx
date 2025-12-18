@@ -24,6 +24,7 @@ const Footer = () => {
       { label: "Help Center", href: "/help" },
       { label: "FAQ", href: "#faq" },
       { label: "Deploy Guide", href: "/deploy-guide" },
+      { label: "Admin Guide", href: "/admin-guide" },
       { label: "Status", href: "/status" },
     ],
   };

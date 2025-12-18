@@ -288,6 +288,18 @@ serve(async (req: Request): Promise<Response> => {
       console.log(`[IMAP] Latest mode: processing ${newestMessageIds.length} messages: [${newestMessageIds.join(', ')}]`);
     }
 
+    // Load existing emails to avoid duplicates (check by message-id or from+subject+date combo)
+    const { data: existingEmails } = await supabase
+      .from("received_emails")
+      .select("id, from_address, subject, received_at, temp_email_id");
+    
+    const existingEmailKeys = new Set(
+      (existingEmails || []).map((e: any) => 
+        `${e.temp_email_id}|${e.from_address}|${e.subject}|${e.received_at}`.toLowerCase()
+      )
+    );
+    console.log(`[IMAP] Loaded ${existingEmailKeys.size} existing email signatures for dedup`);
+
     for (const msgId of newestMessageIds) {
       try {
         // Fast pass: fetch flags + headers only (small)
@@ -298,19 +310,49 @@ serve(async (req: Request): Promise<Response> => {
           console.log(`[IMAP] Msg ${msgId}: already seen (will still attempt match/store)`);
         }
 
-        // Parse headers
-        const fromMatch = headerResponse.match(/From:\s*([^\r\n]+)/i);
-        const toMatch = headerResponse.match(/To:\s*([^\r\n]+)/i);
-        const subjectMatch = headerResponse.match(/Subject:\s*([^\r\n]+)/i);
-        const dateMatch = headerResponse.match(/Date:\s*([^\r\n]+)/i);
+        // Build a proper header map to handle multi-line headers
+        const headerLines = headerResponse.split(/\r?\n/);
+        const headers: Record<string, string> = {};
+        let currentHeader = '';
+        let currentValue = '';
+        
+        for (const line of headerLines) {
+          // Check if this is a continuation of the previous header (starts with whitespace)
+          if (/^\s+/.test(line) && currentHeader) {
+            currentValue += ' ' + line.trim();
+          } else {
+            // Save previous header if exists
+            if (currentHeader) {
+              headers[currentHeader.toLowerCase()] = currentValue;
+            }
+            // Parse new header
+            const colonIndex = line.indexOf(':');
+            if (colonIndex > 0) {
+              currentHeader = line.substring(0, colonIndex).trim();
+              currentValue = line.substring(colonIndex + 1).trim();
+            } else {
+              currentHeader = '';
+              currentValue = '';
+            }
+          }
+        }
+        // Save last header
+        if (currentHeader) {
+          headers[currentHeader.toLowerCase()] = currentValue;
+        }
 
-        const deliveryTo = headerResponse.match(/Delivered-To:\s*([^\r\n]+)/i)?.[1] || '';
-        const originalTo = headerResponse.match(/X-Original-To:\s*([^\r\n]+)/i)?.[1] || '';
-        const envelopeTo = headerResponse.match(/Envelope-To:\s*([^\r\n]+)/i)?.[1] || '';
+        const fromRaw = headers['from'] || '';
+        const toRaw = headers['to'] || '';
+        const subjectRaw = headers['subject'] || '';
+        const dateRaw = headers['date'] || '';
+        const deliveredTo = headers['delivered-to'] || '';
+        const originalTo = headers['x-original-to'] || '';
+        const envelopeTo = headers['envelope-to'] || '';
+        const messageId = headers['message-id'] || '';
 
-        const toAddress = toMatch?.[1]?.trim() || "";
+        const toAddress = toRaw.trim();
 
-        const headerCandidates = `${deliveryTo} ${originalTo} ${envelopeTo} ${toAddress}`;
+        const headerCandidates = `${deliveredTo} ${originalTo} ${envelopeTo} ${toAddress}`;
         const headerEmails = (headerCandidates.match(EMAIL_REGEX) || []).map((e) => e.toLowerCase().trim());
 
         const allEmails: string[] = [
@@ -355,26 +397,30 @@ serve(async (req: Request): Promise<Response> => {
         }
 
         // Extract sender email (clean it up)
-        let fromAddress = fromMatch?.[1]?.trim() || "unknown@unknown.com";
+        let fromAddress = fromRaw || "unknown@unknown.com";
         const fromEmailMatch = fromAddress.match(/<([^>]+)>/);
         if (fromEmailMatch) {
           const displayName = fromAddress.replace(/<[^>]+>/, '').trim().replace(/^"|"$/g, '');
           fromAddress = displayName ? `${displayName} <${fromEmailMatch[1]}>` : fromEmailMatch[1];
         }
 
-        // Decode subject if encoded
-        let subject = subjectMatch?.[1]?.trim() || "(No Subject)";
-        const encodedSubjectMatch = subject.match(/=\?([^?]+)\?([BQ])\?([^?]+)\?=/i);
-        if (encodedSubjectMatch) {
-          const [, charset, encoding, encodedText] = encodedSubjectMatch;
+        // Decode subject if encoded (handle multiple encoded parts)
+        let subject = subjectRaw || "(No Subject)";
+        // Decode all encoded-word patterns
+        subject = subject.replace(/=\?([^?]+)\?([BQ])\?([^?]+)\?=/gi, (match, charset, encoding, encodedText) => {
           if (encoding.toUpperCase() === 'B') {
             try {
-              subject = decodeBase64(encodedText);
-            } catch {}
+              return decodeBase64(encodedText);
+            } catch {
+              return match;
+            }
           } else if (encoding.toUpperCase() === 'Q') {
-            subject = decodeQuotedPrintable(encodedText.replace(/_/g, ' '));
+            return decodeQuotedPrintable(encodedText.replace(/_/g, ' '));
           }
-        }
+          return match;
+        });
+        // Clean up any remaining artifacts
+        subject = subject.trim();
 
         if (!matchedTempEmailId) {
           console.log(`[IMAP] Msg ${msgId} - NO MATCH found. Subject: "${subject}", From: "${fromAddress}"`);
@@ -419,7 +465,7 @@ serve(async (req: Request): Promise<Response> => {
         // Store the email
         const receivedAtIso = (() => {
           const fallback = new Date().toISOString();
-          const rawDate = dateMatch?.[1]?.trim();
+          const rawDate = dateRaw?.trim();
           if (!rawDate) return fallback;
 
           const parsed = new Date(rawDate);
@@ -429,6 +475,26 @@ serve(async (req: Request): Promise<Response> => {
           }
           return parsed.toISOString();
         })();
+
+        // Check for duplicates before inserting
+        const emailKey = `${matchedTempEmailId}|${fromAddress}|${subject}|${receivedAtIso}`.toLowerCase();
+        if (existingEmailKeys.has(emailKey)) {
+          console.log(`[IMAP] Msg ${msgId} - DUPLICATE detected (pre-check), skipping: "${subject}"`);
+          storedCount.skipped++;
+          await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
+          continue;
+        }
+
+        // Also check by message-id if available
+        if (messageId) {
+          const msgIdKey = `msgid:${messageId}`.toLowerCase();
+          if (existingEmailKeys.has(msgIdKey)) {
+            console.log(`[IMAP] Msg ${msgId} - DUPLICATE by Message-ID, skipping`);
+            storedCount.skipped++;
+            await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
+            continue;
+          }
+        }
 
         const { error: insertError } = await supabase
           .from("received_emails")
@@ -441,6 +507,22 @@ serve(async (req: Request): Promise<Response> => {
             is_read: false,
             received_at: receivedAtIso,
           });
+
+        if (insertError) {
+          if (insertError.code === '23505') {
+            console.log(`[IMAP] Msg ${msgId} - Duplicate (DB constraint), already exists for ${matchedRecipient}`);
+            storedCount.skipped++;
+          } else {
+            console.error(`[IMAP] Msg ${msgId} - Insert error:`, insertError);
+            storedCount.failed++;
+          }
+        } else {
+          storedCount.success++;
+          // Add to existing keys to prevent duplicates within this batch
+          existingEmailKeys.add(emailKey);
+          if (messageId) existingEmailKeys.add(`msgid:${messageId}`.toLowerCase());
+          console.log(`[IMAP] Msg ${msgId} - STORED for ${matchedRecipient}: "${subject}"`);
+        }
 
         if (insertError) {
           if (insertError.code === '23505') {

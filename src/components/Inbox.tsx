@@ -9,7 +9,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { formatDistanceToNow } from "date-fns";
 import { storage } from "@/lib/storage";
 import { useRealtimeEmails } from "@/hooks/useRealtimeEmails";
-import EmailAttachments, { Attachment } from "@/components/EmailAttachments";
+import { Attachment } from "@/components/EmailAttachments";
+import EmailPreview from "@/components/EmailPreview";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import InboxDiagnostics, { saveImapFetchStats } from "@/components/InboxDiagnostics";
@@ -548,52 +549,12 @@ const Inbox = () => {
         {/* Selected Email Preview */}
         <AnimatePresence>
           {selectedEmail && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="border-t border-border bg-secondary/20"
-            >
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-foreground">
-                    {selectedEmail.subject || t('noSubject')}
-                  </h3>
-                  <Button variant="ghost" size="sm" onClick={() => setSelectedEmail(null)}>
-                    {t('close')}
-                  </Button>
-                </div>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center">
-                    <User className="w-4 h-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{selectedEmail.from_address}</p>
-                    <p className="text-xs text-muted-foreground">{formatTime(selectedEmail.received_at)}</p>
-                  </div>
-                </div>
-                <div className="prose prose-invert max-w-none">
-                  {selectedEmail.html_body ? (
-                    <div 
-                      className="text-foreground/80"
-                      dangerouslySetInnerHTML={{ __html: selectedEmail.html_body }} 
-                    />
-                  ) : (
-                    <p className="text-foreground/80 whitespace-pre-wrap">{selectedEmail.body || t('noContent')}</p>
-                  )}
-                </div>
-                
-                {/* Attachments */}
-                {loadingAttachments ? (
-                  <div className="mt-4 flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span className="text-sm">Loading attachments...</span>
-                  </div>
-                ) : (
-                  <EmailAttachments attachments={attachments} emailId={selectedEmail.id} />
-                )}
-              </div>
-            </motion.div>
+            <EmailPreview
+              email={selectedEmail}
+              attachments={attachments}
+              loadingAttachments={loadingAttachments}
+              onClose={() => setSelectedEmail(null)}
+            />
           )}
         </AnimatePresence>
 

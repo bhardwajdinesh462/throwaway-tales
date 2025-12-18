@@ -25,6 +25,7 @@ import {
   BarChart3,
   Wand2,
   Rocket,
+  LayoutList,
 } from "lucide-react";
 import {
   Sidebar,
@@ -69,6 +70,7 @@ const AdminSidebar = () => {
   ];
 
   const settingsMenuItems = [
+    { title: "Overview", url: "/admin/settings-overview", icon: LayoutList },
     { title: "General", url: "/admin/general-settings", icon: Settings },
     { title: "Appearance", url: "/admin/appearance", icon: Paintbrush },
     { title: t('themes'), url: "/admin/themes", icon: Palette },

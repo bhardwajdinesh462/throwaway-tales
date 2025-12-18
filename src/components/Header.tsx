@@ -69,11 +69,15 @@ const Header = () => {
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 group">
             <img 
-              src={appearanceSettings.logoUrl || nullstoLogo} 
-              alt={generalSettings.siteName} 
-              className="h-8 w-auto object-contain transition-transform group-hover:scale-110" 
+              src={appearanceSettings.logoUrl && appearanceSettings.logoUrl.length > 0 ? appearanceSettings.logoUrl : nullstoLogo} 
+              alt={generalSettings.siteName || 'Nullsto'} 
+              className="h-8 w-auto object-contain transition-transform group-hover:scale-110"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = nullstoLogo;
+              }}
             />
-            <span className="text-xl font-bold gradient-text">{generalSettings.siteName}</span>
+            <span className="text-xl font-bold gradient-text">{generalSettings.siteName || 'Nullsto'}</span>
           </Link>
 
           {/* Desktop Navigation */}

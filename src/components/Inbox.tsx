@@ -408,17 +408,6 @@ const Inbox = () => {
               </Button>
             )}
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSendTestEmail}
-              disabled={!currentEmail || isSendingTest}
-              className="border-accent/30 hover:bg-accent/10"
-              title="Send a test email to this temp address"
-            >
-              <TestTube className={`w-4 h-4 mr-1 ${isSendingTest ? 'animate-pulse' : ''}`} />
-              {isSendingTest ? 'Sending…' : 'Test'}
-            </Button>
             
             <Button
               variant="outline"

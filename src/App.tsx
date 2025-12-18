@@ -55,6 +55,7 @@ import AdminEmailSetup from "./pages/admin/AdminEmailSetup";
 import AdminDeployGuide from "./pages/admin/AdminDeployGuide";
 import AdminRateLimits from "./pages/admin/AdminRateLimits";
 import AdminRoleApprovals from "./pages/admin/AdminRoleApprovals";
+import AdminSettingsOverview from "./pages/admin/AdminSettingsOverview";
 
 // Initialize default data on app load
 initializeDefaultData();
@@ -101,6 +102,7 @@ const App = () => (
                       <Route path="pages" element={<AdminPages />} />
                       <Route path="themes" element={<AdminThemes />} />
                       <Route path="settings" element={<AdminSettings />} />
+                      <Route path="settings-overview" element={<AdminSettingsOverview />} />
                       <Route path="general-settings" element={<AdminGeneralSettings />} />
                       <Route path="smtp" element={<AdminSMTPSettings />} />
                       <Route path="imap" element={<AdminIMAPSettings />} />

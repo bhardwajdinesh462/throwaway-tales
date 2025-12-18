@@ -17,7 +17,7 @@ export interface AppearanceSettings {
 
 const defaultSettings: AppearanceSettings = {
   logoUrl: '',
-  faviconUrl: '/favicon.ico',
+  faviconUrl: '/nullsto-favicon.png',
   primaryColor: '#0d9488',
   accentColor: '#8b5cf6',
   darkMode: true,

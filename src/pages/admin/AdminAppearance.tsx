@@ -43,13 +43,57 @@ const AdminAppearance = () => {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaving(true);
-    storage.set(APPEARANCE_SETTINGS_KEY, settings);
-    setTimeout(() => {
+    try {
+      // Save to localStorage for immediate access
+      storage.set(APPEARANCE_SETTINGS_KEY, settings);
+      
+      // Also save to Supabase app_settings for persistence
+      // First check if the key exists
+      const { data: existing } = await supabase
+        .from('app_settings')
+        .select('id')
+        .eq('key', 'appearance')
+        .single();
+
+      // Cast settings to Json-compatible format
+      const settingsJson = JSON.parse(JSON.stringify(settings));
+
+      let error;
+      if (existing) {
+        // Update existing
+        const result = await supabase
+          .from('app_settings')
+          .update({
+            value: settingsJson,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('key', 'appearance');
+        error = result.error;
+      } else {
+        // Insert new
+        const result = await supabase
+          .from('app_settings')
+          .insert([{
+            key: 'appearance',
+            value: settingsJson,
+          }]);
+        error = result.error;
+      }
+
+      if (error) {
+        console.error('Error saving to database:', error);
+        toast.error('Settings saved locally but failed to sync to database');
+      } else {
+        toast.success("Appearance settings saved!");
+      }
+    } catch (e) {
+      console.error('Error saving settings:', e);
+      toast.error('Failed to save settings');
+    } finally {
       setIsSaving(false);
-      toast.success("Appearance settings saved!");
-    }, 500);
+    }
   };
 
   const updateSetting = <K extends keyof AppearanceSettings>(key: K, value: AppearanceSettings[K]) => {

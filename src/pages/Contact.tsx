@@ -17,7 +17,7 @@ const Contact = () => {
     {
       icon: Mail,
       title: "Email Us",
-      details: "support@trashmail.io",
+      details: "contact@nullsto.edu.pl",
       subtitle: "We reply within 24 hours",
     },
     {
@@ -45,28 +45,21 @@ const Contact = () => {
       <Header />
       <main className="pt-24 pb-12">
         <div className="container mx-auto px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-center mb-16"
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-16">
             <span className="text-primary text-sm font-medium tracking-wider uppercase">Contact</span>
             <h1 className="text-4xl md:text-5xl font-bold mt-4 mb-4 text-foreground">
               Get In
               <span className="gradient-text"> Touch</span>
             </h1>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              Have questions or feedback? We'd love to hear from you. Send us a message and we'll respond as soon as possible.
+              Have questions or feedback? We'd love to hear from you. Send us a message and we'll respond as soon as
+              possible.
             </p>
           </motion.div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 max-w-6xl mx-auto">
             {/* Contact Form */}
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.2 }}
-            >
+            <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }}>
               <div className="glass-card p-8">
                 <h2 className="text-2xl font-semibold mb-6 text-foreground">Send us a message</h2>
                 <form onSubmit={handleSubmit} className="space-y-6">
@@ -90,9 +83,9 @@ const Contact = () => {
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground mb-2 block">Message</label>
-                    <Textarea 
-                      placeholder="Tell us more about your inquiry..." 
-                      className="bg-secondary/50 border-border min-h-[150px]" 
+                    <Textarea
+                      placeholder="Tell us more about your inquiry..."
+                      className="bg-secondary/50 border-border min-h-[150px]"
                     />
                   </div>
                   <Button variant="neon" size="lg" className="w-full">

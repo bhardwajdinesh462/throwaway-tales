@@ -313,6 +313,24 @@ export const useSecureEmailService = () => {
     void initializeEmail();
   }, [domains, currentEmail, generateEmail]);
 
+  // Clear stale tokens and email from storage
+  const clearStaleEmail = useCallback((emailId: string) => {
+    try {
+      // Remove token
+      const tokens = JSON.parse(localStorage.getItem(TOKEN_STORAGE_KEY) || '{}');
+      delete tokens[emailId];
+      localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(tokens));
+      
+      // Clear current email pointer if it matches
+      const currentId = localStorage.getItem(CURRENT_EMAIL_ID_KEY);
+      if (currentId === emailId) {
+        localStorage.removeItem(CURRENT_EMAIL_ID_KEY);
+      }
+    } catch (e) {
+      console.error('Failed to clear stale email:', e);
+    }
+  }, []);
+
   // Fetch emails using secure backend function
   const fetchSecureEmailsFor = useCallback(async (email: TempEmail) => {
     const token = getStoredToken(email.id) || email.secret_token;
@@ -338,6 +356,15 @@ export const useSecureEmailService = () => {
       if (activeEmailIdRef.current !== email.id) return;
 
       if (error) {
+        // Check if this is a 404 "Temp email not found" error
+        const errorMessage = error.message || '';
+        if (errorMessage.includes('404') || errorMessage.includes('Temp email not found')) {
+          console.warn('[email-service] Temp email not found, clearing stale data and regenerating...');
+          clearStaleEmail(email.id);
+          setCurrentEmail(null);
+          initStartedRef.current = false; // Allow re-initialization
+          return;
+        }
         console.error('Error fetching emails:', error);
         return;
       }
@@ -345,10 +372,19 @@ export const useSecureEmailService = () => {
       if (data?.emails) {
         setReceivedEmails(data.emails);
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Also handle caught errors for 404
+      const errorMessage = error?.message || '';
+      if (errorMessage.includes('404') || errorMessage.includes('Temp email not found')) {
+        console.warn('[email-service] Temp email not found (caught), clearing stale data...');
+        clearStaleEmail(email.id);
+        setCurrentEmail(null);
+        initStartedRef.current = false;
+        return;
+      }
       console.error('Error in fetchSecureEmails:', error);
     }
-  }, []);
+  }, [clearStaleEmail]);
 
   const fetchSecureEmails = useCallback(async () => {
     const email = currentEmailRef.current;

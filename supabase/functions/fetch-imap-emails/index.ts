@@ -130,7 +130,7 @@ serve(async (req: Request): Promise<Response> => {
 
   // Request options (defaults keep polling fast)
   let mode: 'latest' | 'unseen' = 'latest';
-  let limit = 20;
+  let limit = 10;
   try {
     const body = await req.json();
     if (body?.mode === 'unseen' || body?.mode === 'latest') mode = body.mode;

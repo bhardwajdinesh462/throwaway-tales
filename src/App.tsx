@@ -51,6 +51,8 @@ import AdminBanners from "./pages/admin/AdminBanners";
 import AdminAuditLogs from "./pages/admin/AdminAuditLogs";
 import AdminEmailSetup from "./pages/admin/AdminEmailSetup";
 import AdminDeployGuide from "./pages/admin/AdminDeployGuide";
+import AdminRateLimits from "./pages/admin/AdminRateLimits";
+import AdminRoleApprovals from "./pages/admin/AdminRoleApprovals";
 
 // Initialize default data on app load
 initializeDefaultData();
@@ -112,6 +114,8 @@ const App = () => (
                   <Route path="advanced" element={<AdminAdvancedSettings />} />
                   <Route path="banners" element={<AdminBanners />} />
                   <Route path="audit-logs" element={<AdminAuditLogs />} />
+                  <Route path="rate-limits" element={<AdminRateLimits />} />
+                  <Route path="role-approvals" element={<AdminRoleApprovals />} />
                 </Route>
 
                 <Route path="*" element={<NotFound />} />

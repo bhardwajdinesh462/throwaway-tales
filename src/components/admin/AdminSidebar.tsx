@@ -85,6 +85,8 @@ const AdminSidebar = () => {
   const advancedMenuItems = [
     { title: "Deploy Guide", url: "/admin/deploy-guide", icon: Rocket },
     { title: "Audit Logs", url: "/admin/audit-logs", icon: Shield },
+    { title: "Rate Limits", url: "/admin/rate-limits", icon: Clock },
+    { title: "Role Approvals", url: "/admin/role-approvals", icon: ShieldCheck },
     { title: "Advanced", url: "/admin/advanced", icon: Cog },
     { title: "Banners", url: "/admin/banners", icon: Megaphone },
     { title: "Ads", url: "/admin/ads", icon: Megaphone },

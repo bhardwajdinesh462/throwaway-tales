@@ -284,9 +284,10 @@ serve(async (req: Request): Promise<Response> => {
         const headerCandidates = `${deliveryTo} ${originalTo} ${envelopeTo} ${toAddress}`;
         const headerEmails = (headerCandidates.match(EMAIL_REGEX) || []).map((e) => e.toLowerCase().trim());
 
-        const allEmails = (headerResponse.match(EMAIL_REGEX) || [])
-          .concat(headerEmails)
-          .map((e) => e.toLowerCase().trim());
+        const allEmails: string[] = [
+          ...(headerResponse.match(EMAIL_REGEX) ?? []),
+          ...headerEmails
+        ].map((e) => e.toLowerCase().trim());
 
         const domainMatched = allowedDomainSuffixes.length
           ? allEmails.findLast((e) => allowedDomainSuffixes.some((suffix) => e.endsWith(suffix)))

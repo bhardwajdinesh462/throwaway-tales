@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Users, Mail, Globe, TrendingUp, Activity, Clock } from "lucide-react";
+import { Users, Mail, Globe, TrendingUp, Activity, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, Server } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 
 interface Stats {
   totalUsers: number;
@@ -10,6 +13,22 @@ interface Stats {
   activeEmails: number;
   emailsToday: number;
   userGrowth: number;
+}
+
+interface HealthCheckResult {
+  smtp: {
+    configured: boolean;
+    status: 'healthy' | 'unhealthy' | 'unconfigured';
+    lastCheck: string;
+    message: string;
+  };
+  imap: {
+    configured: boolean;
+    status: 'healthy' | 'unhealthy' | 'unconfigured';
+    lastCheck: string;
+    message: string;
+  };
+  overall: 'healthy' | 'degraded' | 'unhealthy';
 }
 
 const AdminDashboard = () => {
@@ -22,6 +41,8 @@ const AdminDashboard = () => {
     userGrowth: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [healthCheck, setHealthCheck] = useState<HealthCheckResult | null>(null);
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -63,8 +84,69 @@ const AdminDashboard = () => {
       }
     };
 
+    const fetchHealthCheck = async () => {
+      try {
+        const { data } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "email_health_check")
+          .single();
+        
+        if (data?.value) {
+          setHealthCheck(data.value as unknown as HealthCheckResult);
+        }
+      } catch (error) {
+        console.error("Error fetching health check:", error);
+      }
+    };
+
     fetchStats();
+    fetchHealthCheck();
   }, []);
+
+  const runHealthCheck = async () => {
+    setIsCheckingHealth(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('email-health-check');
+      if (error) throw error;
+      setHealthCheck(data);
+      toast.success("Health check completed");
+    } catch (error: any) {
+      console.error("Health check error:", error);
+      toast.error("Failed to run health check");
+    } finally {
+      setIsCheckingHealth(false);
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'healthy':
+        return <CheckCircle className="w-5 h-5 text-green-500" />;
+      case 'degraded':
+        return <AlertTriangle className="w-5 h-5 text-yellow-500" />;
+      case 'unhealthy':
+      case 'unconfigured':
+        return <XCircle className="w-5 h-5 text-destructive" />;
+      default:
+        return <XCircle className="w-5 h-5 text-muted-foreground" />;
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'healthy':
+        return <Badge className="bg-green-500">Healthy</Badge>;
+      case 'degraded':
+        return <Badge className="bg-yellow-500">Degraded</Badge>;
+      case 'unhealthy':
+        return <Badge variant="destructive">Unhealthy</Badge>;
+      case 'unconfigured':
+        return <Badge variant="outline">Not Configured</Badge>;
+      default:
+        return <Badge variant="outline">Unknown</Badge>;
+    }
+  };
 
   const statCards = [
     { title: "Total Users", value: stats.totalUsers, icon: Users, color: "text-primary" },
@@ -77,6 +159,76 @@ const AdminDashboard = () => {
 
   return (
     <div className="space-y-6">
+      {/* Email System Health */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card p-6"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Server className="w-6 h-6 text-primary" />
+            <h2 className="text-lg font-semibold text-foreground">Email System Health</h2>
+            {healthCheck && getStatusBadge(healthCheck.overall)}
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={runHealthCheck}
+            disabled={isCheckingHealth}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isCheckingHealth ? 'animate-spin' : ''}`} />
+            {isCheckingHealth ? 'Checking...' : 'Run Health Check'}
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* SMTP Status */}
+          <div className="p-4 rounded-lg bg-secondary/30">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Mail className="w-5 h-5 text-primary" />
+                <span className="font-medium">SMTP (Outgoing)</span>
+              </div>
+              {healthCheck ? getStatusIcon(healthCheck.smtp.status) : <XCircle className="w-5 h-5 text-muted-foreground" />}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {healthCheck?.smtp.message || 'No health check data available'}
+            </p>
+            {healthCheck?.smtp.lastCheck && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Last checked: {new Date(healthCheck.smtp.lastCheck).toLocaleString()}
+              </p>
+            )}
+          </div>
+
+          {/* IMAP Status */}
+          <div className="p-4 rounded-lg bg-secondary/30">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Server className="w-5 h-5 text-primary" />
+                <span className="font-medium">IMAP (Incoming)</span>
+              </div>
+              {healthCheck ? getStatusIcon(healthCheck.imap.status) : <XCircle className="w-5 h-5 text-muted-foreground" />}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {healthCheck?.imap.message || 'No health check data available'}
+            </p>
+            {healthCheck?.imap.lastCheck && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Last checked: {new Date(healthCheck.imap.lastCheck).toLocaleString()}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {!healthCheck && (
+          <p className="text-sm text-muted-foreground mt-4 text-center">
+            Click "Run Health Check" to check email system status
+          </p>
+        )}
+      </motion.div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {statCards.map((stat, index) => (
@@ -110,7 +262,7 @@ const AdminDashboard = () => {
         className="glass-card p-6"
       >
         <h2 className="text-lg font-semibold text-foreground mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <a href="/admin/users" className="p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors">
             <Users className="w-5 h-5 text-primary mb-2" />
             <p className="font-medium text-foreground">Manage Users</p>
@@ -121,8 +273,13 @@ const AdminDashboard = () => {
             <p className="font-medium text-foreground">Add Domain</p>
             <p className="text-sm text-muted-foreground">Configure email domains</p>
           </a>
+          <a href="/admin/email-setup" className="p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors">
+            <Mail className="w-5 h-5 text-neon-green mb-2" />
+            <p className="font-medium text-foreground">Email Setup</p>
+            <p className="text-sm text-muted-foreground">Configure SMTP/IMAP</p>
+          </a>
           <a href="/admin/settings" className="p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors">
-            <Activity className="w-5 h-5 text-neon-green mb-2" />
+            <Activity className="w-5 h-5 text-neon-pink mb-2" />
             <p className="font-medium text-foreground">System Settings</p>
             <p className="text-sm text-muted-foreground">Configure app settings</p>
           </a>

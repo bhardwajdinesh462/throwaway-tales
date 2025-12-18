@@ -1,13 +1,17 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import {
   Wand2, Server, Mail, Shield, Globe, CheckCircle, XCircle,
-  Copy, ExternalLink, Loader2, RefreshCw, AlertTriangle
+  Copy, ExternalLink, Loader2, RefreshCw, AlertTriangle, Forward, Plus, Trash2
 } from "lucide-react";
 
 interface ConfigStatus {
@@ -20,10 +24,19 @@ interface EmailConfig {
   imap: { configured: boolean; secrets: ConfigStatus[] };
 }
 
+interface ForwardingRule {
+  id: string;
+  pattern: string;
+  forwardTo: string;
+  enabled: boolean;
+}
+
 const AdminEmailSetup = () => {
   const [activeTab, setActiveTab] = useState("credentials");
   const [config, setConfig] = useState<EmailConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [forwardingRules, setForwardingRules] = useState<ForwardingRule[]>([]);
+  const [newRule, setNewRule] = useState({ pattern: '', forwardTo: '' });
 
   const fetchConfig = async () => {
     setIsLoading(true);
@@ -39,8 +52,25 @@ const AdminEmailSetup = () => {
     }
   };
 
+  const fetchForwardingRules = async () => {
+    try {
+      const { data } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "email_forwarding_rules")
+        .single();
+      
+      if (data?.value) {
+        setForwardingRules(data.value as unknown as ForwardingRule[]);
+      }
+    } catch (error) {
+      console.error("Error fetching forwarding rules:", error);
+    }
+  };
+
   useEffect(() => {
     fetchConfig();
+    fetchForwardingRules();
   }, []);
 
   const copyToClipboard = (text: string, label: string) => {
@@ -58,6 +88,71 @@ const AdminEmailSetup = () => {
       <Copy className="h-3 w-3" />
     </Button>
   );
+
+  const addForwardingRule = async () => {
+    if (!newRule.pattern || !newRule.forwardTo) {
+      toast.error("Please fill in both pattern and forward address");
+      return;
+    }
+
+    const rule: ForwardingRule = {
+      id: crypto.randomUUID(),
+      pattern: newRule.pattern,
+      forwardTo: newRule.forwardTo,
+      enabled: true,
+    };
+
+    const updatedRules = [...forwardingRules, rule];
+    
+    try {
+      const { error } = await supabase.from("app_settings").upsert(
+        [{ key: "email_forwarding_rules", value: updatedRules as unknown as Json }],
+        { onConflict: 'key' }
+      );
+      if (error) throw error;
+
+      setForwardingRules(updatedRules);
+      setNewRule({ pattern: '', forwardTo: '' });
+      toast.success("Forwarding rule added");
+    } catch (error) {
+      toast.error("Failed to save forwarding rule");
+    }
+  };
+
+  const toggleRule = async (id: string) => {
+    const updatedRules = forwardingRules.map(rule =>
+      rule.id === id ? { ...rule, enabled: !rule.enabled } : rule
+    );
+
+    try {
+      const { error } = await supabase.from("app_settings").upsert(
+        [{ key: "email_forwarding_rules", value: updatedRules as unknown as Json }],
+        { onConflict: 'key' }
+      );
+      if (error) throw error;
+
+      setForwardingRules(updatedRules);
+    } catch (error) {
+      toast.error("Failed to update rule");
+    }
+  };
+
+  const deleteRule = async (id: string) => {
+    const updatedRules = forwardingRules.filter(rule => rule.id !== id);
+
+    try {
+      const { error } = await supabase.from("app_settings").upsert(
+        [{ key: "email_forwarding_rules", value: updatedRules as unknown as Json }],
+        { onConflict: 'key' }
+      );
+      if (error) throw error;
+
+      setForwardingRules(updatedRules);
+      toast.success("Rule deleted");
+    } catch (error) {
+      toast.error("Failed to delete rule");
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -122,12 +217,13 @@ const AdminEmailSetup = () => {
 
       {/* Setup Steps */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="credentials">1. Get Credentials</TabsTrigger>
-          <TabsTrigger value="catchall">2. Catch-All Email</TabsTrigger>
-          <TabsTrigger value="backend">3. Backend Secrets</TabsTrigger>
-          <TabsTrigger value="dns">4. DNS Setup</TabsTrigger>
-          <TabsTrigger value="test">5. Test & Verify</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-6">
+          <TabsTrigger value="credentials">1. Credentials</TabsTrigger>
+          <TabsTrigger value="catchall">2. Catch-All</TabsTrigger>
+          <TabsTrigger value="backend">3. Backend</TabsTrigger>
+          <TabsTrigger value="forwarding">4. Forwarding</TabsTrigger>
+          <TabsTrigger value="dns">5. DNS Setup</TabsTrigger>
+          <TabsTrigger value="test">6. Test</TabsTrigger>
         </TabsList>
 
         <TabsContent value="credentials" className="space-y-4">
@@ -311,6 +407,103 @@ const AdminEmailSetup = () => {
                 <Button variant="outline" onClick={() => setActiveTab("catchall")}>
                   ← Back
                 </Button>
+                <Button onClick={() => setActiveTab("forwarding")}>
+                  Next: Email Forwarding →
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="forwarding" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Forward className="w-5 h-5" />
+                Step 4: Email Forwarding Rules
+              </CardTitle>
+              <CardDescription>
+                Configure rules to forward emails to external addresses
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="bg-muted p-4 rounded-lg">
+                <p className="text-sm">
+                  Forwarding rules let you automatically send copies of incoming emails to other addresses.
+                  Use patterns like <code>*@yourdomain.com</code> for all emails or <code>support@*</code> for specific addresses.
+                </p>
+              </div>
+
+              {/* Add New Rule */}
+              <div className="space-y-4 p-4 border rounded-lg">
+                <h4 className="font-semibold">Add New Forwarding Rule</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="pattern">Email Pattern</Label>
+                    <Input
+                      id="pattern"
+                      placeholder="*@yourdomain.com or specific@email.com"
+                      value={newRule.pattern}
+                      onChange={(e) => setNewRule({ ...newRule, pattern: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">Use * as wildcard</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="forwardTo">Forward To</Label>
+                    <Input
+                      id="forwardTo"
+                      type="email"
+                      placeholder="your@email.com"
+                      value={newRule.forwardTo}
+                      onChange={(e) => setNewRule({ ...newRule, forwardTo: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <Button onClick={addForwardingRule}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Rule
+                </Button>
+              </div>
+
+              {/* Existing Rules */}
+              <div className="space-y-2">
+                <h4 className="font-semibold">Active Forwarding Rules</h4>
+                {forwardingRules.length === 0 ? (
+                  <p className="text-sm text-muted-foreground p-4 text-center border rounded-lg">
+                    No forwarding rules configured yet
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {forwardingRules.map((rule) => (
+                      <div key={rule.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                        <div className="flex items-center gap-4">
+                          <Switch
+                            checked={rule.enabled}
+                            onCheckedChange={() => toggleRule(rule.id)}
+                          />
+                          <div>
+                            <p className="font-mono text-sm">{rule.pattern}</p>
+                            <p className="text-xs text-muted-foreground">→ {rule.forwardTo}</p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deleteRule(rule.id)}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setActiveTab("backend")}>
+                  ← Back
+                </Button>
                 <Button onClick={() => setActiveTab("dns")}>
                   Next: DNS Setup →
                 </Button>
@@ -324,7 +517,7 @@ const AdminEmailSetup = () => {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Globe className="w-5 h-5" />
-                Step 4: DNS Configuration
+                Step 5: DNS Configuration
               </CardTitle>
               <CardDescription>
                 Configure DNS records at your domain registrar (e.g., Regery.com)
@@ -392,7 +585,7 @@ const AdminEmailSetup = () => {
               </div>
 
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setActiveTab("backend")}>
+                <Button variant="outline" onClick={() => setActiveTab("forwarding")}>
                   ← Back
                 </Button>
                 <Button onClick={() => setActiveTab("test")}>
@@ -408,7 +601,7 @@ const AdminEmailSetup = () => {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <CheckCircle className="w-5 h-5" />
-                Step 5: Test & Verify
+                Step 6: Test & Verify
               </CardTitle>
               <CardDescription>
                 Verify your email configuration is working correctly
@@ -481,6 +674,10 @@ const AdminEmailSetup = () => {
                   <li className="flex items-center gap-2">
                     <input type="checkbox" className="rounded" />
                     DNS records are configured (MX, SPF)
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <input type="checkbox" className="rounded" />
+                    Forwarding rules are set (if needed)
                   </li>
                   <li className="flex items-center gap-2">
                     <input type="checkbox" className="rounded" />

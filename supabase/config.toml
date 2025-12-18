@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.check-email-config]
 verify_jwt = false
+
+[functions.email-health-check]
+verify_jwt = false

@@ -79,6 +79,7 @@ const AdminSidebar = () => {
   ];
 
   const advancedMenuItems = [
+    { title: "Audit Logs", url: "/admin/audit-logs", icon: Shield },
     { title: "Advanced", url: "/admin/advanced", icon: Cog },
     { title: "Banners", url: "/admin/banners", icon: Megaphone },
     { title: "Ads", url: "/admin/ads", icon: Megaphone },

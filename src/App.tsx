@@ -47,6 +47,7 @@ import AdminCron from "./pages/admin/AdminCron";
 import AdminCache from "./pages/admin/AdminCache";
 import AdminAdvancedSettings from "./pages/admin/AdminAdvancedSettings";
 import AdminBanners from "./pages/admin/AdminBanners";
+import AdminAuditLogs from "./pages/admin/AdminAuditLogs";
 
 // Initialize default data on app load
 initializeDefaultData();
@@ -104,6 +105,7 @@ const App = () => (
                   <Route path="cache" element={<AdminCache />} />
                   <Route path="advanced" element={<AdminAdvancedSettings />} />
                   <Route path="banners" element={<AdminBanners />} />
+                  <Route path="audit-logs" element={<AdminAuditLogs />} />
                 </Route>
 
                 <Route path="*" element={<NotFound />} />

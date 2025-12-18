@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useSupabaseAuth';
 import { toast } from 'sonner';
@@ -64,6 +64,9 @@ export const useSecureEmailService = () => {
   const [emailHistory, setEmailHistory] = useState<TempEmail[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Ref to prevent duplicate initialization
+  const initStartedRef = useRef(false);
 
   // Load domains from Supabase
   useEffect(() => {
@@ -192,7 +195,16 @@ export const useSecureEmailService = () => {
   // Initial email generation - check for existing first
   useEffect(() => {
     const initializeEmail = async () => {
-      if (domains.length === 0 || currentEmail || isGenerating) return;
+      // Guard: prevent duplicate initialization
+      if (initStartedRef.current) return;
+      if (domains.length === 0) return;
+      if (currentEmail) {
+        setIsLoading(false);
+        return;
+      }
+      
+      // Mark initialization as started immediately
+      initStartedRef.current = true;
 
       // Check localStorage for existing session email
       const storedTokens = localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -226,7 +238,7 @@ export const useSecureEmailService = () => {
       }
 
       // No valid existing email, generate new one
-      generateEmail();
+      await generateEmail();
     };
 
     initializeEmail();

@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAppearanceSettings } from "@/hooks/useAppearanceSettings";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +28,7 @@ const Header = () => {
   const { user, isAdmin, signOut } = useAuth();
   const { t, language, setLanguage, languages, isRTL } = useLanguage();
   const { theme, themes, setTheme } = useTheme();
+  const { settings: appearanceSettings } = useAppearanceSettings();
   const navigate = useNavigate();
 
   const toggleTheme = () => {
@@ -63,10 +65,18 @@ const Header = () => {
         <div className={`flex items-center justify-between h-16 ${isRTL ? 'flex-row-reverse' : ''}`}>
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 group">
-            <div className="relative">
-              <Mail className="w-8 h-8 text-primary transition-transform group-hover:scale-110" />
-              <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full" />
-            </div>
+            {appearanceSettings.logoUrl ? (
+              <img 
+                src={appearanceSettings.logoUrl} 
+                alt="Nullsto" 
+                className="h-8 w-auto object-contain transition-transform group-hover:scale-110" 
+              />
+            ) : (
+              <div className="relative">
+                <Mail className="w-8 h-8 text-primary transition-transform group-hover:scale-110" />
+                <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full" />
+              </div>
+            )}
             <span className="text-xl font-bold gradient-text">Nullsto</span>
           </Link>
 

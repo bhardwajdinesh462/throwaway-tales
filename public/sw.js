@@ -8,7 +8,19 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   console.log("Service Worker activated.");
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      // Clear old caches to prevent stale builds (push notifications still work).
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      } catch (e) {
+        console.log("Cache cleanup failed:", e);
+      }
+
+      await self.clients.claim();
+    })()
+  );
 });
 
 self.addEventListener("push", (event) => {

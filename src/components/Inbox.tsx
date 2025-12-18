@@ -80,17 +80,41 @@ const Inbox = () => {
     }
   }, [user]);
 
+  const handleRefresh = useCallback(
+    async (isAuto = false, opts?: { pollImap?: boolean }) => {
+      setIsRefreshing(true);
+      setCountdown(refreshInterval);
+
+      try {
+        // For fast delivery, auto-refresh performs a lightweight IMAP poll (latest-N).
+        if (opts?.pollImap) {
+          await triggerImapFetch({ mode: "latest", limit: 10 });
+        } else {
+          await refetch();
+        }
+      } finally {
+        setIsRefreshing(false);
+
+        // Reset countdown on manual refresh
+        if (!isAuto) {
+          setCountdown(refreshInterval);
+        }
+      }
+    },
+    [refreshInterval, refetch, triggerImapFetch]
+  );
+
   // Auto-refresh functionality
   useEffect(() => {
     if (!autoRefreshEnabled) {
       if (countdownRef.current) clearInterval(countdownRef.current);
-      if (refreshRef.current) clearTimeout(refreshRef.current);
+      if (refreshRef.current) clearInterval(refreshRef.current);
       return;
     }
 
     // Countdown timer
     countdownRef.current = setInterval(() => {
-      setCountdown(prev => {
+      setCountdown((prev) => {
         if (prev <= 1) {
           return refreshInterval;
         }
@@ -100,35 +124,27 @@ const Inbox = () => {
 
     // Refresh timer
     refreshRef.current = setInterval(() => {
-      handleRefresh(true);
+      void handleRefresh(true, { pollImap: true });
     }, refreshInterval * 1000);
 
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
       if (refreshRef.current) clearInterval(refreshRef.current);
     };
-  }, [autoRefreshEnabled, refreshInterval]);
+  }, [autoRefreshEnabled, refreshInterval, handleRefresh, currentEmail?.id]);
 
-  const handleRefresh = async (isAuto = false) => {
-    setIsRefreshing(true);
-    setCountdown(refreshInterval);
-    
-    // Refresh from database
-    await refetch();
-    
-    setIsRefreshing(false);
-    
-    if (!isAuto) {
-      // Reset countdown on manual refresh
-      setCountdown(refreshInterval);
-    }
-  };
+  // When switching to a new temp address, clear selected email UI to prevent “mixed inbox” confusion
+  useEffect(() => {
+    setSelectedEmail(null);
+    setAttachments([]);
+  }, [currentEmail?.id]);
+
 
   // Check for new emails from IMAP server
   const handleCheckMail = async () => {
     setIsCheckingMail(true);
     try {
-      await triggerImapFetch();
+      await triggerImapFetch({ mode: "latest", limit: 10 });
       toast.success('Checked for new emails from mail server');
     } catch (error) {
       console.error('Error checking mail:', error);
@@ -158,7 +174,7 @@ const Inbox = () => {
       if (error) throw error;
 
       toast.success('Test email sent. Fetching new mail…');
-      await triggerImapFetch();
+      await triggerImapFetch({ mode: "latest", limit: 10 });
       toast.success('Inbox updated');
     } catch (error: any) {
       console.error('Error sending test email:', error);
@@ -168,18 +184,6 @@ const Inbox = () => {
     }
   };
 
-  const handleResetLocalStorage = () => {
-    const ok = window.confirm(
-      "This will clear this site's localStorage (including your current temp email session) and reload the page. Continue?"
-    );
-    if (!ok) return;
-    try {
-      localStorage.clear();
-    } catch {
-      // ignore
-    }
-    window.location.reload();
-  };
 
   const handleSelectEmail = async (email: ReceivedEmail) => {
     setSelectedEmail(email);
@@ -346,16 +350,6 @@ const Inbox = () => {
               {t('refresh')}
             </Button>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleResetLocalStorage}
-              className="border-destructive/30 hover:bg-destructive/10"
-              title="Clear local storage and restart (debug)"
-            >
-              <Trash2 className="w-4 h-4 mr-1" />
-              Reset
-            </Button>
           </div>
         </div>
 

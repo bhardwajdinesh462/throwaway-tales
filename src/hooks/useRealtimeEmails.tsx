@@ -126,8 +126,10 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
 
     console.log('Setting up realtime subscription for received_emails', filterConfig);
 
+    const channelName = tempEmailId ? `received-emails-${tempEmailId}` : 'received-emails-all';
+
     const channel = supabase
-      .channel('received-emails-realtime')
+      .channel(channelName)
       .on(
         'postgres_changes',
         filterConfig,

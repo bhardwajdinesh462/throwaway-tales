@@ -341,29 +341,35 @@ export const useSecureEmailService = () => {
   }, [currentEmail, fetchSecureEmails]);
 
   // Trigger IMAP fetch from mail server
-  const triggerImapFetch = useCallback(async () => {
-    try {
-      console.log('Triggering IMAP fetch...');
-      const { data, error } = await supabase.functions.invoke('fetch-imap-emails', {
-        body: { mode: 'latest', limit: 20 },
-      });
+  const triggerImapFetch = useCallback(
+    async (options?: { mode?: 'latest' | 'unseen'; limit?: number }) => {
+      try {
+        const mode = options?.mode ?? 'latest';
+        const limit = options?.limit ?? 10;
 
-      if (error) {
-        console.error('IMAP fetch error:', error);
+        console.log('Triggering IMAP fetch...');
+        const { data, error } = await supabase.functions.invoke('fetch-imap-emails', {
+          body: { mode, limit },
+        });
+
+        if (error) {
+          console.error('IMAP fetch error:', error);
+          throw error;
+        }
+
+        console.log('IMAP fetch result:', data);
+
+        // Refetch emails after IMAP poll
+        await fetchSecureEmails();
+
+        return data;
+      } catch (error) {
+        console.error('Error triggering IMAP fetch:', error);
         throw error;
       }
-
-      console.log('IMAP fetch result:', data);
-      
-      // Refetch emails after IMAP poll
-      await fetchSecureEmails();
-      
-      return data;
-    } catch (error) {
-      console.error('Error triggering IMAP fetch:', error);
-      throw error;
-    }
-  }, [fetchSecureEmails]);
+    },
+    [fetchSecureEmails]
+  );
 
   // Mark email as read using secure edge function
   const markAsRead = useCallback(async (emailId: string) => {

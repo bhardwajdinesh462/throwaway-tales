@@ -116,6 +116,7 @@ export type Database = {
           content: string
           created_at: string
           end_date: string | null
+          height: number | null
           id: string
           image_url: string | null
           is_active: boolean
@@ -123,16 +124,19 @@ export type Database = {
           name: string
           position: string
           priority: number
+          size_name: string | null
           start_date: string | null
           type: string
           updated_at: string
           view_count: number
+          width: number | null
         }
         Insert: {
           click_count?: number
           content: string
           created_at?: string
           end_date?: string | null
+          height?: number | null
           id?: string
           image_url?: string | null
           is_active?: boolean
@@ -140,16 +144,19 @@ export type Database = {
           name: string
           position: string
           priority?: number
+          size_name?: string | null
           start_date?: string | null
           type: string
           updated_at?: string
           view_count?: number
+          width?: number | null
         }
         Update: {
           click_count?: number
           content?: string
           created_at?: string
           end_date?: string | null
+          height?: number | null
           id?: string
           image_url?: string | null
           is_active?: boolean
@@ -157,10 +164,69 @@ export type Database = {
           name?: string
           position?: string
           priority?: number
+          size_name?: string | null
           start_date?: string | null
           type?: string
           updated_at?: string
           view_count?: number
+          width?: number | null
+        }
+        Relationships: []
+      }
+      blogs: {
+        Row: {
+          author: string
+          category: string | null
+          content: string
+          created_at: string | null
+          excerpt: string | null
+          featured_image_url: string | null
+          id: string
+          meta_description: string | null
+          meta_title: string | null
+          published: boolean | null
+          published_at: string | null
+          reading_time: number | null
+          slug: string
+          tags: string[] | null
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          author: string
+          category?: string | null
+          content: string
+          created_at?: string | null
+          excerpt?: string | null
+          featured_image_url?: string | null
+          id?: string
+          meta_description?: string | null
+          meta_title?: string | null
+          published?: boolean | null
+          published_at?: string | null
+          reading_time?: number | null
+          slug: string
+          tags?: string[] | null
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          author?: string
+          category?: string | null
+          content?: string
+          created_at?: string | null
+          excerpt?: string | null
+          featured_image_url?: string | null
+          id?: string
+          meta_description?: string | null
+          meta_title?: string | null
+          published?: boolean | null
+          published_at?: string | null
+          reading_time?: number | null
+          slug?: string
+          tags?: string[] | null
+          title?: string
+          updated_at?: string | null
         }
         Relationships: []
       }
@@ -589,6 +655,20 @@ export type Database = {
       }
       cleanup_old_rate_limits: { Args: never; Returns: undefined }
       generate_secret_token: { Args: never; Returns: string }
+      get_all_profiles_for_admin: {
+        Args: { p_page?: number; p_page_size?: number; p_search?: string }
+        Returns: {
+          avatar_url: string
+          created_at: string
+          display_name: string
+          email: string
+          id: string
+          role: string
+          total_count: number
+          updated_at: string
+          user_id: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

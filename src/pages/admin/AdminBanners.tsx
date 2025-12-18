@@ -1,15 +1,16 @@
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
-  Plus, Trash2, Edit, Save, X, Image, Code, Type, FileCode,
-  Eye, EyeOff, Calendar, Link as LinkIcon, Upload, Loader2,
-  BarChart3, MousePointer, Layout
+  Plus, Trash2, Edit, Image, Code, Type, FileCode,
+  Eye, EyeOff, Calendar, Upload, Loader2,
+  MousePointer, Layout, Ruler
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Select,
   SelectContent,
@@ -24,12 +25,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 
 interface Banner {
   id: string;
   name: string;
-  position: "header" | "sidebar" | "content" | "footer";
-  type: "image" | "html" | "script" | "text";
+  position: string;
+  type: string;
   content: string;
   image_url: string | null;
   link_url: string | null;
@@ -39,17 +41,32 @@ interface Banner {
   priority: number;
   click_count: number;
   view_count: number;
+  width: number;
+  height: number;
+  size_name: string;
   created_at: string;
 }
 
-const positionLabels = {
+const positionLabels: Record<string, string> = {
   header: "Header (Top of page)",
   sidebar: "Sidebar (Right side)",
   content: "Content (Between sections)",
   footer: "Footer (Bottom of page)",
+  popup: "Popup (Overlay)",
 };
 
-const typeIcons = {
+const sizePresets = [
+  { name: "leaderboard", width: 728, height: 90, label: "Leaderboard (728×90)" },
+  { name: "medium-rectangle", width: 300, height: 250, label: "Medium Rectangle (300×250)" },
+  { name: "wide-skyscraper", width: 160, height: 600, label: "Wide Skyscraper (160×600)" },
+  { name: "mobile-banner", width: 320, height: 50, label: "Mobile Banner (320×50)" },
+  { name: "large-banner", width: 970, height: 250, label: "Large Banner (970×250)" },
+  { name: "half-page", width: 300, height: 600, label: "Half Page (300×600)" },
+  { name: "billboard", width: 970, height: 90, label: "Billboard (970×90)" },
+  { name: "custom", width: 0, height: 0, label: "Custom Size" },
+];
+
+const typeIcons: Record<string, any> = {
   image: Image,
   html: Code,
   script: FileCode,
@@ -66,8 +83,8 @@ const AdminBanners = () => {
 
   const [formData, setFormData] = useState({
     name: "",
-    position: "header" as Banner["position"],
-    type: "image" as Banner["type"],
+    position: "header",
+    type: "image",
     content: "",
     image_url: "",
     link_url: "",
@@ -75,24 +92,31 @@ const AdminBanners = () => {
     start_date: "",
     end_date: "",
     priority: 0,
+    width: 728,
+    height: 90,
+    size_name: "leaderboard",
   });
 
   useEffect(() => {
-    loadBanners();
+    fetchBanners();
   }, []);
 
-  const loadBanners = () => {
-    const stored = localStorage.getItem("nullsto_banners");
-    if (stored) {
-      setBanners(JSON.parse(stored));
+  const fetchBanners = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("banners")
+        .select("*")
+        .order("priority", { ascending: false });
+      
+      if (error) throw error;
+      setBanners(data || []);
+    } catch (error) {
+      console.error("Error fetching banners:", error);
+      toast.error("Failed to load banners");
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
-  };
-
-  const saveBanners = (updatedBanners: Banner[]) => {
-    localStorage.setItem("nullsto_banners", JSON.stringify(updatedBanners));
-    setBanners(updatedBanners);
-    window.dispatchEvent(new Event("bannersUpdated"));
   };
 
   const handleCreateBanner = () => {
@@ -108,6 +132,9 @@ const AdminBanners = () => {
       start_date: "",
       end_date: "",
       priority: 0,
+      width: 728,
+      height: 90,
+      size_name: "leaderboard",
     });
     setIsDialogOpen(true);
   };
@@ -125,74 +152,26 @@ const AdminBanners = () => {
       start_date: banner.start_date || "",
       end_date: banner.end_date || "",
       priority: banner.priority,
+      width: banner.width || 728,
+      height: banner.height || 90,
+      size_name: banner.size_name || "leaderboard",
     });
     setIsDialogOpen(true);
   };
 
-  const handleSaveBanner = () => {
-    if (!formData.name.trim()) {
-      toast.error("Please enter a banner name");
-      return;
-    }
-
-    if (formData.type === "image" && !formData.image_url) {
-      toast.error("Please provide an image URL");
-      return;
-    }
-
-    if (formData.type !== "image" && !formData.content.trim()) {
-      toast.error("Please enter banner content");
-      return;
-    }
-
-    if (editingBanner) {
-      const updated = banners.map((b) =>
-        b.id === editingBanner.id
-          ? {
-              ...b,
-              ...formData,
-              image_url: formData.image_url || null,
-              link_url: formData.link_url || null,
-              start_date: formData.start_date || null,
-              end_date: formData.end_date || null,
-            }
-          : b
-      );
-      saveBanners(updated);
-      toast.success("Banner updated successfully");
-    } else {
-      const newBanner: Banner = {
-        id: `banner_${Date.now()}`,
+  const handleSizePresetChange = (presetName: string) => {
+    const preset = sizePresets.find(p => p.name === presetName);
+    if (preset) {
+      setFormData({
         ...formData,
-        image_url: formData.image_url || null,
-        link_url: formData.link_url || null,
-        start_date: formData.start_date || null,
-        end_date: formData.end_date || null,
-        click_count: 0,
-        view_count: 0,
-        created_at: new Date().toISOString(),
-      };
-      saveBanners([...banners, newBanner]);
-      toast.success("Banner created successfully");
+        size_name: preset.name,
+        width: preset.width || formData.width,
+        height: preset.height || formData.height,
+      });
     }
-
-    setIsDialogOpen(false);
   };
 
-  const handleDeleteBanner = (id: string) => {
-    const updated = banners.filter((b) => b.id !== id);
-    saveBanners(updated);
-    toast.success("Banner deleted");
-  };
-
-  const handleToggleActive = (id: string) => {
-    const updated = banners.map((b) =>
-      b.id === id ? { ...b, is_active: !b.is_active } : b
-    );
-    saveBanners(updated);
-  };
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -202,19 +181,114 @@ const AdminBanners = () => {
     }
 
     setUploadingImage(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `banners/${fileName}`;
 
-    // Convert to base64 for localStorage storage (shared hosting compatibility)
-    const reader = new FileReader();
-    reader.onload = () => {
-      setFormData({ ...formData, image_url: reader.result as string });
-      setUploadingImage(false);
-      toast.success("Image uploaded");
-    };
-    reader.onerror = () => {
+      const { error: uploadError } = await supabase.storage
+        .from("banners")
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("banners")
+        .getPublicUrl(filePath);
+
+      setFormData({ ...formData, image_url: publicUrl });
+      toast.success("Image uploaded successfully");
+    } catch (error: any) {
+      console.error("Upload error:", error);
       toast.error("Failed to upload image");
+    } finally {
       setUploadingImage(false);
-    };
-    reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSaveBanner = async () => {
+    if (!formData.name.trim()) {
+      toast.error("Please enter a banner name");
+      return;
+    }
+
+    if (formData.type === "image" && !formData.image_url) {
+      toast.error("Please provide an image");
+      return;
+    }
+
+    if (formData.type !== "image" && !formData.content.trim()) {
+      toast.error("Please enter banner content");
+      return;
+    }
+
+    try {
+      const bannerData = {
+        name: formData.name,
+        position: formData.position,
+        type: formData.type,
+        content: formData.content || "",
+        image_url: formData.image_url || null,
+        link_url: formData.link_url || null,
+        is_active: formData.is_active,
+        start_date: formData.start_date || null,
+        end_date: formData.end_date || null,
+        priority: formData.priority,
+        width: formData.width,
+        height: formData.height,
+        size_name: formData.size_name,
+      };
+
+      if (editingBanner) {
+        const { error } = await supabase
+          .from("banners")
+          .update(bannerData)
+          .eq("id", editingBanner.id);
+        
+        if (error) throw error;
+        toast.success("Banner updated successfully");
+      } else {
+        const { error } = await supabase
+          .from("banners")
+          .insert(bannerData);
+        
+        if (error) throw error;
+        toast.success("Banner created successfully");
+      }
+
+      setIsDialogOpen(false);
+      fetchBanners();
+    } catch (error: any) {
+      console.error("Save error:", error);
+      toast.error(error.message || "Failed to save banner");
+    }
+  };
+
+  const handleDeleteBanner = async (id: string) => {
+    try {
+      const { error } = await supabase.from("banners").delete().eq("id", id);
+      if (error) throw error;
+      setBanners(banners.filter(b => b.id !== id));
+      toast.success("Banner deleted");
+    } catch (error) {
+      toast.error("Failed to delete banner");
+    }
+  };
+
+  const handleToggleActive = async (banner: Banner) => {
+    try {
+      const { error } = await supabase
+        .from("banners")
+        .update({ is_active: !banner.is_active })
+        .eq("id", banner.id);
+      
+      if (error) throw error;
+      setBanners(banners.map(b => 
+        b.id === banner.id ? { ...b, is_active: !b.is_active } : b
+      ));
+    } catch (error) {
+      toast.error("Failed to update banner status");
+    }
   };
 
   const filteredBanners = selectedPosition === "all"
@@ -235,7 +309,7 @@ const AdminBanners = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-foreground">Banner Management</h2>
-          <p className="text-muted-foreground">Manage ads and banners across your site</p>
+          <p className="text-muted-foreground">Manage ads and banners with size presets</p>
         </div>
         <Button variant="neon" onClick={handleCreateBanner}>
           <Plus className="w-4 h-4 mr-2" />
@@ -244,8 +318,8 @@ const AdminBanners = () => {
       </div>
 
       {/* Position Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {(["header", "sidebar", "content", "footer"] as const).map((pos) => {
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {Object.keys(positionLabels).map((pos) => {
           const stats = getPositionStats(pos);
           return (
             <div
@@ -291,7 +365,7 @@ const AdminBanners = () => {
       ) : (
         <div className="space-y-4">
           {filteredBanners.map((banner, index) => {
-            const TypeIcon = typeIcons[banner.type];
+            const TypeIcon = typeIcons[banner.type] || Image;
             return (
               <motion.div
                 key={banner.id}
@@ -302,7 +376,10 @@ const AdminBanners = () => {
               >
                 <div className="flex items-start gap-4">
                   {/* Preview */}
-                  <div className="w-24 h-16 rounded-lg bg-secondary/50 overflow-hidden flex-shrink-0">
+                  <div 
+                    className="rounded-lg bg-secondary/50 overflow-hidden flex-shrink-0 flex items-center justify-center"
+                    style={{ width: Math.min(banner.width || 100, 120), height: Math.min(banner.height || 60, 80) }}
+                  >
                     {banner.type === "image" && banner.image_url ? (
                       <img
                         src={banner.image_url}
@@ -310,23 +387,21 @@ const AdminBanners = () => {
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <TypeIcon className="w-6 h-6 text-muted-foreground" />
-                      </div>
+                      <TypeIcon className="w-6 h-6 text-muted-foreground" />
                     )}
                   </div>
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <h4 className="font-medium text-foreground truncate">{banner.name}</h4>
-                      <span className={`px-2 py-0.5 rounded text-xs ${
-                        banner.is_active
-                          ? "bg-green-500/20 text-green-500"
-                          : "bg-muted text-muted-foreground"
-                      }`}>
+                      <Badge variant={banner.is_active ? "default" : "secondary"}>
                         {banner.is_active ? "Active" : "Inactive"}
-                      </span>
+                      </Badge>
+                      <Badge variant="outline" className="flex items-center gap-1">
+                        <Ruler className="w-3 h-3" />
+                        {banner.width}×{banner.height}
+                      </Badge>
                     </div>
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       <span className="capitalize">{banner.position}</span>
@@ -346,7 +421,7 @@ const AdminBanners = () => {
                   <div className="flex items-center gap-2">
                     <Switch
                       checked={banner.is_active}
-                      onCheckedChange={() => handleToggleActive(banner.id)}
+                      onCheckedChange={() => handleToggleActive(banner)}
                     />
                     <Button variant="ghost" size="icon" onClick={() => handleEditBanner(banner)}>
                       <Edit className="w-4 h-4" />
@@ -392,7 +467,7 @@ const AdminBanners = () => {
                 <label className="text-sm font-medium mb-2 block">Position</label>
                 <Select
                   value={formData.position}
-                  onValueChange={(v) => setFormData({ ...formData, position: v as Banner["position"] })}
+                  onValueChange={(v) => setFormData({ ...formData, position: v })}
                 >
                   <SelectTrigger className="bg-secondary/50">
                     <SelectValue />
@@ -406,12 +481,71 @@ const AdminBanners = () => {
               </div>
             </div>
 
+            {/* Size Preset */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block flex items-center gap-2">
+                  <Ruler className="w-4 h-4" /> Size Preset
+                </label>
+                <Select
+                  value={formData.size_name}
+                  onValueChange={handleSizePresetChange}
+                >
+                  <SelectTrigger className="bg-secondary/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sizePresets.map((preset) => (
+                      <SelectItem key={preset.name} value={preset.name}>
+                        {preset.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Width (px)</label>
+                  <Input
+                    type="number"
+                    value={formData.width}
+                    onChange={(e) => setFormData({ ...formData, width: parseInt(e.target.value) || 0, size_name: "custom" })}
+                    className="bg-secondary/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Height (px)</label>
+                  <Input
+                    type="number"
+                    value={formData.height}
+                    onChange={(e) => setFormData({ ...formData, height: parseInt(e.target.value) || 0, size_name: "custom" })}
+                    className="bg-secondary/50"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Preview Box */}
+            <div className="p-4 rounded-lg bg-secondary/30 border border-dashed border-border">
+              <p className="text-sm text-muted-foreground mb-2">Preview Size:</p>
+              <div 
+                className="bg-muted/30 border border-border flex items-center justify-center text-xs text-muted-foreground mx-auto"
+                style={{ 
+                  width: Math.min(formData.width, 300), 
+                  height: Math.min(formData.height, 150),
+                  aspectRatio: `${formData.width}/${formData.height}`
+                }}
+              >
+                {formData.width} × {formData.height}
+              </div>
+            </div>
+
             {/* Type Selection */}
             <div>
               <label className="text-sm font-medium mb-2 block">Banner Type</label>
               <Tabs
                 value={formData.type}
-                onValueChange={(v) => setFormData({ ...formData, type: v as Banner["type"] })}
+                onValueChange={(v) => setFormData({ ...formData, type: v })}
               >
                 <TabsList className="grid grid-cols-4">
                   <TabsTrigger value="image" className="flex items-center gap-2">
@@ -432,97 +566,82 @@ const AdminBanners = () => {
                   </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="image" className="mt-4">
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Upload Image</label>
-                      <div className="flex gap-2">
-                        <Input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageUpload}
-                          className="bg-secondary/50"
-                          disabled={uploadingImage}
-                        />
-                        {uploadingImage && <Loader2 className="w-5 h-5 animate-spin" />}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Or Enter Image URL</label>
+                <TabsContent value="image" className="mt-4 space-y-4">
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Upload Image</label>
+                    <div className="flex gap-2">
                       <Input
-                        value={formData.image_url}
-                        onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                        placeholder="https://example.com/banner.jpg"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
                         className="bg-secondary/50"
+                        disabled={uploadingImage}
                       />
+                      {uploadingImage && <Loader2 className="w-5 h-5 animate-spin" />}
                     </div>
-                    {formData.image_url && (
-                      <div className="rounded-lg overflow-hidden border border-border">
-                        <img src={formData.image_url} alt="Preview" className="max-h-48 w-auto mx-auto" />
-                      </div>
-                    )}
                   </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Or Enter Image URL</label>
+                    <Input
+                      value={formData.image_url}
+                      onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                      placeholder="https://example.com/banner.jpg"
+                      className="bg-secondary/50"
+                    />
+                  </div>
+                  {formData.image_url && (
+                    <div className="rounded-lg overflow-hidden border border-border">
+                      <img src={formData.image_url} alt="Preview" className="max-h-48 w-auto mx-auto" />
+                    </div>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="html" className="mt-4">
-                  <div>
-                    <label className="text-sm font-medium mb-2 block">HTML Content</label>
-                    <Textarea
-                      value={formData.content}
-                      onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                      placeholder="<div>Your HTML banner code...</div>"
-                      className="bg-secondary/50 font-mono min-h-[150px]"
-                    />
-                  </div>
+                  <Textarea
+                    value={formData.content}
+                    onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                    placeholder="<div>Your HTML banner code...</div>"
+                    className="bg-secondary/50 font-mono min-h-[150px]"
+                  />
                 </TabsContent>
 
                 <TabsContent value="script" className="mt-4">
-                  <div>
-                    <label className="text-sm font-medium mb-2 block">Script/Ad Code</label>
-                    <Textarea
-                      value={formData.content}
-                      onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                      placeholder="<script>// Your ad script...</script>"
-                      className="bg-secondary/50 font-mono min-h-[150px]"
-                    />
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Paste your Google AdSense, affiliate, or other ad scripts here
-                    </p>
-                  </div>
+                  <Textarea
+                    value={formData.content}
+                    onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                    placeholder="<script>// Your ad script...</script>"
+                    className="bg-secondary/50 font-mono min-h-[150px]"
+                  />
                 </TabsContent>
 
                 <TabsContent value="text" className="mt-4">
-                  <div>
-                    <label className="text-sm font-medium mb-2 block">Text Content</label>
-                    <Textarea
-                      value={formData.content}
-                      onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                      placeholder="Your promotional message..."
-                      className="bg-secondary/50 min-h-[100px]"
-                    />
-                  </div>
+                  <Textarea
+                    value={formData.content}
+                    onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                    placeholder="Your text banner message..."
+                    className="bg-secondary/50 min-h-[100px]"
+                  />
                 </TabsContent>
               </Tabs>
             </div>
 
             {/* Link URL */}
             <div>
-              <label className="text-sm font-medium mb-2 block">Link URL (optional)</label>
-              <div className="relative">
-                <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  value={formData.link_url}
-                  onChange={(e) => setFormData({ ...formData, link_url: e.target.value })}
-                  placeholder="https://example.com"
-                  className="bg-secondary/50 pl-10"
-                />
-              </div>
+              <label className="text-sm font-medium mb-2 block">Click URL (Optional)</label>
+              <Input
+                value={formData.link_url}
+                onChange={(e) => setFormData({ ...formData, link_url: e.target.value })}
+                placeholder="https://example.com"
+                className="bg-secondary/50"
+              />
             </div>
 
             {/* Scheduling */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium mb-2 block">Start Date (optional)</label>
+                <label className="text-sm font-medium mb-2 block flex items-center gap-2">
+                  <Calendar className="w-4 h-4" /> Start Date
+                </label>
                 <Input
                   type="datetime-local"
                   value={formData.start_date}
@@ -531,7 +650,9 @@ const AdminBanners = () => {
                 />
               </div>
               <div>
-                <label className="text-sm font-medium mb-2 block">End Date (optional)</label>
+                <label className="text-sm font-medium mb-2 block flex items-center gap-2">
+                  <Calendar className="w-4 h-4" /> End Date
+                </label>
                 <Input
                   type="datetime-local"
                   value={formData.end_date}
@@ -541,38 +662,35 @@ const AdminBanners = () => {
               </div>
             </div>
 
-            {/* Priority & Status */}
+            {/* Priority & Active */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium mb-2 block">Priority</label>
+                <label className="text-sm font-medium mb-2 block">Priority (higher = shown first)</label>
                 <Input
                   type="number"
                   value={formData.priority}
                   onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) || 0 })}
                   className="bg-secondary/50"
-                  min={0}
                 />
-                <p className="text-xs text-muted-foreground mt-1">Higher = shown first</p>
               </div>
-              <div className="flex items-center gap-3 pt-6">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/30">
+                <div>
+                  <p className="font-medium text-foreground">Active</p>
+                  <p className="text-sm text-muted-foreground">Display this banner</p>
+                </div>
                 <Switch
                   checked={formData.is_active}
                   onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
                 />
-                <span className="text-sm">Active</span>
               </div>
             </div>
+          </div>
 
-            {/* Actions */}
-            <div className="flex justify-end gap-2 pt-4">
-              <Button variant="ghost" onClick={() => setIsDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="neon" onClick={handleSaveBanner}>
-                <Save className="w-4 h-4 mr-2" />
-                {editingBanner ? "Update" : "Create"} Banner
-              </Button>
-            </div>
+          <div className="flex justify-end gap-3 pt-4 border-t border-border">
+            <Button variant="ghost" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+            <Button variant="neon" onClick={handleSaveBanner}>
+              {editingBanner ? "Update Banner" : "Create Banner"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

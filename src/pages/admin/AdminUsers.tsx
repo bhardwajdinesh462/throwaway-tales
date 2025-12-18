@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { User, Shield, Trash2, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { User, Trash2, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +31,7 @@ interface UserProfile {
   email: string | null;
   display_name: string | null;
   created_at: string;
-  role?: string;
+  role: string;
 }
 
 const AdminUsers = () => {
@@ -45,31 +45,33 @@ const AdminUsers = () => {
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      // Get profiles with roles
-      let query = supabase
-        .from("profiles")
-        .select("*, user_roles(role)", { count: "exact" })
-        .range((page - 1) * pageSize, page * pageSize - 1)
-        .order("created_at", { ascending: false });
-
-      if (searchQuery) {
-        query = query.or(`email.ilike.%${searchQuery}%,display_name.ilike.%${searchQuery}%`);
-      }
-
-      const { data, count, error } = await query;
+      // Use security definer function to fetch profiles
+      const { data, error } = await supabase.rpc('get_all_profiles_for_admin', {
+        p_search: searchQuery || null,
+        p_page: page,
+        p_page_size: pageSize
+      });
 
       if (error) throw error;
 
-      const usersWithRoles = data?.map(user => ({
-        ...user,
-        role: (user.user_roles as any)?.[0]?.role || "user",
-      })) || [];
-
-      setUsers(usersWithRoles);
-      setTotalCount(count || 0);
-    } catch (error) {
+      if (data && data.length > 0) {
+        const usersData = data.map((row: any) => ({
+          id: row.id,
+          user_id: row.user_id,
+          email: row.email,
+          display_name: row.display_name,
+          created_at: row.created_at,
+          role: row.role || 'user'
+        }));
+        setUsers(usersData);
+        setTotalCount(Number(data[0]?.total_count) || 0);
+      } else {
+        setUsers([]);
+        setTotalCount(0);
+      }
+    } catch (error: any) {
       console.error("Error fetching users:", error);
-      toast.error("Failed to load users");
+      toast.error(error.message || "Failed to load users");
     } finally {
       setIsLoading(false);
     }

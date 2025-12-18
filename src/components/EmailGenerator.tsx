@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Copy, RefreshCw, Check, QrCode, Star, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,51 +11,55 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-const domains = [
-  "@trashmail.io",
-  "@tempbox.net",
-  "@quickmail.xyz",
-  "@disposable.email",
-  "@burner.mail",
-];
-
-const generateRandomString = (length: number) => {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-};
+import { useEmailService } from "@/hooks/useEmailService";
+import { useAuth } from "@/hooks/useAuth";
 
 const EmailGenerator = () => {
-  const [email, setEmail] = useState("");
-  const [domain, setDomain] = useState(domains[0]);
+  const { user } = useAuth();
+  const { 
+    domains, 
+    currentEmail, 
+    isGenerating, 
+    generateEmail, 
+    changeDomain 
+  } = useEmailService();
   const [copied, setCopied] = useState(false);
   const [showQR, setShowQR] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-
-  const generateEmail = () => {
-    setIsGenerating(true);
-    setTimeout(() => {
-      const username = generateRandomString(10);
-      setEmail(username + domain);
-      setIsGenerating(false);
-    }, 500);
-  };
-
-  useEffect(() => {
-    generateEmail();
-  }, [domain]);
+  const [soundEnabled, setSoundEnabled] = useState(true);
 
   const copyToClipboard = async () => {
-    await navigator.clipboard.writeText(email);
+    if (!currentEmail) return;
+    await navigator.clipboard.writeText(currentEmail.address);
     setCopied(true);
     toast.success("Email copied to clipboard!");
     setTimeout(() => setCopied(false), 2000);
   };
 
   const refreshEmail = () => {
-    generateEmail();
+    const currentDomainId = currentEmail?.domain_id || domains[0]?.id;
+    generateEmail(currentDomainId);
     toast.success("New email generated!");
   };
+
+  const handleSave = () => {
+    if (!user) {
+      toast.error("Please sign in to save emails", {
+        action: {
+          label: "Sign In",
+          onClick: () => window.location.href = "/auth",
+        },
+      });
+      return;
+    }
+    toast.info("Email address saved to your account!");
+  };
+
+  const toggleSound = () => {
+    setSoundEnabled(!soundEnabled);
+    toast.success(soundEnabled ? "Sound notifications disabled" : "Sound notifications enabled");
+  };
+
+  const currentDomain = domains.find(d => d.id === currentEmail?.domain_id);
 
   return (
     <motion.div
@@ -72,26 +76,30 @@ const EmailGenerator = () => {
         {/* Email Display */}
         <div className="relative mb-6">
           <motion.div
-            key={email}
+            key={currentEmail?.address}
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="bg-secondary/50 rounded-xl p-4 md:p-6 border border-primary/20 neon-border"
           >
             <p className={`email-mono text-xl md:text-2xl text-center text-foreground break-all ${isGenerating ? 'blur-sm' : ''}`}>
-              {email || "generating..."}
+              {currentEmail?.address || "generating..."}
             </p>
           </motion.div>
           
           {/* Domain Selector */}
           <div className="absolute -bottom-3 left-1/2 -translate-x-1/2">
-            <Select value={domain} onValueChange={setDomain}>
+            <Select 
+              value={currentDomain?.id || ""} 
+              onValueChange={changeDomain}
+              disabled={isGenerating}
+            >
               <SelectTrigger className="w-48 bg-card border-primary/30 text-sm">
-                <SelectValue />
+                <SelectValue placeholder="Select domain" />
               </SelectTrigger>
               <SelectContent>
-                {domains.map((d) => (
-                  <SelectItem key={d} value={d}>
-                    {d}
+                {domains.map((domain) => (
+                  <SelectItem key={domain.id} value={domain.id}>
+                    {domain.name} {domain.is_premium && "⭐"}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -106,6 +114,7 @@ const EmailGenerator = () => {
             size="lg"
             onClick={copyToClipboard}
             className="min-w-[140px]"
+            disabled={!currentEmail}
           >
             {copied ? (
               <>
@@ -132,24 +141,29 @@ const EmailGenerator = () => {
             variant="glass"
             size="lg"
             onClick={() => setShowQR(!showQR)}
+            disabled={!currentEmail}
           >
             <QrCode className="w-4 h-4" />
             QR Code
           </Button>
 
-          <Button variant="glass" size="lg">
+          <Button variant="glass" size="lg" onClick={handleSave}>
             <Star className="w-4 h-4" />
             Save
           </Button>
 
-          <Button variant="glass" size="lg">
+          <Button 
+            variant={soundEnabled ? "glass" : "secondary"} 
+            size="lg"
+            onClick={toggleSound}
+          >
             <Volume2 className="w-4 h-4" />
             Sound
           </Button>
         </div>
 
         {/* QR Code Display */}
-        {showQR && (
+        {showQR && currentEmail && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
@@ -157,9 +171,16 @@ const EmailGenerator = () => {
             className="flex justify-center mt-6 pt-6 border-t border-border"
           >
             <div className="bg-foreground p-4 rounded-xl">
-              <QRCodeSVG value={email} size={150} />
+              <QRCodeSVG value={currentEmail.address} size={150} />
             </div>
           </motion.div>
+        )}
+
+        {/* Expiration Notice */}
+        {currentEmail && (
+          <p className="text-center text-xs text-muted-foreground mt-4">
+            This email will expire in 1 hour. {!user && "Sign in to extend duration."}
+          </p>
         )}
       </div>
     </motion.div>

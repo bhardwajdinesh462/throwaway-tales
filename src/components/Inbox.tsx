@@ -1,69 +1,41 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, RefreshCw, Trash2, Star, Clock, User, ChevronRight } from "lucide-react";
+import { Mail, RefreshCw, Trash2, Star, Clock, User, ChevronRight, Inbox as InboxIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-interface Email {
-  id: string;
-  from: string;
-  subject: string;
-  preview: string;
-  time: string;
-  isRead: boolean;
-  isStarred: boolean;
-}
-
-const mockEmails: Email[] = [
-  {
-    id: "1",
-    from: "noreply@github.com",
-    subject: "Your verification code is 847291",
-    preview: "Hi there, please use the following code to verify your account: 847291. This code expires in 10 minutes.",
-    time: "2 min ago",
-    isRead: false,
-    isStarred: false,
-  },
-  {
-    id: "2",
-    from: "welcome@spotify.com",
-    subject: "Welcome to Spotify Premium",
-    preview: "Thank you for joining Spotify Premium! You now have access to unlimited music streaming without ads...",
-    time: "15 min ago",
-    isRead: true,
-    isStarred: true,
-  },
-  {
-    id: "3",
-    from: "security@dropbox.com",
-    subject: "New sign-in from Chrome on Windows",
-    preview: "We noticed a new sign-in to your Dropbox account. If this was you, no action is needed.",
-    time: "1 hour ago",
-    isRead: true,
-    isStarred: false,
-  },
-];
+import { useEmailService, ReceivedEmail } from "@/hooks/useEmailService";
+import { useAuth } from "@/hooks/useAuth";
+import { formatDistanceToNow } from "date-fns";
 
 const Inbox = () => {
-  const [emails, setEmails] = useState<Email[]>(mockEmails);
-  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const { user } = useAuth();
+  const { receivedEmails, isLoading, markAsRead, saveEmail, generateEmail, currentEmail } = useEmailService();
+  const [selectedEmail, setSelectedEmail] = useState<ReceivedEmail | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [savedEmails, setSavedEmails] = useState<Set<string>>(new Set());
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
+    // Just trigger a re-render, real-time handles updates
     setTimeout(() => setIsRefreshing(false), 1000);
   };
 
-  const toggleStar = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEmails(emails.map(email => 
-      email.id === id ? { ...email, isStarred: !email.isStarred } : email
-    ));
+  const handleSelectEmail = (email: ReceivedEmail) => {
+    setSelectedEmail(email);
+    if (!email.is_read) {
+      markAsRead(email.id);
+    }
   };
 
-  const deleteEmail = (id: string, e: React.MouseEvent) => {
+  const handleSave = async (emailId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setEmails(emails.filter(email => email.id !== id));
-    if (selectedEmail?.id === id) setSelectedEmail(null);
+    const success = await saveEmail(emailId);
+    if (success) {
+      setSavedEmails(prev => new Set([...prev, emailId]));
+    }
+  };
+
+  const formatTime = (dateString: string) => {
+    return formatDistanceToNow(new Date(dateString), { addSuffix: true });
   };
 
   return (
@@ -80,7 +52,7 @@ const Inbox = () => {
             <Mail className="w-5 h-5 text-primary" />
             <h2 className="font-semibold text-foreground">Inbox</h2>
             <span className="bg-primary/20 text-primary text-xs px-2 py-1 rounded-full">
-              {emails.filter(e => !e.isRead).length} new
+              {receivedEmails.filter(e => !e.is_read).length} new
             </span>
           </div>
           <Button 
@@ -97,27 +69,37 @@ const Inbox = () => {
         {/* Email List */}
         <div className="divide-y divide-border">
           <AnimatePresence>
-            {emails.length === 0 ? (
+            {isLoading ? (
+              <div className="p-12 text-center">
+                <div className="w-8 h-8 mx-auto border-2 border-primary border-t-transparent rounded-full animate-spin mb-4" />
+                <p className="text-muted-foreground">Loading inbox...</p>
+              </div>
+            ) : receivedEmails.length === 0 ? (
               <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 className="p-12 text-center"
               >
-                <Mail className="w-16 h-16 mx-auto text-muted-foreground mb-4 opacity-50" />
-                <p className="text-muted-foreground">No emails yet</p>
-                <p className="text-sm text-muted-foreground mt-1">Waiting for incoming messages...</p>
+                <InboxIcon className="w-16 h-16 mx-auto text-muted-foreground mb-4 opacity-50" />
+                <p className="text-foreground font-medium mb-2">No emails yet</p>
+                <p className="text-sm text-muted-foreground">
+                  Waiting for incoming messages at:
+                </p>
+                <p className="text-sm text-primary font-mono mt-1">
+                  {currentEmail?.address || "..."}
+                </p>
               </motion.div>
             ) : (
-              emails.map((email, index) => (
+              receivedEmails.map((email, index) => (
                 <motion.div
                   key={email.id}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
-                  transition={{ delay: index * 0.1 }}
-                  onClick={() => setSelectedEmail(email)}
+                  transition={{ delay: index * 0.05 }}
+                  onClick={() => handleSelectEmail(email)}
                   className={`group p-4 cursor-pointer transition-colors hover:bg-secondary/30 ${
-                    !email.isRead ? 'bg-primary/5' : ''
+                    !email.is_read ? 'bg-primary/5' : ''
                   } ${selectedEmail?.id === email.id ? 'bg-secondary/50' : ''}`}
                 >
                   <div className="flex items-start gap-4">
@@ -129,38 +111,34 @@ const Inbox = () => {
                     {/* Email Content */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
-                        <span className={`text-sm truncate ${!email.isRead ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
-                          {email.from}
+                        <span className={`text-sm truncate ${!email.is_read ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
+                          {email.from_address}
                         </span>
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <Clock className="w-3 h-3" />
-                          <span className="text-xs">{email.time}</span>
+                          <span className="text-xs">{formatTime(email.received_at)}</span>
                         </div>
                       </div>
-                      <p className={`text-sm truncate ${!email.isRead ? 'font-medium text-foreground' : 'text-foreground/80'}`}>
-                        {email.subject}
+                      <p className={`text-sm truncate ${!email.is_read ? 'font-medium text-foreground' : 'text-foreground/80'}`}>
+                        {email.subject || "(No subject)"}
                       </p>
                       <p className="text-xs text-muted-foreground truncate mt-1">
-                        {email.preview}
+                        {email.body?.slice(0, 100) || "(No content)"}
                       </p>
                     </div>
 
                     {/* Actions */}
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={(e) => toggleStar(email.id, e)}
-                        className={`p-1.5 rounded hover:bg-secondary transition-colors ${
-                          email.isStarred ? 'text-yellow-400' : 'text-muted-foreground'
-                        }`}
-                      >
-                        <Star className="w-4 h-4" fill={email.isStarred ? "currentColor" : "none"} />
-                      </button>
-                      <button
-                        onClick={(e) => deleteEmail(email.id, e)}
-                        className="p-1.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {user && (
+                        <button
+                          onClick={(e) => handleSave(email.id, e)}
+                          className={`p-1.5 rounded hover:bg-secondary transition-colors ${
+                            savedEmails.has(email.id) ? 'text-yellow-400' : 'text-muted-foreground'
+                          }`}
+                        >
+                          <Star className="w-4 h-4" fill={savedEmails.has(email.id) ? "currentColor" : "none"} />
+                        </button>
+                      )}
                       <ChevronRight className="w-4 h-4 text-muted-foreground" />
                     </div>
                   </div>
@@ -181,7 +159,9 @@ const Inbox = () => {
             >
               <div className="p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-foreground">{selectedEmail.subject}</h3>
+                  <h3 className="text-lg font-semibold text-foreground">
+                    {selectedEmail.subject || "(No subject)"}
+                  </h3>
                   <Button variant="ghost" size="sm" onClick={() => setSelectedEmail(null)}>
                     Close
                   </Button>
@@ -191,12 +171,19 @@ const Inbox = () => {
                     <User className="w-4 h-4 text-primary" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-foreground">{selectedEmail.from}</p>
-                    <p className="text-xs text-muted-foreground">{selectedEmail.time}</p>
+                    <p className="text-sm font-medium text-foreground">{selectedEmail.from_address}</p>
+                    <p className="text-xs text-muted-foreground">{formatTime(selectedEmail.received_at)}</p>
                   </div>
                 </div>
                 <div className="prose prose-invert max-w-none">
-                  <p className="text-foreground/80">{selectedEmail.preview}</p>
+                  {selectedEmail.html_body ? (
+                    <div 
+                      className="text-foreground/80"
+                      dangerouslySetInnerHTML={{ __html: selectedEmail.html_body }} 
+                    />
+                  ) : (
+                    <p className="text-foreground/80 whitespace-pre-wrap">{selectedEmail.body || "(No content)"}</p>
+                  )}
                 </div>
               </div>
             </motion.div>

@@ -28,7 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { useAuth } from "@/hooks/useLocalAuth";
+import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useEmailService, ReceivedEmail } from "@/hooks/useLocalEmailService";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -63,7 +63,7 @@ interface NotificationPreferences {
 
 const Profile = () => {
   const navigate = useNavigate();
-  const { user, updateUser, signOut, isLoading } = useAuth();
+  const { user, profile, updateProfile, signOut, isLoading, isAdmin } = useAuth();
   const { emailHistory } = useEmailService();
   const { theme, themes, setTheme } = useTheme();
   const { language, setLanguage, languages } = useLanguage();
@@ -86,8 +86,8 @@ const Profile = () => {
   }, [user, isLoading, navigate]);
 
   useEffect(() => {
-    if (user) {
-      setDisplayName(user.displayName);
+    if (user && profile) {
+      setDisplayName(profile.display_name || user.email?.split('@')[0] || '');
       
       // Load saved emails
       const savedEmailIds = storage.get<{ user_id: string; email_id: string }[]>(STORAGE_KEYS.SAVED_EMAILS, []);
@@ -105,16 +105,15 @@ const Profile = () => {
       });
       setNotificationPrefs(savedPrefs);
     }
-  }, [user]);
+  }, [user, profile]);
 
-  const handleSaveProfile = () => {
+  const handleSaveProfile = async () => {
     if (!displayName.trim()) {
       toast.error("Display name cannot be empty");
       return;
     }
-    updateUser({ displayName });
+    await updateProfile({ display_name: displayName });
     setIsEditing(false);
-    toast.success("Profile updated successfully!");
   };
 
   const handleNotificationChange = (key: keyof NotificationPreferences, value: boolean | number) => {
@@ -139,18 +138,14 @@ const Profile = () => {
   const handleDeleteAccount = async () => {
     if (!user) return;
     
-    // Remove user data
-    const users = storage.get<any[]>(STORAGE_KEYS.USERS_DB, []);
-    storage.set(STORAGE_KEYS.USERS_DB, users.filter(u => u.id !== user.id));
-    
-    // Remove saved emails
-    const savedEmailIds = storage.get<{ user_id: string; email_id: string }[]>(STORAGE_KEYS.SAVED_EMAILS, []);
-    storage.set(STORAGE_KEYS.SAVED_EMAILS, savedEmailIds.filter(s => s.user_id !== user.id));
-    
+    // Note: In production, you'd call a backend function to delete user data
     await signOut();
-    toast.success("Account deleted");
+    toast.success("Signed out successfully");
     navigate("/");
   };
+
+  const currentDisplayName = profile?.display_name || user?.email?.split('@')[0] || 'User';
+  const memberSince = profile?.created_at ? formatDistanceToNow(new Date(profile.created_at), { addSuffix: true }) : 'recently';
 
   if (isLoading || !user) {
     return (
@@ -184,7 +179,7 @@ const Profile = () => {
             <div className="flex flex-col md:flex-row items-center gap-6">
               <Avatar className="w-24 h-24 border-4 border-primary/20">
                 <AvatarFallback className="bg-gradient-to-br from-primary to-accent text-2xl text-primary-foreground">
-                  {user.displayName.slice(0, 2).toUpperCase()}
+                  {currentDisplayName.slice(0, 2).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
               
@@ -202,7 +197,7 @@ const Profile = () => {
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 justify-center md:justify-start">
-                    <h1 className="text-2xl font-bold text-foreground">{user.displayName}</h1>
+                    <h1 className="text-2xl font-bold text-foreground">{currentDisplayName}</h1>
                     <Button variant="ghost" size="icon" onClick={() => setIsEditing(true)}>
                       <Edit2 className="w-4 h-4" />
                     </Button>
@@ -210,11 +205,11 @@ const Profile = () => {
                 )}
                 <p className="text-muted-foreground">{user.email}</p>
                 <div className="flex items-center gap-2 mt-2 justify-center md:justify-start">
-                  <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
-                    {user.role}
+                  <Badge variant={isAdmin ? 'default' : 'secondary'}>
+                    {isAdmin ? 'admin' : 'user'}
                   </Badge>
                   <span className="text-xs text-muted-foreground">
-                    Member since {formatDistanceToNow(new Date(user.createdAt), { addSuffix: true })}
+                    Member since {memberSince}
                   </span>
                 </div>
               </div>
@@ -526,15 +521,14 @@ const Profile = () => {
                         <AlertDialogTrigger asChild>
                           <Button variant="destructive" className="w-full sm:w-auto">
                             <Trash2 className="w-4 h-4 mr-2" />
-                            Delete Account
+                            Sign Out
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent className="glass-card">
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogTitle>Sign out?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              This action cannot be undone. This will permanently delete your
-                              account and remove all your data including saved emails and preferences.
+                              You will be signed out of your account.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -543,7 +537,7 @@ const Profile = () => {
                               onClick={handleDeleteAccount}
                               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             >
-                              Delete Account
+                              Sign Out
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>

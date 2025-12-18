@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { Mail, Lock, User, ArrowRight, Loader2, Chrome } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/hooks/useLocalAuth";
+import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 import { z } from "zod";

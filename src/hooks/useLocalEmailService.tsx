@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { storage, STORAGE_KEYS, generateId, generateRandomString } from '@/lib/storage';
-import { useAuth } from './useLocalAuth';
+import { useAuth } from './useSupabaseAuth';
 import { toast } from 'sonner';
 
 export interface Domain {

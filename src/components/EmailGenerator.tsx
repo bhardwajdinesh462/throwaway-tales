@@ -21,7 +21,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { useEmailService } from "@/hooks/useLocalEmailService";
-import { useAuth } from "@/hooks/useLocalAuth";
+import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 const EmailGenerator = () => {

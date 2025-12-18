@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Mail, Menu, X, User, LogOut, Settings, History, Globe, Sun, Moon } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useAuth } from "@/hooks/useLocalAuth";
+import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import {
@@ -141,7 +141,7 @@ const Header = () => {
                         {getInitials(user.email || "")}
                       </AvatarFallback>
                     </Avatar>
-                    <span className="text-sm max-w-[120px] truncate">{user.displayName}</span>
+                    <span className="text-sm max-w-[120px] truncate">{user.email?.split('@')[0]}</span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">

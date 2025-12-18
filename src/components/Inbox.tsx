@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Mail, RefreshCw, Trash2, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEmailService, ReceivedEmail } from "@/hooks/useLocalEmailService";
-import { useAuth } from "@/hooks/useLocalAuth";
+import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatDistanceToNow } from "date-fns";
 import { storage } from "@/lib/storage";

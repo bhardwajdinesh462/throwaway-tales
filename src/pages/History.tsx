@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { Mail, Clock, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/hooks/useLocalAuth";
+import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useEmailService } from "@/hooks/useLocalEmailService";
 import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";

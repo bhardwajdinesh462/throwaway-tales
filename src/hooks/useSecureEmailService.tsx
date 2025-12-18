@@ -107,7 +107,7 @@ export const useSecureEmailService = () => {
   }, [user]);
 
   // Generate new email with secret token
-  const generateEmail = useCallback(async (domainId?: string, customUsername?: string) => {
+  const generateEmail = useCallback(async (domainId?: string, customUsername?: string, skipExistingCheck = false) => {
     if (domains.length === 0) return;
 
     setIsGenerating(true);
@@ -186,15 +186,51 @@ export const useSecureEmailService = () => {
 
   // Generate custom email with specific username
   const generateCustomEmail = useCallback(async (username: string, domainId: string) => {
-    return generateEmail(domainId, username);
+    return generateEmail(domainId, username, true);
   }, [generateEmail]);
 
-  // Initial email generation
+  // Initial email generation - check for existing first
   useEffect(() => {
-    if (domains.length > 0 && !currentEmail && !isGenerating) {
+    const initializeEmail = async () => {
+      if (domains.length === 0 || currentEmail || isGenerating) return;
+
+      // Check localStorage for existing session email
+      const storedTokens = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (storedTokens) {
+        try {
+          const tokens = JSON.parse(storedTokens);
+          const emailIds = Object.keys(tokens);
+          
+          if (emailIds.length > 0) {
+            // Try to load the most recent valid email
+            const { data: existingEmail, error } = await supabase
+              .from('temp_emails')
+              .select('id, address, domain_id, user_id, expires_at, is_active, created_at')
+              .in('id', emailIds)
+              .eq('is_active', true)
+              .gt('expires_at', new Date().toISOString())
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+
+            if (!error && existingEmail) {
+              console.log('Found existing valid email:', existingEmail.address);
+              setCurrentEmail({ ...existingEmail, secret_token: tokens[existingEmail.id] });
+              setIsLoading(false);
+              return;
+            }
+          }
+        } catch (e) {
+          console.error('Error parsing stored tokens:', e);
+        }
+      }
+
+      // No valid existing email, generate new one
       generateEmail();
-    }
-  }, [domains, currentEmail, generateEmail, isGenerating]);
+    };
+
+    initializeEmail();
+  }, [domains, currentEmail, isGenerating]);
 
   // Fetch emails using secure edge function
   const fetchSecureEmails = useCallback(async () => {

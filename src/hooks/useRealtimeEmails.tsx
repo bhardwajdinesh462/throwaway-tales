@@ -18,13 +18,73 @@ interface UseRealtimeEmailsOptions {
   onNewEmail?: (email: ReceivedEmail) => void;
   showToast?: boolean;
   playSound?: boolean;
+  enablePushNotifications?: boolean;
 }
 
 export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
-  const { tempEmailId, onNewEmail, showToast = true, playSound = true } = options;
+  const { tempEmailId, onNewEmail, showToast = true, playSound = true, enablePushNotifications = true } = options;
   const { user } = useAuth();
   const [newEmailCount, setNewEmailCount] = useState(0);
   const [lastEmail, setLastEmail] = useState<ReceivedEmail | null>(null);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
+
+  // Check and request push notification permission
+  useEffect(() => {
+    if ("Notification" in window) {
+      setPushPermission(Notification.permission);
+    }
+  }, []);
+
+  const requestPushPermission = useCallback(async () => {
+    if (!("Notification" in window)) {
+      toast.error("Push notifications are not supported in this browser");
+      return false;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setPushPermission(permission);
+      if (permission === "granted") {
+        toast.success("Push notifications enabled!");
+        return true;
+      } else {
+        toast.error("Notification permission denied");
+        return false;
+      }
+    } catch (error) {
+      console.error("Error requesting permission:", error);
+      return false;
+    }
+  }, []);
+
+  const showPushNotification = useCallback((email: ReceivedEmail) => {
+    if (!enablePushNotifications || pushPermission !== "granted") return;
+
+    try {
+      // Try service worker notification first
+      if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.ready.then((registration) => {
+          registration.showNotification("New Email Received!", {
+            body: `From: ${email.from_address}\n${email.subject || "(No Subject)"}`,
+            icon: "/favicon.ico",
+            badge: "/favicon.ico",
+            tag: `email-${email.id}`,
+            requireInteraction: false,
+            data: { emailId: email.id },
+          });
+        });
+      } else {
+        // Fallback to regular notification
+        new Notification("New Email Received!", {
+          body: `From: ${email.from_address}\n${email.subject || "(No Subject)"}`,
+          icon: "/favicon.ico",
+          tag: `email-${email.id}`,
+        });
+      }
+    } catch (error) {
+      console.log("Could not show push notification:", error);
+    }
+  }, [enablePushNotifications, pushPermission]);
 
   const playNotificationSound = useCallback(() => {
     if (!playSound) return;
@@ -93,6 +153,11 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
 
           // Play notification sound
           playNotificationSound();
+
+          // Show push notification (if page is not visible)
+          if (document.hidden) {
+            showPushNotification(newEmail);
+          }
         }
       )
       .subscribe((status) => {
@@ -103,7 +168,7 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
       console.log('Cleaning up realtime subscription');
       supabase.removeChannel(channel);
     };
-  }, [tempEmailId, onNewEmail, showToast, playNotificationSound]);
+  }, [tempEmailId, onNewEmail, showToast, playNotificationSound, showPushNotification]);
 
   const resetCount = useCallback(() => {
     setNewEmailCount(0);
@@ -113,6 +178,8 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
     newEmailCount,
     lastEmail,
     resetCount,
+    pushPermission,
+    requestPushPermission,
   };
 };
 

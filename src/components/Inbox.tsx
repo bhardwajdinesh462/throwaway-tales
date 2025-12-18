@@ -52,11 +52,12 @@ const Inbox = () => {
   }, [refetch]);
 
   // 6. Real-time hook (must be called unconditionally)
-  const { newEmailCount, resetCount } = useRealtimeEmails({
+  const { newEmailCount, resetCount, pushPermission, requestPushPermission } = useRealtimeEmails({
     tempEmailId: currentEmail?.id,
     onNewEmail: handleNewEmail,
     showToast: true,
     playSound: soundEnabled,
+    enablePushNotifications: true,
   });
 
   // 7. All useEffect hooks together
@@ -245,6 +246,19 @@ const Inbox = () => {
               <Shield className="w-3 h-3" />
               <span>Encrypted</span>
             </div>
+            
+            {pushPermission !== "granted" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={requestPushPermission}
+                className="text-xs"
+                title="Enable browser notifications"
+              >
+                <Bell className="w-4 h-4 mr-1" />
+                Enable Notifications
+              </Button>
+            )}
             
             <Button
               variant="outline"

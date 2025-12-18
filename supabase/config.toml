@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.smtp-connectivity-test]
 verify_jwt = false
+
+[functions.delete-duplicate-emails]
+verify_jwt = false

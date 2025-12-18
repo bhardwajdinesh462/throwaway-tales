@@ -524,18 +524,6 @@ serve(async (req: Request): Promise<Response> => {
           console.log(`[IMAP] Msg ${msgId} - STORED for ${matchedRecipient}: "${subject}"`);
         }
 
-        if (insertError) {
-          if (insertError.code === '23505') {
-            console.log(`[IMAP] Msg ${msgId} - Duplicate, already exists for ${matchedRecipient}`);
-            storedCount.skipped++;
-          } else {
-            console.error(`[IMAP] Msg ${msgId} - Insert error:`, insertError);
-            storedCount.failed++;
-          }
-        } else {
-          storedCount.success++;
-          console.log(`[IMAP] Msg ${msgId} - STORED for ${matchedRecipient}: "${subject}"`);
-        }
         
         // Mark as seen in IMAP
         await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);

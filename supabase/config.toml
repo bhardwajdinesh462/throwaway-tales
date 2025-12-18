@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.email-webhook]
 verify_jwt = false
+
+[functions.imap-poll-cron]
+verify_jwt = false

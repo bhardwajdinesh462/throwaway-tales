@@ -42,11 +42,11 @@ const Footer = () => {
           <div className="col-span-2">
             <Link to="/" className="flex items-center gap-2 mb-4">
               <Mail className="w-8 h-8 text-primary" />
-              <span className="text-xl font-bold gradient-text">TrashMails</span>
+              <span className="text-xl font-bold gradient-text">Nullsto</span>
             </Link>
             <p className="text-muted-foreground text-sm mb-4 max-w-xs">
               Secure, anonymous, and instant disposable email addresses. 
-              Protect your privacy with TrashMails.
+              Protect your privacy with Nullsto.
             </p>
             <div className="flex gap-3">
               {socialLinks.map((social) => (
@@ -96,7 +96,7 @@ const Footer = () => {
         {/* Bottom */}
         <div className="pt-8 border-t border-border flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-sm text-muted-foreground">
-            © {new Date().getFullYear()} TrashMails. All rights reserved.
+            © {new Date().getFullYear()} Nullsto. All rights reserved.
           </p>
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <span>Made with ❤️ for privacy</span>

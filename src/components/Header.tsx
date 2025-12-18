@@ -54,7 +54,7 @@ const Header = () => {
               <Mail className="w-8 h-8 text-primary transition-transform group-hover:scale-110" />
               <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full" />
             </div>
-            <span className="text-xl font-bold gradient-text">TrashMails</span>
+            <span className="text-xl font-bold gradient-text">Nullsto</span>
           </Link>
 
           {/* Desktop Navigation */}

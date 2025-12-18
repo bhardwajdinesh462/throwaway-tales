@@ -65,7 +65,7 @@ const DeployGuide = () => {
               Deploy to <span className="gradient-text">Shared Hosting</span>
             </h1>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-              Complete guide for deploying TrashMails to Apache or Nginx shared hosting without Node.js
+              Complete guide for deploying Nullsto to Apache or Nginx shared hosting without Node.js
             </p>
           </div>
 

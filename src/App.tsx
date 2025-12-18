@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useLocalAuth";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { NotificationProvider } from "@/components/NotificationSystem";
 import { initializeDefaultData } from "@/lib/storage";
 import Index from "./pages/Index";
 import Blog from "./pages/Blog";
@@ -38,6 +39,7 @@ import AdminCaptcha from "./pages/admin/AdminCaptcha";
 import AdminAPI from "./pages/admin/AdminAPI";
 import AdminCron from "./pages/admin/AdminCron";
 import AdminCache from "./pages/admin/AdminCache";
+import AdminAdvancedSettings from "./pages/admin/AdminAdvancedSettings";
 
 // Initialize default data on app load
 initializeDefaultData();
@@ -49,9 +51,10 @@ const App = () => (
     <ThemeProvider>
       <LanguageProvider>
         <AuthProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
+          <NotificationProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
             <BrowserRouter>
               <Routes>
                 <Route path="/" element={<Index />} />
@@ -86,12 +89,14 @@ const App = () => (
                   <Route path="api" element={<AdminAPI />} />
                   <Route path="cron" element={<AdminCron />} />
                   <Route path="cache" element={<AdminCache />} />
+                  <Route path="advanced" element={<AdminAdvancedSettings />} />
                 </Route>
 
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>
           </TooltipProvider>
+        </NotificationProvider>
         </AuthProvider>
       </LanguageProvider>
     </ThemeProvider>

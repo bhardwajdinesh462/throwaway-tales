@@ -77,6 +77,7 @@ const AdminSidebar = () => {
   ];
 
   const advancedMenuItems = [
+    { title: "Advanced", url: "/admin/advanced", icon: Cog },
     { title: "Ads", url: "/admin/ads", icon: Megaphone },
     { title: "Captcha", url: "/admin/captcha", icon: ShieldCheck },
     { title: "API", url: "/admin/api", icon: Key },
@@ -122,7 +123,7 @@ const AdminSidebar = () => {
           </div>
           {!collapsed && (
             <div>
-              <p className="font-semibold text-foreground">TrashMails</p>
+              <p className="font-semibold text-foreground">Nullsto</p>
               <p className="text-xs text-muted-foreground">{t('adminPanel')}</p>
             </div>
           )}

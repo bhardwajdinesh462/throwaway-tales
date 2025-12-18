@@ -41,6 +41,7 @@ import AdminAPI from "./pages/admin/AdminAPI";
 import AdminCron from "./pages/admin/AdminCron";
 import AdminCache from "./pages/admin/AdminCache";
 import AdminAdvancedSettings from "./pages/admin/AdminAdvancedSettings";
+import AdminBanners from "./pages/admin/AdminBanners";
 
 // Initialize default data on app load
 initializeDefaultData();
@@ -92,6 +93,7 @@ const App = () => (
                   <Route path="cron" element={<AdminCron />} />
                   <Route path="cache" element={<AdminCache />} />
                   <Route path="advanced" element={<AdminAdvancedSettings />} />
+                  <Route path="banners" element={<AdminBanners />} />
                 </Route>
 
                 <Route path="*" element={<NotFound />} />

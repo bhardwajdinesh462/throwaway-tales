@@ -35,6 +35,60 @@ export type Database = {
         }
         Relationships: []
       }
+      banners: {
+        Row: {
+          click_count: number
+          content: string
+          created_at: string
+          end_date: string | null
+          id: string
+          image_url: string | null
+          is_active: boolean
+          link_url: string | null
+          name: string
+          position: string
+          priority: number
+          start_date: string | null
+          type: string
+          updated_at: string
+          view_count: number
+        }
+        Insert: {
+          click_count?: number
+          content: string
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          link_url?: string | null
+          name: string
+          position: string
+          priority?: number
+          start_date?: string | null
+          type: string
+          updated_at?: string
+          view_count?: number
+        }
+        Update: {
+          click_count?: number
+          content?: string
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          link_url?: string | null
+          name?: string
+          position?: string
+          priority?: number
+          start_date?: string | null
+          type?: string
+          updated_at?: string
+          view_count?: number
+        }
+        Relationships: []
+      }
       domains: {
         Row: {
           created_at: string

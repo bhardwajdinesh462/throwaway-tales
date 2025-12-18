@@ -8,6 +8,7 @@ import CTASection from "@/components/CTASection";
 import Footer from "@/components/Footer";
 import SEOHead from "@/components/SEOHead";
 import JsonLd from "@/components/JsonLd";
+import BannerDisplay from "@/components/BannerDisplay";
 
 const Index = () => {
   return (
@@ -15,16 +16,45 @@ const Index = () => {
       <SEOHead />
       <JsonLd />
       <Header />
+      
+      {/* Header Banner */}
+      <div className="container mx-auto px-4 pt-20">
+        <BannerDisplay position="header" />
+      </div>
+      
       <main>
         <HeroSection />
         <div className="container mx-auto px-4 pb-12">
-          <Inbox />
+          {/* Content Banner - Top */}
+          <BannerDisplay position="content" className="mb-8" />
+          
+          <div className="flex flex-col lg:flex-row gap-8">
+            <div className="flex-1">
+              <Inbox />
+            </div>
+            {/* Sidebar Banner */}
+            <div className="lg:w-72 space-y-4">
+              <BannerDisplay position="sidebar" />
+            </div>
+          </div>
         </div>
         <FeaturesSection />
         <HowItWorks />
+        
+        {/* Content Banner - Between sections */}
+        <div className="container mx-auto px-4">
+          <BannerDisplay position="content" />
+        </div>
+        
         <FAQSection />
         <CTASection />
       </main>
+      
+      {/* Footer Banner */}
+      <div className="container mx-auto px-4 pb-4">
+        <BannerDisplay position="footer" />
+      </div>
+      
       <Footer />
     </div>
   );

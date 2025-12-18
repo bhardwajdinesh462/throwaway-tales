@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Copy, RefreshCw, Check, QrCode, Star, Volume2, Plus } from "lucide-react";
+import { Copy, RefreshCw, Check, QrCode, Star, Volume2, Plus, Edit2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -18,6 +18,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { useEmailService } from "@/hooks/useLocalEmailService";
 import { useAuth } from "@/hooks/useLocalAuth";
@@ -38,7 +39,10 @@ const EmailGenerator = () => {
   const [showQR, setShowQR] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [customDomainDialog, setCustomDomainDialog] = useState(false);
+  const [customEmailDialog, setCustomEmailDialog] = useState(false);
   const [newDomain, setNewDomain] = useState("");
+  const [customUsername, setCustomUsername] = useState("");
+  const [selectedCustomDomain, setSelectedCustomDomain] = useState("");
 
   const copyToClipboard = async () => {
     if (!currentEmail) return;
@@ -77,6 +81,56 @@ const EmailGenerator = () => {
       setNewDomain("");
       setCustomDomainDialog(false);
     }
+  };
+
+  const handleCreateCustomEmail = () => {
+    if (!customUsername.trim()) {
+      toast.error("Please enter a username");
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9._-]+$/.test(customUsername)) {
+      toast.error("Username can only contain letters, numbers, dots, hyphens, and underscores");
+      return;
+    }
+
+    if (customUsername.length < 3) {
+      toast.error("Username must be at least 3 characters");
+      return;
+    }
+
+    const domainId = selectedCustomDomain || domains[0]?.id;
+    if (!domainId) {
+      toast.error("Please select a domain");
+      return;
+    }
+
+    // Create custom email using the email service
+    const domain = domains.find(d => d.id === domainId);
+    if (domain) {
+      // Store custom email in localStorage
+      const customEmails = JSON.parse(localStorage.getItem("nullsto_temp_emails") || "[]");
+      const newEmail = {
+        id: `custom_${Date.now()}`,
+        user_id: user?.id || null,
+        address: `${customUsername}${domain.name}`,
+        domain_id: domainId,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours
+        is_active: true,
+        is_custom: true,
+        created_at: new Date().toISOString(),
+      };
+      customEmails.push(newEmail);
+      localStorage.setItem("nullsto_temp_emails", JSON.stringify(customEmails));
+      
+      // Trigger reload
+      generateEmail(domainId);
+      toast.success(`Custom email created: ${customUsername}${domain.name}`);
+    }
+
+    setCustomUsername("");
+    setSelectedCustomDomain("");
+    setCustomEmailDialog(false);
   };
 
   const currentDomain = domains.find(d => d.id === currentEmail?.domain_id);
@@ -170,6 +224,16 @@ const EmailGenerator = () => {
           <Button
             variant="glass"
             size="lg"
+            onClick={() => setCustomEmailDialog(true)}
+            title="Create custom email address"
+          >
+            <Edit2 className="w-4 h-4" />
+            Custom
+          </Button>
+
+          <Button
+            variant="glass"
+            size="lg"
             onClick={() => setShowQR(!showQR)}
             disabled={!currentEmail}
           >
@@ -235,6 +299,62 @@ const EmailGenerator = () => {
           <DialogFooter>
             <Button variant="ghost" onClick={() => setCustomDomainDialog(false)}>Cancel</Button>
             <Button variant="neon" onClick={handleAddCustomDomain}>Add Domain</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Custom Email Dialog */}
+      <Dialog open={customEmailDialog} onOpenChange={setCustomEmailDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Custom Email Address</DialogTitle>
+            <DialogDescription>
+              Choose your own username for a personalized temporary email address
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Username</label>
+              <Input
+                placeholder="john.doe"
+                value={customUsername}
+                onChange={(e) => setCustomUsername(e.target.value.toLowerCase())}
+                className="bg-secondary/50"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Letters, numbers, dots, hyphens, and underscores only
+              </p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Domain</label>
+              <Select 
+                value={selectedCustomDomain || domains[0]?.id} 
+                onValueChange={setSelectedCustomDomain}
+              >
+                <SelectTrigger className="bg-secondary/50">
+                  <SelectValue placeholder="Select domain" />
+                </SelectTrigger>
+                <SelectContent>
+                  {domains.map((domain) => (
+                    <SelectItem key={domain.id} value={domain.id}>
+                      {domain.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {customUsername && (
+              <div className="p-3 bg-primary/10 rounded-lg">
+                <p className="text-sm text-muted-foreground">Preview:</p>
+                <p className="font-mono text-primary">
+                  {customUsername}{domains.find(d => d.id === (selectedCustomDomain || domains[0]?.id))?.name || "@example.com"}
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCustomEmailDialog(false)}>Cancel</Button>
+            <Button variant="neon" onClick={handleCreateCustomEmail}>Create Email</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

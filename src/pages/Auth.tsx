@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Mail, Lock, User, ArrowRight, Loader2, Chrome } from "lucide-react";
+import { Mail, Lock, User, ArrowRight, Loader2, Chrome, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useSupabaseAuth";
@@ -14,26 +14,40 @@ import Footer from "@/components/Footer";
 const emailSchema = z.string().email("Please enter a valid email address");
 const passwordSchema = z.string().min(6, "Password must be at least 6 characters");
 
+type AuthMode = 'login' | 'signup' | 'forgot' | 'reset';
+
 const Auth = () => {
-  const [isLogin, setIsLogin] = useState(true);
+  const [searchParams] = useSearchParams();
+  const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { user, signIn, signUp, signInWithGoogle, signInWithFacebook } = useAuth();
+  const { user, signIn, signUp, signInWithGoogle, signInWithFacebook, resetPassword, updatePassword } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (user) {
+    // Check if we're in password reset mode from URL
+    if (searchParams.get('mode') === 'reset') {
+      setMode('reset');
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    // Only redirect if user is logged in and NOT in reset mode
+    if (user && mode !== 'reset') {
       navigate("/");
     }
-  }, [user, navigate]);
+  }, [user, navigate, mode]);
 
-  const validateInputs = () => {
+  const validateInputs = (validatePassword = true) => {
     try {
       emailSchema.parse(email);
-      passwordSchema.parse(password);
+      if (validatePassword) {
+        passwordSchema.parse(password);
+      }
       return true;
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -45,13 +59,14 @@ const Auth = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateInputs()) return;
-    
     setIsSubmitting(true);
 
     try {
-      if (isLogin) {
+      if (mode === 'login') {
+        if (!validateInputs()) {
+          setIsSubmitting(false);
+          return;
+        }
         const { error } = await signIn(email, password);
         if (error) {
           toast.error(error.message);
@@ -59,12 +74,50 @@ const Auth = () => {
           toast.success("Welcome back!");
           navigate("/");
         }
-      } else {
+      } else if (mode === 'signup') {
+        if (!validateInputs()) {
+          setIsSubmitting(false);
+          return;
+        }
         const { error } = await signUp(email, password, name);
         if (error) {
           toast.error(error.message);
         } else {
           toast.success("Account created successfully!");
+          navigate("/");
+        }
+      } else if (mode === 'forgot') {
+        if (!validateInputs(false)) {
+          setIsSubmitting(false);
+          return;
+        }
+        const { error } = await resetPassword(email);
+        if (error) {
+          toast.error(error.message);
+        } else {
+          toast.success("Password reset email sent! Check your inbox.");
+          setMode('login');
+        }
+      } else if (mode === 'reset') {
+        if (password !== confirmPassword) {
+          toast.error("Passwords do not match");
+          setIsSubmitting(false);
+          return;
+        }
+        try {
+          passwordSchema.parse(password);
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            toast.error(error.errors[0].message);
+          }
+          setIsSubmitting(false);
+          return;
+        }
+        const { error } = await updatePassword(password);
+        if (error) {
+          toast.error(error.message);
+        } else {
+          toast.success("Password updated successfully!");
           navigate("/");
         }
       }
@@ -97,6 +150,33 @@ const Auth = () => {
     setIsSubmitting(false);
   };
 
+  const getTitle = () => {
+    switch (mode) {
+      case 'login': return t('welcomeBack');
+      case 'signup': return t('createAccount');
+      case 'forgot': return 'Reset Password';
+      case 'reset': return 'Set New Password';
+    }
+  };
+
+  const getDescription = () => {
+    switch (mode) {
+      case 'login': return t('signInDesc');
+      case 'signup': return t('signUpDesc');
+      case 'forgot': return 'Enter your email to receive a password reset link';
+      case 'reset': return 'Enter your new password below';
+    }
+  };
+
+  const getButtonText = () => {
+    switch (mode) {
+      case 'login': return t('signIn');
+      case 'signup': return t('createAccount');
+      case 'forgot': return 'Send Reset Link';
+      case 'reset': return 'Update Password';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -109,50 +189,54 @@ const Auth = () => {
           >
             <div className="text-center mb-8">
               <h1 className="text-3xl font-bold text-foreground mb-2">
-                {isLogin ? t('welcomeBack') : t('createAccount')}
+                {getTitle()}
               </h1>
               <p className="text-muted-foreground">
-                {isLogin ? t('signInDesc') : t('signUpDesc')}
+                {getDescription()}
               </p>
             </div>
 
             <div className="glass-card p-8">
-              {/* Social Login */}
-              <div className="space-y-3 mb-6">
-                <Button
-                  variant="glass"
-                  className="w-full"
-                  onClick={handleGoogleSignIn}
-                  disabled={isSubmitting}
-                >
-                  <Chrome className="w-5 h-5 mr-2" />
-                  {t('continueWithGoogle')}
-                </Button>
-                <Button
-                  variant="glass"
-                  className="w-full"
-                  onClick={handleFacebookSignIn}
-                  disabled={isSubmitting}
-                >
-                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                  </svg>
-                  {t('continueWithFacebook')}
-                </Button>
-              </div>
+              {/* Social Login - only show for login/signup */}
+              {(mode === 'login' || mode === 'signup') && (
+                <>
+                  <div className="space-y-3 mb-6">
+                    <Button
+                      variant="glass"
+                      className="w-full"
+                      onClick={handleGoogleSignIn}
+                      disabled={isSubmitting}
+                    >
+                      <Chrome className="w-5 h-5 mr-2" />
+                      {t('continueWithGoogle')}
+                    </Button>
+                    <Button
+                      variant="glass"
+                      className="w-full"
+                      onClick={handleFacebookSignIn}
+                      disabled={isSubmitting}
+                    >
+                      <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                      </svg>
+                      {t('continueWithFacebook')}
+                    </Button>
+                  </div>
 
-              <div className="relative mb-6">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-border" />
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="bg-card px-4 text-muted-foreground">{t('or')}</span>
-                </div>
-              </div>
+                  <div className="relative mb-6">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-border" />
+                    </div>
+                    <div className="relative flex justify-center text-sm">
+                      <span className="bg-card px-4 text-muted-foreground">{t('or')}</span>
+                    </div>
+                  </div>
+                </>
+              )}
 
-              {/* Email/Password Form */}
+              {/* Form */}
               <form onSubmit={handleSubmit} className="space-y-4">
-                {!isLogin && (
+                {mode === 'signup' && (
                   <div>
                     <label className="text-sm text-muted-foreground mb-2 block">
                       {t('fullName')}
@@ -170,39 +254,74 @@ const Auth = () => {
                   </div>
                 )}
 
-                <div>
-                  <label className="text-sm text-muted-foreground mb-2 block">
-                    {t('emailAddress')}
-                  </label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                    <Input
-                      type="email"
-                      placeholder="you@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="pl-10 bg-secondary/50 border-border"
-                      required
-                    />
+                {(mode === 'login' || mode === 'signup' || mode === 'forgot') && (
+                  <div>
+                    <label className="text-sm text-muted-foreground mb-2 block">
+                      {t('emailAddress')}
+                    </label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                      <Input
+                        type="email"
+                        placeholder="you@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="pl-10 bg-secondary/50 border-border"
+                        required
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
-                <div>
-                  <label className="text-sm text-muted-foreground mb-2 block">
-                    {t('password')}
-                  </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                    <Input
-                      type="password"
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="pl-10 bg-secondary/50 border-border"
-                      required
-                    />
+                {(mode === 'login' || mode === 'signup' || mode === 'reset') && (
+                  <div>
+                    <label className="text-sm text-muted-foreground mb-2 block">
+                      {mode === 'reset' ? 'New Password' : t('password')}
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                      <Input
+                        type="password"
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="pl-10 bg-secondary/50 border-border"
+                        required
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {mode === 'reset' && (
+                  <div>
+                    <label className="text-sm text-muted-foreground mb-2 block">
+                      Confirm New Password
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                      <Input
+                        type="password"
+                        placeholder="••••••••"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="pl-10 bg-secondary/50 border-border"
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {mode === 'login' && (
+                  <div className="text-right">
+                    <button
+                      type="button"
+                      onClick={() => setMode('forgot')}
+                      className="text-sm text-primary hover:text-primary/80 transition-colors"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                )}
 
                 <Button
                   type="submit"
@@ -214,21 +333,41 @@ const Auth = () => {
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
                     <>
-                      {isLogin ? t('signIn') : t('createAccount')}
+                      {getButtonText()}
                       <ArrowRight className="w-5 h-5 ml-2" />
                     </>
                   )}
                 </Button>
               </form>
 
-              <div className="mt-6 text-center">
-                <button
-                  type="button"
-                  onClick={() => setIsLogin(!isLogin)}
-                  className="text-sm text-muted-foreground hover:text-primary transition-colors"
-                >
-                  {isLogin ? t('dontHaveAccount') : t('alreadyHaveAccount')}
-                </button>
+              <div className="mt-6 text-center space-y-2">
+                {mode === 'login' && (
+                  <button
+                    type="button"
+                    onClick={() => setMode('signup')}
+                    className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    {t('dontHaveAccount')}
+                  </button>
+                )}
+                {mode === 'signup' && (
+                  <button
+                    type="button"
+                    onClick={() => setMode('login')}
+                    className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    {t('alreadyHaveAccount')}
+                  </button>
+                )}
+                {(mode === 'forgot' || mode === 'reset') && (
+                  <button
+                    type="button"
+                    onClick={() => setMode('login')}
+                    className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    Back to login
+                  </button>
+                )}
               </div>
             </div>
           </motion.div>

@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
+import { supabase } from "@/integrations/supabase/client";
 import { Settings, Save } from "lucide-react";
 
 const GENERAL_SETTINGS_KEY = 'trashmails_general_settings';
@@ -24,11 +25,11 @@ interface GeneralSettings {
 }
 
 const defaultSettings: GeneralSettings = {
-  siteName: 'TrashMails',
+  siteName: 'Nullsto',
   siteTagline: 'Protect Your Privacy with Disposable Emails',
   siteDescription: 'Generate instant, anonymous email addresses. Perfect for sign-ups, testing, and keeping your real inbox spam-free.',
-  contactEmail: 'contact@trashmails.io',
-  supportEmail: 'support@trashmails.io',
+  contactEmail: 'contact@nullsto.com',
+  supportEmail: 'support@nullsto.com',
   timezone: 'UTC',
   dateFormat: 'YYYY-MM-DD',
   maintenanceMode: false,
@@ -41,13 +42,53 @@ const AdminGeneralSettings = () => {
   );
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaving(true);
-    storage.set(GENERAL_SETTINGS_KEY, settings);
-    setTimeout(() => {
+    try {
+      // Save to localStorage for immediate access
+      storage.set(GENERAL_SETTINGS_KEY, settings);
+      
+      // Also save to Supabase app_settings for persistence
+      const { data: existing } = await supabase
+        .from('app_settings')
+        .select('id')
+        .eq('key', 'general')
+        .maybeSingle();
+
+      const settingsJson = JSON.parse(JSON.stringify(settings));
+
+      let error;
+      if (existing) {
+        const result = await supabase
+          .from('app_settings')
+          .update({
+            value: settingsJson,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('key', 'general');
+        error = result.error;
+      } else {
+        const result = await supabase
+          .from('app_settings')
+          .insert([{
+            key: 'general',
+            value: settingsJson,
+          }]);
+        error = result.error;
+      }
+
+      if (error) {
+        console.error('Error saving to database:', error);
+        toast.error('Settings saved locally but failed to sync to database');
+      } else {
+        toast.success("General settings saved successfully!");
+      }
+    } catch (e) {
+      console.error('Error saving settings:', e);
+      toast.error('Failed to save settings');
+    } finally {
       setIsSaving(false);
-      toast.success("General settings saved successfully!");
-    }, 500);
+    }
   };
 
   const updateSetting = <K extends keyof GeneralSettings>(key: K, value: GeneralSettings[K]) => {

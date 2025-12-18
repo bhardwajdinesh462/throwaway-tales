@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
+import { supabase } from "@/integrations/supabase/client";
 import { Search, Save, Code, FileCode } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -60,13 +61,53 @@ const AdminSEO = () => {
   );
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaving(true);
-    storage.set(SEO_SETTINGS_KEY, settings);
-    setTimeout(() => {
+    try {
+      // Save to localStorage for immediate access
+      storage.set(SEO_SETTINGS_KEY, settings);
+      
+      // Also save to Supabase app_settings for persistence
+      const { data: existing } = await supabase
+        .from('app_settings')
+        .select('id')
+        .eq('key', 'seo')
+        .maybeSingle();
+
+      const settingsJson = JSON.parse(JSON.stringify(settings));
+
+      let error;
+      if (existing) {
+        const result = await supabase
+          .from('app_settings')
+          .update({
+            value: settingsJson,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('key', 'seo');
+        error = result.error;
+      } else {
+        const result = await supabase
+          .from('app_settings')
+          .insert([{
+            key: 'seo',
+            value: settingsJson,
+          }]);
+        error = result.error;
+      }
+
+      if (error) {
+        console.error('Error saving to database:', error);
+        toast.error('Settings saved locally but failed to sync to database');
+      } else {
+        toast.success("SEO settings saved!");
+      }
+    } catch (e) {
+      console.error('Error saving settings:', e);
+      toast.error('Failed to save settings');
+    } finally {
       setIsSaving(false);
-      toast.success("SEO settings saved!");
-    }, 500);
+    }
   };
 
   const updateSetting = <K extends keyof SEOSettings>(key: K, value: SEOSettings[K]) => {

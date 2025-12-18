@@ -73,6 +73,113 @@ async function decryptText(encrypted: string, ivBase64: string): Promise<string>
   }
 }
 
+// Best-effort cleanup for older records that accidentally stored IMAP/MIME artifacts
+function stripImapArtifacts(raw: string): string {
+  return raw
+    .replace(/^\s*BODY\[TEXT\]\s*\{\d+\}\s*\r?\n?/gmi, '')
+    .replace(/\r?\n\)\r?\nA\d{4}\s+(OK|NO|BAD)[\s\S]*$/i, '')
+    .trim();
+}
+
+function decodeQuotedPrintableInline(str: string): string {
+  return str
+    .replace(/=\r?\n/g, '')
+    .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+function decodeBase64Inline(str: string): string {
+  try {
+    const cleaned = str.replace(/\r?\n/g, '');
+    return atob(cleaned);
+  } catch {
+    return str;
+  }
+}
+
+function extractTextFromHtmlInline(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tryParseMultipartFromBody(rawBody: string): { text: string; html: string } {
+  const cleaned = stripImapArtifacts(rawBody);
+
+  const boundaryFromBody = cleaned.match(/^\s*--([^\r\n]+)\r?\n/)?.[1]?.trim();
+  const boundary = boundaryFromBody;
+
+  if (!boundary) {
+    return { text: cleaned, html: '' };
+  }
+
+  const escapedBoundary = boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts = cleaned.split(new RegExp(`--${escapedBoundary}`));
+
+  let text = '';
+  let html = '';
+
+  const parseSinglePart = (content: string) => {
+    const headerEndCrLf = content.indexOf('\r\n\r\n');
+    const headerEndLf = headerEndCrLf === -1 ? content.indexOf('\n\n') : -1;
+    const headerEnd = headerEndCrLf !== -1 ? headerEndCrLf : headerEndLf;
+    const sepLen = headerEndCrLf !== -1 ? 4 : 2;
+
+    if (headerEnd === -1) return { headers: '', body: content };
+    return {
+      headers: content.substring(0, headerEnd),
+      body: content.substring(headerEnd + sepLen),
+    };
+  };
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed || trimmed === '--') continue;
+
+    const normalizedPart = part.replace(/^\r?\n/, '');
+    const { headers, body } = parseSinglePart(normalizedPart);
+    const headersLower = headers.toLowerCase();
+
+    let decodedBody = body;
+    if (headersLower.includes('quoted-printable')) decodedBody = decodeQuotedPrintableInline(decodedBody);
+    if (headersLower.includes('base64')) decodedBody = decodeBase64Inline(decodedBody);
+    decodedBody = decodedBody.trim();
+
+    if (!decodedBody) continue;
+
+    if (headersLower.includes('text/html') && !html) html = decodedBody;
+    if (headersLower.includes('text/plain') && !text) text = decodedBody;
+  }
+
+  if (!text && html) text = extractTextFromHtmlInline(html);
+
+  return { text: text.trim(), html: html.trim() };
+}
+
+function normalizeEmailBodies(body: string | null, htmlBody: string | null): { body: string | null; html_body: string | null } | null {
+  if (!body) return null;
+  if (htmlBody) return null;
+
+  // Only attempt normalization for obvious raw IMAP/MIME payloads
+  const looksRaw = /BODY\[TEXT\]|\r?\nA\d{4}\s+(OK|NO|BAD)\b|\r?\n--[\w-]{8,}/i.test(body) || /Content-Type:\s*text\/(plain|html)/i.test(body);
+  if (!looksRaw) return null;
+
+  const parsed = tryParseMultipartFromBody(body);
+
+  return {
+    body: parsed.text || stripImapArtifacts(body) || null,
+    html_body: parsed.html || null,
+  };
+}
+
 serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -151,9 +258,14 @@ serve(async (req: Request) => {
           })
         );
 
-        console.log(`[secure-email-access] Returning ${decryptedEmails.length} emails`);
+        const normalizedEmails = decryptedEmails.map((email) => {
+          const normalized = normalizeEmailBodies(email.body || null, email.html_body || null);
+          return normalized ? { ...email, ...normalized } : email;
+        });
+
+        console.log(`[secure-email-access] Returning ${normalizedEmails.length} emails`);
         return new Response(
-          JSON.stringify({ emails: decryptedEmails, tempEmail }),
+          JSON.stringify({ emails: normalizedEmails, tempEmail }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }

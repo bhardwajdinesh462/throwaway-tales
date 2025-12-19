@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Menu, X, User, LogOut, Settings, History, Globe, Sun, Moon, LayoutDashboard, Crown } from "lucide-react";
+import { Menu, X, User, LogOut, Settings, History, Globe, Sun, Moon, LayoutDashboard, Crown, Send } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useSupabaseAuth";
@@ -109,6 +109,17 @@ const Header = () => {
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Telegram Join Button */}
+            <a
+              href="https://t.me/nullstoemail"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#0088cc]/10 hover:bg-[#0088cc]/20 border border-[#0088cc]/30 text-[#0088cc] transition-all hover:scale-105 text-sm font-medium"
+            >
+              <Send className="w-4 h-4" />
+              <span className="hidden lg:inline">Join Updates</span>
+            </a>
 
             {/* Theme Toggle */}
             <Button
@@ -245,6 +256,17 @@ const Header = () => {
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Telegram - Mobile */}
+              <a
+                href="https://t.me/nullstoemail"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#0088cc]/10 hover:bg-[#0088cc]/20 border border-[#0088cc]/30 text-[#0088cc] transition-all text-sm font-medium"
+              >
+                <Send className="w-4 h-4" />
+                Join Telegram for Updates
+              </a>
 
               {navItems.map((item) => (
                 <a

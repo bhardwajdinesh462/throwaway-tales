@@ -14,6 +14,30 @@ interface SendTemplateEmailRequest {
   customVariables?: Record<string, string>;
 }
 
+// Helper to format date
+const formatDate = (): string => {
+  return new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  });
+};
+
+// Helper to parse user agent
+const parseUserAgent = (ua: string): string => {
+  if (!ua) return 'Unknown Browser';
+  if (ua.includes('Chrome')) return 'Chrome';
+  if (ua.includes('Firefox')) return 'Firefox';
+  if (ua.includes('Safari')) return 'Safari';
+  if (ua.includes('Edge')) return 'Edge';
+  if (ua.includes('Opera')) return 'Opera';
+  return 'Unknown Browser';
+};
+
 serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -22,6 +46,15 @@ serve(async (req: Request): Promise<Response> => {
 
   try {
     const { templateId, templateType, recipientEmail, recipientName, customVariables }: SendTemplateEmailRequest = await req.json();
+    
+    // Get request metadata for template variables
+    const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 
+                     req.headers.get('cf-connecting-ip') || 
+                     req.headers.get('x-real-ip') || 
+                     'Unknown';
+    const userAgent = req.headers.get('user-agent') || '';
+    const browser = parseUserAgent(userAgent);
+    const currentDate = formatDate();
 
     console.log(`[send-template-email] Request: templateId=${templateId}, templateType=${templateType}, to=${recipientEmail}`);
 
@@ -90,7 +123,10 @@ serve(async (req: Request): Promise<Response> => {
         .replace(/\{\{email\}\}/g, recipientEmail)
         .replace(/\{\{link\}\}/g, siteUrl)
         .replace(/\{\{reset_link\}\}/g, `${siteUrl}/auth?mode=reset`)
-        .replace(/\{\{verify_link\}\}/g, `${siteUrl}/verify-email`);
+        .replace(/\{\{verify_link\}\}/g, `${siteUrl}/verify-email`)
+        .replace(/\{\{date\}\}/g, currentDate)
+        .replace(/\{\{ip_address\}\}/g, clientIp)
+        .replace(/\{\{browser\}\}/g, browser);
 
       // Replace any custom variables
       if (customVariables) {

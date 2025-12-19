@@ -240,13 +240,26 @@ const AdminEmailTemplates = () => {
 
   // Preview template with variables replaced
   const previewTemplateText = (text: string) => {
+    const now = new Date();
+    const formattedDate = now.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    
     return text
       .replace(/\{\{site_name\}\}/g, generalSettings.siteName)
       .replace(/\{\{name\}\}/g, testName || 'User Name')
       .replace(/\{\{email\}\}/g, testEmail || 'user@example.com')
       .replace(/\{\{link\}\}/g, 'https://example.com/action')
       .replace(/\{\{reset_link\}\}/g, 'https://example.com/reset')
-      .replace(/\{\{verify_link\}\}/g, 'https://example.com/verify');
+      .replace(/\{\{verify_link\}\}/g, 'https://example.com/verify')
+      .replace(/\{\{date\}\}/g, formattedDate)
+      .replace(/\{\{ip_address\}\}/g, '192.168.1.1')
+      .replace(/\{\{browser\}\}/g, 'Chrome');
   };
 
   if (isLoading) {
@@ -290,7 +303,10 @@ const AdminEmailTemplates = () => {
                   <code className="bg-muted px-1 rounded ml-1">{"{{email}}"}</code>, 
                   <code className="bg-muted px-1 rounded ml-1">{"{{link}}"}</code>,
                   <code className="bg-muted px-1 rounded ml-1">{"{{reset_link}}"}</code>,
-                  <code className="bg-muted px-1 rounded ml-1">{"{{verify_link}}"}</code>
+                  <code className="bg-muted px-1 rounded ml-1">{"{{verify_link}}"}</code>,
+                  <code className="bg-muted px-1 rounded ml-1">{"{{date}}"}</code>,
+                  <code className="bg-muted px-1 rounded ml-1">{"{{ip_address}}"}</code>,
+                  <code className="bg-muted px-1 rounded ml-1">{"{{browser}}"}</code>
                 </AlertDescription>
               </Alert>
               

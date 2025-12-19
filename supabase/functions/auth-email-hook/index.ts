@@ -15,6 +15,30 @@ interface AuthEmailRequest {
   name?: string;
 }
 
+// Helper to format date
+const formatDate = (): string => {
+  return new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  });
+};
+
+// Helper to parse user agent
+const parseUserAgent = (ua: string): string => {
+  if (!ua) return 'Unknown Browser';
+  if (ua.includes('Chrome')) return 'Chrome';
+  if (ua.includes('Firefox')) return 'Firefox';
+  if (ua.includes('Safari')) return 'Safari';
+  if (ua.includes('Edge')) return 'Edge';
+  if (ua.includes('Opera')) return 'Opera';
+  return 'Unknown Browser';
+};
+
 serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -23,6 +47,15 @@ serve(async (req: Request): Promise<Response> => {
   try {
     const payload: AuthEmailRequest = await req.json();
     const { type, email, token, tokenHash, redirectUrl, name } = payload;
+
+    // Get request metadata for template variables
+    const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 
+                     req.headers.get('cf-connecting-ip') || 
+                     req.headers.get('x-real-ip') || 
+                     'Unknown';
+    const userAgent = req.headers.get('user-agent') || '';
+    const browser = parseUserAgent(userAgent);
+    const currentDate = formatDate();
 
     console.log(`[auth-email-hook] Processing ${type} email for ${email}`);
 
@@ -106,7 +139,10 @@ serve(async (req: Request): Promise<Response> => {
         .replace(/\{\{email\}\}/g, email)
         .replace(/\{\{link\}\}/g, actionUrl)
         .replace(/\{\{reset_link\}\}/g, actionUrl)
-        .replace(/\{\{verify_link\}\}/g, actionUrl);
+        .replace(/\{\{verify_link\}\}/g, actionUrl)
+        .replace(/\{\{date\}\}/g, currentDate)
+        .replace(/\{\{ip_address\}\}/g, clientIp)
+        .replace(/\{\{browser\}\}/g, browser);
     };
 
     subject = replaceVariables(subject);

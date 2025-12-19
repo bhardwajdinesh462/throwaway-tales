@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import InboxDiagnostics, { saveImapFetchStats } from "@/components/InboxDiagnostics";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
+import { useNotificationSounds } from "@/hooks/useNotificationSounds";
 interface NotificationPreferences {
   soundEnabled: boolean;
   pushEnabled: boolean;
@@ -51,12 +52,17 @@ const Inbox = () => {
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const refreshRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Notification sounds
+  const { playSound } = useNotificationSounds();
+
   // 5. All useCallback hooks together
   const handleNewEmail = useCallback(() => {
     if (refetch) {
       refetch();
     }
-  }, [refetch]);
+    // Play notification sound for new emails
+    playSound();
+  }, [refetch, playSound]);
 
   // 6. Real-time hook (must be called unconditionally)
   const { newEmailCount, resetCount, pushPermission, requestPushPermission } = useRealtimeEmails({

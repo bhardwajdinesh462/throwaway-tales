@@ -522,6 +522,60 @@ export type Database = {
           },
         ]
       }
+      subscription_tiers: {
+        Row: {
+          ai_summaries_per_day: number
+          can_forward_emails: boolean
+          can_use_api: boolean
+          can_use_custom_domains: boolean
+          created_at: string
+          email_expiry_hours: number
+          features: Json
+          id: string
+          is_active: boolean
+          max_temp_emails: number
+          name: string
+          price_monthly: number
+          price_yearly: number
+          priority_support: boolean
+          updated_at: string
+        }
+        Insert: {
+          ai_summaries_per_day?: number
+          can_forward_emails?: boolean
+          can_use_api?: boolean
+          can_use_custom_domains?: boolean
+          created_at?: string
+          email_expiry_hours?: number
+          features?: Json
+          id?: string
+          is_active?: boolean
+          max_temp_emails?: number
+          name: string
+          price_monthly?: number
+          price_yearly?: number
+          priority_support?: boolean
+          updated_at?: string
+        }
+        Update: {
+          ai_summaries_per_day?: number
+          can_forward_emails?: boolean
+          can_use_api?: boolean
+          can_use_custom_domains?: boolean
+          created_at?: string
+          email_expiry_hours?: number
+          features?: Json
+          id?: string
+          is_active?: boolean
+          max_temp_emails?: number
+          name?: string
+          price_monthly?: number
+          price_yearly?: number
+          priority_support?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       temp_emails: {
         Row: {
           address: string
@@ -580,6 +634,92 @@ export type Database = {
           created_at?: string
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_subscriptions: {
+        Row: {
+          cancel_at_period_end: boolean
+          created_at: string
+          current_period_end: string
+          current_period_start: string
+          id: string
+          status: string
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          tier_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cancel_at_period_end?: boolean
+          created_at?: string
+          current_period_end?: string
+          current_period_start?: string
+          id?: string
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          tier_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cancel_at_period_end?: boolean
+          created_at?: string
+          current_period_end?: string
+          current_period_start?: string
+          id?: string
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          tier_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_subscriptions_tier_id_fkey"
+            columns: ["tier_id"]
+            isOneToOne: false
+            referencedRelation: "subscription_tiers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_usage: {
+        Row: {
+          ai_summaries_used: number
+          created_at: string
+          date: string
+          emails_forwarded: number
+          emails_received: number
+          id: string
+          temp_emails_created: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ai_summaries_used?: number
+          created_at?: string
+          date?: string
+          emails_forwarded?: number
+          emails_received?: number
+          id?: string
+          temp_emails_created?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ai_summaries_used?: number
+          created_at?: string
+          date?: string
+          emails_forwarded?: number
+          emails_received?: number
+          id?: string
+          temp_emails_created?: number
+          updated_at?: string
           user_id?: string
         }
         Relationships: []

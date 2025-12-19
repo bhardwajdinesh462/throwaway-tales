@@ -18,6 +18,7 @@ import BlogPost from "./pages/BlogPost";
 import Contact from "./pages/Contact";
 import Auth from "./pages/Auth";
 import History from "./pages/History";
+import Dashboard from "./pages/Dashboard";
 import DeployGuide from "./pages/DeployGuide";
 import AdminGuide from "./pages/AdminGuide";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
@@ -89,6 +90,7 @@ const App = () => (
                     <Route path="/contact" element={<Contact />} />
                     <Route path="/auth" element={<Auth />} />
                     <Route path="/history" element={<History />} />
+                    <Route path="/dashboard" element={<Dashboard />} />
                     <Route path="/deploy-guide" element={<DeployGuide />} />
                     <Route path="/admin-guide" element={<AdminGuide />} />
                     <Route path="/privacy" element={<PrivacyPolicy />} />

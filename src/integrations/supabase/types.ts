@@ -1360,6 +1360,10 @@ export type Database = {
         Returns: undefined
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      is_guest_temp_email: {
+        Args: { _temp_email_id: string }
+        Returns: boolean
+      }
       is_ip_blocked: { Args: { p_ip_address: string }; Returns: boolean }
       is_user_suspended: { Args: { check_user_id: string }; Returns: boolean }
       log_admin_access: {

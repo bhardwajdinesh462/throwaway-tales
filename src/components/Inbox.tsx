@@ -54,6 +54,12 @@ const Inbox = () => {
 
   // Notification sounds - auto-unlocks on user interaction
   const { playSound } = useNotificationSounds();
+  const skipNextListSoundRef = useRef(false);
+
+  const playSoundFromRealtime = useCallback(() => {
+    skipNextListSoundRef.current = true;
+    void playSound();
+  }, [playSound]);
 
   // 5. All useCallback hooks together
   const handleNewEmail = useCallback(() => {
@@ -61,15 +67,15 @@ const Inbox = () => {
     if (refetch) {
       refetch();
     }
-    // Note: Sound is now played by useRealtimeEmails directly
+    // Note: Sound is played by useRealtimeEmails via playSoundFromRealtime
   }, [refetch]);
 
-  // 6. Real-time hook - always pass playSound (it handles enabled check internally)
+  // 6. Real-time hook
   const { newEmailCount, resetCount, pushPermission, requestPushPermission } = useRealtimeEmails({
     tempEmailId: currentEmail?.id,
     onNewEmail: handleNewEmail,
     showToast: true,
-    playSoundCallback: playSound,
+    playSoundCallback: playSoundFromRealtime,
     enablePushNotifications: true,
   });
 

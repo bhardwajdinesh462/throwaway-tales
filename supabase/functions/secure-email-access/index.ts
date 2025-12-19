@@ -242,17 +242,19 @@ serve(async (req: Request) => {
         .maybeSingle();
       
       if (result.error) {
-        const errorMessage = result.error.message || '';
+        const errorMessage = result.error.message || result.error.code || JSON.stringify(result.error) || 'Unknown database error';
         const isRetryable = errorMessage.includes('connection reset') || 
                             errorMessage.includes('connection error') ||
-                            errorMessage.includes('SendRequest');
+                            errorMessage.includes('SendRequest') ||
+                            errorMessage.includes('PGRST') ||
+                            errorMessage.includes('timeout');
         
         if (isRetryable && attempt < 3) {
           console.log(`[secure-email-access] Retry ${attempt}/3 after error: ${errorMessage}`);
           await new Promise(r => setTimeout(r, 500 * attempt));
           continue;
         }
-        verifyError = new Error(result.error.message);
+        verifyError = new Error(errorMessage);
         break;
       }
       
@@ -261,9 +263,9 @@ serve(async (req: Request) => {
     }
 
     if (verifyError) {
-      console.log('[secure-email-access] Error fetching temp email:', verifyError);
+      console.error('[secure-email-access] Error fetching temp email:', verifyError.message);
       return new Response(
-        JSON.stringify({ error: 'Database error', details: verifyError.message }),
+        JSON.stringify({ error: 'Database error', details: verifyError.message || 'Connection failed' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

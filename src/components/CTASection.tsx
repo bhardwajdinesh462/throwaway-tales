@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Shield, Zap } from "lucide-react";
 import { useSettings } from "@/contexts/SettingsContext";
@@ -41,13 +42,17 @@ const CTASection = () => {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button variant="hero" size="xl">
-              Generate Free Email
-              <ArrowRight className="w-5 h-5" />
-            </Button>
-            <Button variant="glass" size="xl">
-              View Pricing
-            </Button>
+            <Link to="/auth">
+              <Button variant="hero" size="xl">
+                Generate Free Email
+                <ArrowRight className="w-5 h-5" />
+              </Button>
+            </Link>
+            <Link to="/pricing">
+              <Button variant="glass" size="xl">
+                View Pricing
+              </Button>
+            </Link>
           </div>
 
           <p className="text-sm text-muted-foreground mt-6">

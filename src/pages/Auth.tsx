@@ -111,8 +111,8 @@ const Auth = () => {
         if (error) {
           toast.error(error.message);
         } else {
-          toast.success("Account created successfully!");
-          // Navigation handled by useEffect
+          toast.success("Account created! Please check your email to verify.");
+          navigate("/verify-email");
         }
       } else if (mode === 'forgot') {
         if (!validateInputs(false)) {

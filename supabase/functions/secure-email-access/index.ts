@@ -180,6 +180,33 @@ function normalizeEmailBodies(body: string | null, htmlBody: string | null): { b
   };
 }
 
+// Retry helper for transient network errors
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  delay = 500
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isRetryable = errorMessage.includes('connection reset') || 
+                          errorMessage.includes('connection error') ||
+                          errorMessage.includes('SendRequest');
+      
+      if (!isRetryable || attempt === maxRetries) {
+        throw error;
+      }
+      console.log(`[secure-email-access] Retry ${attempt}/${maxRetries} after error: ${errorMessage}`);
+      await new Promise(r => setTimeout(r, delay * attempt));
+    }
+  }
+  throw lastError;
+}
+
 serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -203,12 +230,35 @@ serve(async (req: Request) => {
       );
     }
 
-    // Verify the token matches - use maybeSingle to avoid error when not found
-    const { data: tempEmail, error: verifyError } = await supabase
-      .from('temp_emails')
-      .select('id, secret_token, address, domain_id, expires_at, is_active')
-      .eq('id', tempEmailId)
-      .maybeSingle();
+    // Verify the token matches - use maybeSingle to avoid error when not found, with retry
+    let tempEmail: { id: string; secret_token: string; address: string; domain_id: string; expires_at: string; is_active: boolean } | null = null;
+    let verifyError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const result = await supabase
+        .from('temp_emails')
+        .select('id, secret_token, address, domain_id, expires_at, is_active')
+        .eq('id', tempEmailId)
+        .maybeSingle();
+      
+      if (result.error) {
+        const errorMessage = result.error.message || '';
+        const isRetryable = errorMessage.includes('connection reset') || 
+                            errorMessage.includes('connection error') ||
+                            errorMessage.includes('SendRequest');
+        
+        if (isRetryable && attempt < 3) {
+          console.log(`[secure-email-access] Retry ${attempt}/3 after error: ${errorMessage}`);
+          await new Promise(r => setTimeout(r, 500 * attempt));
+          continue;
+        }
+        verifyError = new Error(result.error.message);
+        break;
+      }
+      
+      tempEmail = result.data;
+      break;
+    }
 
     if (verifyError) {
       console.log('[secure-email-access] Error fetching temp email:', verifyError);

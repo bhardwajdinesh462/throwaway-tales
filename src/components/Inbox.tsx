@@ -64,12 +64,12 @@ const Inbox = () => {
     // Note: Sound is now played by useRealtimeEmails directly
   }, [refetch]);
 
-  // 6. Real-time hook - pass playSound as callback
+  // 6. Real-time hook - always pass playSound (it handles enabled check internally)
   const { newEmailCount, resetCount, pushPermission, requestPushPermission } = useRealtimeEmails({
     tempEmailId: currentEmail?.id,
     onNewEmail: handleNewEmail,
     showToast: true,
-    playSoundCallback: soundEnabled ? playSound : undefined,
+    playSoundCallback: playSound,
     enablePushNotifications: true,
   });
 
@@ -115,7 +115,7 @@ const Inbox = () => {
         }
       }
     },
-    [refreshInterval, refetch, triggerImapFetch]
+    [refreshInterval, refetch, triggerImapFetch, playSound]
   );
 
   // Auto-refresh functionality

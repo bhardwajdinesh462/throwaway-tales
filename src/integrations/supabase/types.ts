@@ -802,6 +802,45 @@ export type Database = {
           },
         ]
       }
+      user_suspensions: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          lifted_at: string | null
+          lifted_by: string | null
+          reason: string | null
+          suspended_at: string
+          suspended_by: string
+          suspended_until: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          lifted_at?: string | null
+          lifted_by?: string | null
+          reason?: string | null
+          suspended_at?: string
+          suspended_by: string
+          suspended_until?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          lifted_at?: string | null
+          lifted_by?: string | null
+          reason?: string | null
+          suspended_at?: string
+          suspended_by?: string
+          suspended_until?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_usage: {
         Row: {
           ai_summaries_used: number
@@ -905,6 +944,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      bulk_delete_users: { Args: { user_ids: string[] }; Returns: number }
       check_rate_limit: {
         Args: {
           p_action_type: string
@@ -929,6 +969,24 @@ export type Database = {
         }[]
       }
       generate_secret_token: { Args: never; Returns: string }
+      get_admin_audit_logs: {
+        Args: {
+          p_action_filter?: string
+          p_page?: number
+          p_page_size?: number
+        }
+        Returns: {
+          action: string
+          admin_email: string
+          admin_name: string
+          created_at: string
+          details: Json
+          id: string
+          record_id: string
+          table_name: string
+          total_count: number
+        }[]
+      }
       get_admin_users: {
         Args: never
         Returns: {
@@ -954,6 +1012,19 @@ export type Database = {
           user_id: string
         }[]
       }
+      get_suspended_users: {
+        Args: never
+        Returns: {
+          display_name: string
+          email: string
+          id: string
+          reason: string
+          suspended_at: string
+          suspended_by_email: string
+          suspended_until: string
+          user_id: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -963,6 +1034,7 @@ export type Database = {
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
       is_ip_blocked: { Args: { p_ip_address: string }; Returns: boolean }
+      is_user_suspended: { Args: { check_user_id: string }; Returns: boolean }
       log_admin_access: {
         Args: {
           p_action: string
@@ -973,6 +1045,15 @@ export type Database = {
         Returns: string
       }
       remove_admin_role: { Args: { target_user_id: string }; Returns: boolean }
+      suspend_user: {
+        Args: {
+          suspend_until?: string
+          suspension_reason?: string
+          target_user_id: string
+        }
+        Returns: boolean
+      }
+      unsuspend_user: { Args: { target_user_id: string }; Returns: boolean }
       verify_temp_email_token: {
         Args: { p_temp_email_id: string; p_token: string }
         Returns: boolean

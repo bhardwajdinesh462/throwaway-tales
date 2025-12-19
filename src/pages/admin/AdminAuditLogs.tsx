@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Shield, Clock, User, Database, Eye, RefreshCw, Search } from "lucide-react";
+import { Shield, Clock, User, Database, Eye, RefreshCw, Search, Ban, CheckCircle, Trash2, Settings, ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,12 +20,15 @@ import { toast } from "sonner";
 interface AuditLog {
   id: string;
   admin_user_id: string;
+  admin_email?: string | null;
+  admin_name?: string | null;
   action: string;
   table_name: string;
   record_id: string | null;
   details: unknown;
   ip_address: string | null;
   created_at: string;
+  total_count?: number;
 }
 
 const AdminAuditLogs = () => {
@@ -33,10 +36,38 @@ const AdminAuditLogs = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 20;
 
   const fetchLogs = async () => {
     setIsLoading(true);
     try {
+      // Try the new RPC function first for better data
+      const { data: rpcData, error: rpcError } = await supabase.rpc('get_admin_audit_logs', {
+        p_page: page,
+        p_page_size: pageSize,
+        p_action_filter: searchTerm || null
+      });
+
+      if (!rpcError && rpcData) {
+        setLogs(rpcData.map((row: any) => ({
+          id: row.id,
+          admin_user_id: '',
+          admin_email: row.admin_email,
+          admin_name: row.admin_name,
+          action: row.action,
+          table_name: row.table_name,
+          record_id: row.record_id,
+          details: row.details,
+          ip_address: null,
+          created_at: row.created_at
+        })));
+        setTotalCount(Number(rpcData[0]?.total_count) || 0);
+        return;
+      }
+
+      // Fallback to direct query
       const { data, error } = await supabase
         .from('admin_audit_logs')
         .select('*')
@@ -53,6 +84,7 @@ const AdminAuditLogs = () => {
       }
 
       setLogs(data || []);
+      setTotalCount(data?.length || 0);
     } catch (error) {
       console.error('Error fetching audit logs:', error);
       toast.error('Failed to fetch audit logs');
@@ -63,24 +95,27 @@ const AdminAuditLogs = () => {
 
   useEffect(() => {
     fetchLogs();
-  }, []);
+  }, [page, searchTerm]);
 
-  const filteredLogs = logs.filter(log => 
-    log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    log.table_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    log.admin_user_id.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredLogs = logs;
 
-  const getActionBadgeVariant = (action: string) => {
+  const totalPages = Math.ceil(totalCount / pageSize);
+
+  const getActionBadgeVariant = (action: string): "default" | "secondary" | "destructive" | "outline" => {
     if (action.includes('VIEW')) return 'secondary';
-    if (action.includes('CREATE') || action.includes('INSERT')) return 'default';
-    if (action.includes('UPDATE')) return 'outline';
-    if (action.includes('DELETE')) return 'destructive';
+    if (action.includes('CREATE') || action.includes('INSERT') || action.includes('ADD')) return 'default';
+    if (action.includes('UPDATE') || action.includes('UNSUSPEND')) return 'outline';
+    if (action.includes('DELETE') || action.includes('SUSPEND') || action.includes('REMOVE')) return 'destructive';
     return 'secondary';
   };
 
   const getActionIcon = (action: string) => {
     if (action.includes('VIEW')) return <Eye className="w-3 h-3" />;
+    if (action.includes('DELETE') || action.includes('BULK_DELETE')) return <Trash2 className="w-3 h-3" />;
+    if (action.includes('SUSPEND')) return <Ban className="w-3 h-3" />;
+    if (action.includes('UNSUSPEND')) return <CheckCircle className="w-3 h-3" />;
+    if (action.includes('ROLE')) return <Shield className="w-3 h-3" />;
+    if (action.includes('SETTING')) return <Settings className="w-3 h-3" />;
     if (action.includes('CREATE') || action.includes('INSERT')) return <Database className="w-3 h-3" />;
     return <Shield className="w-3 h-3" />;
   };
@@ -209,9 +244,14 @@ const AdminAuditLogs = () => {
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <User className="w-3 h-3 text-muted-foreground" />
-                            <span className="font-mono text-xs text-muted-foreground">
-                              {log.admin_user_id.slice(0, 8)}...
-                            </span>
+                            <div>
+                              <span className="text-sm text-foreground">
+                                {log.admin_name || 'Unknown'}
+                              </span>
+                              {log.admin_email && (
+                                <p className="text-xs text-muted-foreground">{log.admin_email}</p>
+                              )}
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -231,6 +271,33 @@ const AdminAuditLogs = () => {
                     ))}
                   </TableBody>
                 </Table>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4">
+                <p className="text-sm text-muted-foreground">
+                  Page {page} of {totalPages} ({totalCount} total)
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             )}
 

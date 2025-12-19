@@ -87,7 +87,7 @@ const AdminSidebar = () => {
   ];
 
   const advancedMenuItems = [
-    { title: "Audit Logs", url: "/admin/audit-logs", icon: Shield },
+    { title: "Audit Logs", url: "/admin/audit-logs", icon: Clock },
     { title: "IP Blocking", url: "/admin/ip-blocking", icon: ShieldCheck },
     { title: "Rate Limits", url: "/admin/rate-limits", icon: Clock },
     { title: "Role Approvals", url: "/admin/role-approvals", icon: ShieldCheck },

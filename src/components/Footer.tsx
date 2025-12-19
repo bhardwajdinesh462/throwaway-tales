@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Github, Twitter, Linkedin } from "lucide-react";
 import { useGeneralSettings } from "@/hooks/useGeneralSettings";
 import { useAppearanceSettings } from "@/hooks/useAppearanceSettings";
-import nullstoLogo from "@/assets/nullsto-logo.png";
+
 
 const Footer = () => {
   const { settings: generalSettings } = useGeneralSettings();
@@ -48,11 +48,17 @@ const Footer = () => {
           {/* Brand */}
           <div className="col-span-2">
             <Link to="/" className="flex items-center gap-2 mb-4">
-              <img 
-                src={appearanceSettings.logoUrl || nullstoLogo} 
-                alt={generalSettings.siteName} 
-                className="h-8 w-auto object-contain" 
-              />
+              {appearanceSettings.logoUrl ? (
+                <img 
+                  src={appearanceSettings.logoUrl} 
+                  alt={generalSettings.siteName} 
+                  className="h-8 w-auto object-contain" 
+                />
+              ) : (
+                <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground font-bold">
+                  {(generalSettings.siteName || 'N')[0]}
+                </div>
+              )}
               <span className="text-xl font-bold gradient-text">{generalSettings.siteName}</span>
             </Link>
             <p className="text-muted-foreground text-sm mb-4 max-w-xs">

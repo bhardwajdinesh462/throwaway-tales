@@ -23,6 +23,15 @@ interface TestEmailRequest {
   smtpConfig?: SMTPConfig;
 }
 
+interface MailboxInfo {
+  mailbox_id: string;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_user: string;
+  smtp_password: string;
+  smtp_from: string;
+}
+
 // Generate RFC 2822 compliant Message-ID
 function generateMessageId(domain: string): string {
   const timestamp = Date.now();
@@ -41,123 +50,174 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-serve(async (req: Request): Promise<Response> => {
-  // Handle CORS preflight requests
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+// Create Supabase client helper
+function getSupabaseClient() {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  return createClient(supabaseUrl, supabaseKey);
+}
+
+// Log email attempt to database
+async function logEmailAttempt(
+  supabase: ReturnType<typeof getSupabaseClient>,
+  params: {
+    mailboxId: string | null;
+    recipientEmail: string;
+    subject: string;
+    status: 'sent' | 'failed' | 'bounced';
+    errorCode?: string;
+    errorMessage?: string;
+    smtpResponse?: string;
+    mailboxName?: string;
+    smtpHost?: string;
+    configSource?: string;
+    messageId?: string;
+    attemptCount?: number;
   }
-
+) {
   try {
-    const { recipientEmail, subject, body, smtpConfig }: TestEmailRequest = await req.json();
-
-    if (!recipientEmail) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Recipient email is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    let host: string | undefined;
-    let port: number = 587;
-    let username: string | undefined;
-    let password: string | undefined;
-    let fromEmail: string | undefined;
-    let fromName: string = "Nullsto";
-    let mailboxId: string | null = null;
-    let configSource = "UNKNOWN";
-
-    // Priority 1: Use smtpConfig from request if provided
-    if (smtpConfig?.host && smtpConfig?.username && smtpConfig?.password) {
-      host = smtpConfig.host;
-      port = smtpConfig.port || 587;
-      username = smtpConfig.username;
-      // Explicit UTF-8 string encoding for password to handle special characters
-      password = String(smtpConfig.password);
-      fromEmail = smtpConfig.fromEmail || smtpConfig.username;
-      fromName = smtpConfig.fromName || "Nullsto";
-      configSource = "REQUEST";
-      console.log(`[send-test-email] Using SMTP config from request`);
-    } else {
-      // Priority 2: Try to get from mailbox load balancer
-      try {
-        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-        const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-        const supabase = createClient(supabaseUrl, supabaseKey);
-
-        const { data: mailboxData, error: mailboxError } = await supabase
-          .rpc('select_available_mailbox');
-
-        if (!mailboxError && mailboxData && mailboxData.length > 0) {
-          const mailbox = mailboxData[0];
-          host = mailbox.smtp_host;
-          port = mailbox.smtp_port || 587;
-          username = mailbox.smtp_user;
-          password = String(mailbox.smtp_password);
-          fromEmail = mailbox.smtp_from || mailbox.smtp_user;
-          mailboxId = mailbox.mailbox_id;
-          configSource = "DATABASE_MAILBOX";
-          console.log(`[send-test-email] Using mailbox from database: ${mailboxId}`);
-        }
-      } catch (dbError) {
-        console.log(`[send-test-email] Could not get mailbox from database: ${dbError}`);
-      }
-
-      // Priority 3: Fall back to environment variables
-      if (!host || !username || !password) {
-        host = Deno.env.get("SMTP_HOST");
-        port = parseInt(Deno.env.get("SMTP_PORT") || "587");
-        username = Deno.env.get("SMTP_USER");
-        password = String(Deno.env.get("SMTP_PASSWORD") || "");
-        fromEmail = Deno.env.get("SMTP_FROM") || username;
-        configSource = "ENV_VARIABLES";
-        console.log(`[send-test-email] Using SMTP config from environment variables`);
-      }
-    }
-
-    console.log(`[send-test-email] Config source: ${configSource}`);
-    console.log(`[send-test-email] SMTP Host: ${host}, Port: ${port}, Username: ${username}, From: ${fromEmail}`);
-
-    if (!host || !username || !password) {
-      const missing = [];
-      if (!host) missing.push('host');
-      if (!username) missing.push('username');
-      if (!password) missing.push('password');
-      console.error(`[send-test-email] Missing SMTP config: ${missing.join(', ')}`);
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: `SMTP configuration incomplete. Missing: ${missing.join(', ')}. Please configure a mailbox in Admin → Mailboxes or set SMTP environment variables.` 
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    console.log(`[send-test-email] Sending to ${recipientEmail} via ${host}:${port} from ${fromEmail}`);
-
-    const { SMTPClient } = await import("https://deno.land/x/denomailer@1.6.0/mod.ts");
-
-    // Determine connection settings based on port
-    const useTls = smtpConfig?.encryption === 'ssl' || port === 465;
-    
-    const client = new SMTPClient({
-      connection: {
-        hostname: host,
-        port: port,
-        tls: useTls,
-        auth: {
-          username: username,
-          password: password,
-        },
-      },
+    await supabase.from('email_logs').insert({
+      mailbox_id: params.mailboxId,
+      recipient_email: params.recipientEmail,
+      subject: params.subject,
+      status: params.status,
+      error_code: params.errorCode || null,
+      error_message: params.errorMessage || null,
+      smtp_response: params.smtpResponse || null,
+      mailbox_name: params.mailboxName || null,
+      smtp_host: params.smtpHost || null,
+      config_source: params.configSource || null,
+      message_id: params.messageId || null,
+      attempt_count: params.attemptCount || 1,
+      sent_at: params.status === 'sent' ? new Date().toISOString() : null,
+      failed_at: params.status === 'failed' || params.status === 'bounced' ? new Date().toISOString() : null
     });
+    console.log(`[send-test-email] Logged email attempt: ${params.status}`);
+  } catch (logError) {
+    console.error(`[send-test-email] Failed to log email attempt:`, logError);
+  }
+}
 
-    const emailSubject = subject || "Test Email from Nullsto";
-    const domain = getDomainFromEmail(fromEmail!);
-    const messageId = generateMessageId(domain);
-    const timestamp = new Date().toISOString();
+// Mark mailbox as unhealthy
+async function markMailboxUnhealthy(supabase: ReturnType<typeof getSupabaseClient>, mailboxId: string, error: string) {
+  try {
+    await supabase.from('mailboxes').update({
+      last_error: error,
+      last_error_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }).eq('id', mailboxId);
+    console.log(`[send-test-email] Marked mailbox ${mailboxId} as unhealthy`);
+  } catch (err) {
+    console.warn(`[send-test-email] Failed to mark mailbox unhealthy:`, err);
+  }
+}
+
+// Get next available mailbox
+async function getNextMailbox(supabase: ReturnType<typeof getSupabaseClient>, excludeMailboxIds: string[] = []): Promise<MailboxInfo | null> {
+  try {
+    let query = supabase
+      .from('mailboxes')
+      .select('id, smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, priority, emails_sent_this_hour, hourly_limit, emails_sent_today, daily_limit, last_error_at')
+      .eq('is_active', true)
+      .not('smtp_host', 'is', null)
+      .not('smtp_user', 'is', null)
+      .not('smtp_password', 'is', null)
+      .order('priority', { ascending: true })
+      .limit(10);
     
-    // Create plain text version for better deliverability
-    const plainTextBody = `
+    const { data, error } = await query;
+    
+    if (error || !data || data.length === 0) {
+      return null;
+    }
+    
+    // Filter out excluded mailboxes and those with recent errors or over limits
+    const now = new Date();
+    const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
+    
+    for (const mb of data) {
+      // Skip excluded
+      if (excludeMailboxIds.includes(mb.id)) continue;
+      
+      // Skip if recent error (within 30 min)
+      if (mb.last_error_at && new Date(mb.last_error_at) > thirtyMinutesAgo) continue;
+      
+      // Skip if over limits
+      const hourlyLimit = mb.hourly_limit || 100;
+      const dailyLimit = mb.daily_limit || 1000;
+      if ((mb.emails_sent_this_hour || 0) >= hourlyLimit) continue;
+      if ((mb.emails_sent_today || 0) >= dailyLimit) continue;
+      
+      return {
+        mailbox_id: mb.id,
+        smtp_host: mb.smtp_host,
+        smtp_port: mb.smtp_port || 587,
+        smtp_user: mb.smtp_user,
+        smtp_password: mb.smtp_password,
+        smtp_from: mb.smtp_from || mb.smtp_user
+      };
+    }
+    
+    return null;
+  } catch (err) {
+    console.error(`[send-test-email] Error getting next mailbox:`, err);
+    return null;
+  }
+}
+
+// Increment mailbox usage
+async function incrementMailboxUsage(supabase: ReturnType<typeof getSupabaseClient>, mailboxId: string) {
+  try {
+    const { data: current } = await supabase
+      .from('mailboxes')
+      .select('emails_sent_this_hour, emails_sent_today')
+      .eq('id', mailboxId)
+      .single();
+    
+    await supabase.from('mailboxes').update({
+      emails_sent_this_hour: (current?.emails_sent_this_hour || 0) + 1,
+      emails_sent_today: (current?.emails_sent_today || 0) + 1,
+      last_sent_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }).eq('id', mailboxId);
+  } catch (err) {
+    console.warn(`[send-test-email] Failed to increment mailbox usage:`, err);
+  }
+}
+
+// Send email with a specific configuration
+async function sendEmailWithConfig(
+  recipientEmail: string,
+  subject: string,
+  config: {
+    host: string;
+    port: number;
+    username: string;
+    password: string;
+    fromEmail: string;
+    fromName: string;
+    useTls: boolean;
+  },
+  messageId: string,
+  configSource: string
+): Promise<{ success: boolean; error?: string; errorCode?: string }> {
+  const { SMTPClient } = await import("https://deno.land/x/denomailer@1.6.0/mod.ts");
+  
+  const client = new SMTPClient({
+    connection: {
+      hostname: config.host,
+      port: config.port,
+      tls: config.useTls,
+      auth: {
+        username: config.username,
+        password: config.password,
+      },
+    },
+  });
+
+  const timestamp = new Date().toISOString();
+  
+  const plainTextBody = `
 Test Email Successful!
 
 This is a test email from your Nullsto installation.
@@ -165,13 +225,12 @@ Your SMTP configuration is working correctly.
 
 ---
 Sent at: ${timestamp}
-SMTP Server: ${host}:${port}
+SMTP Server: ${config.host}:${config.port}
 Config Source: ${configSource}
 Message-ID: ${messageId}
-    `.trim();
-    
-    // Create HTML body with proper headers for better deliverability
-    const emailBody = body || `
+  `.trim();
+  
+  const emailBody = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -192,7 +251,7 @@ Message-ID: ${messageId}
       </div>
       <div style="background: #f8fafc; border-radius: 8px; padding: 16px; margin-top: 20px;">
         <p style="margin: 0 0 8px 0; font-size: 12px; color: #64748b;"><strong>Sent at:</strong> ${timestamp}</p>
-        <p style="margin: 0 0 8px 0; font-size: 12px; color: #64748b;"><strong>SMTP Server:</strong> ${host}:${port}</p>
+        <p style="margin: 0 0 8px 0; font-size: 12px; color: #64748b;"><strong>SMTP Server:</strong> ${config.host}:${config.port}</p>
         <p style="margin: 0 0 8px 0; font-size: 12px; color: #64748b;"><strong>Config Source:</strong> ${configSource}</p>
         <p style="margin: 0; font-size: 12px; color: #64748b;"><strong>Message-ID:</strong> ${messageId}</p>
       </div>
@@ -204,153 +263,367 @@ Message-ID: ${messageId}
   </div>
 </body>
 </html>
-    `;
+  `;
 
-    // Retry logic with exponential backoff
-    const maxRetries = 3;
-    let lastError: Error | null = null;
+  try {
+    await client.send({
+      from: `${config.fromName} <${config.fromEmail}>`,
+      to: recipientEmail,
+      replyTo: config.fromEmail,
+      subject: subject,
+      content: plainTextBody,
+      html: emailBody,
+      headers: {
+        "Message-ID": messageId,
+        "X-Mailer": "Nullsto Mail System",
+        "X-Priority": "3",
+        "X-Auto-Response-Suppress": "All",
+        "List-Unsubscribe": `<mailto:${config.fromEmail}?subject=unsubscribe>`,
+      },
+    });
+
+    await client.close();
+    return { success: true };
+  } catch (error: unknown) {
+    try { await client.close(); } catch {}
     
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`[send-test-email] Attempt ${attempt}/${maxRetries}`);
-        
-        await client.send({
-          from: `${fromName} <${fromEmail}>`,
-          to: recipientEmail,
-          replyTo: fromEmail,
-          subject: emailSubject,
-          content: plainTextBody,
-          html: emailBody,
-          headers: {
-            "Message-ID": messageId,
-            "X-Mailer": "Nullsto Mail System",
-            "X-Priority": "3",
-            "X-Auto-Response-Suppress": "All",
-            "List-Unsubscribe": `<mailto:${fromEmail}?subject=unsubscribe>`,
-          },
-        });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // Extract error code
+    let errorCode = 'UNKNOWN';
+    if (errorMessage.includes('535')) errorCode = '535';
+    else if (errorMessage.includes('550')) errorCode = '550';
+    else if (errorMessage.includes('421')) errorCode = '421';
+    else if (errorMessage.includes('451')) errorCode = '451';
+    else if (errorMessage.includes('452')) errorCode = '452';
+    
+    return { 
+      success: false, 
+      error: errorMessage,
+      errorCode 
+    };
+  }
+}
 
-        await client.close();
+serve(async (req: Request): Promise<Response> => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
 
-        // If we used a database mailbox, increment usage
-        if (mailboxId) {
-          try {
-            const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-            const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-            const supabase = createClient(supabaseUrl, supabaseKey);
-            await supabase.rpc('increment_mailbox_usage', { p_mailbox_id: mailboxId });
-            console.log(`[send-test-email] Incremented usage for mailbox ${mailboxId}`);
-          } catch (usageError) {
-            console.warn(`[send-test-email] Failed to increment mailbox usage: ${usageError}`);
-          }
-        }
+  const supabase = getSupabaseClient();
 
-        console.log(`[send-test-email] Test email sent successfully to ${recipientEmail}`);
+  try {
+    const { recipientEmail, subject, smtpConfig }: TestEmailRequest = await req.json();
 
+    if (!recipientEmail) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Recipient email is required" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const emailSubject = subject || "Test Email from Nullsto";
+    const maxFailovers = 3;
+    let attemptCount = 0;
+    let lastError = "";
+    let lastErrorCode = "";
+    const triedMailboxIds: string[] = [];
+
+    // Priority 1: Use smtpConfig from request if provided
+    if (smtpConfig?.host && smtpConfig?.username && smtpConfig?.password) {
+      const domain = getDomainFromEmail(smtpConfig.fromEmail || smtpConfig.username);
+      const messageId = generateMessageId(domain);
+      const useTls = smtpConfig.encryption === 'ssl' || smtpConfig.port === 465;
+      
+      console.log(`[send-test-email] Using SMTP config from request`);
+      
+      const result = await sendEmailWithConfig(
+        recipientEmail,
+        emailSubject,
+        {
+          host: smtpConfig.host,
+          port: smtpConfig.port || 587,
+          username: smtpConfig.username,
+          password: String(smtpConfig.password),
+          fromEmail: smtpConfig.fromEmail || smtpConfig.username,
+          fromName: smtpConfig.fromName || "Nullsto",
+          useTls
+        },
+        messageId,
+        "REQUEST"
+      );
+
+      // Log the attempt
+      await logEmailAttempt(supabase, {
+        mailboxId: null,
+        recipientEmail,
+        subject: emailSubject,
+        status: result.success ? 'sent' : 'failed',
+        errorCode: result.errorCode,
+        errorMessage: result.error,
+        smtpResponse: result.error,
+        mailboxName: smtpConfig.fromName,
+        smtpHost: smtpConfig.host,
+        configSource: 'REQUEST',
+        messageId,
+        attemptCount: 1
+      });
+
+      if (result.success) {
         return new Response(
           JSON.stringify({ 
             success: true, 
             message: `Test email sent successfully to ${recipientEmail}`,
             details: {
               recipient: recipientEmail,
-              smtpServer: `${host}:${port}`,
-              configSource: configSource,
-              sentAt: timestamp,
-              messageId: messageId,
-              attempt: attempt
+              smtpServer: `${smtpConfig.host}:${smtpConfig.port}`,
+              configSource: "REQUEST",
+              messageId
             },
             deliverabilityInfo: {
               checkSpam: true,
               spamHint: "If you don't see the email in your inbox, check your Spam/Junk folder.",
-              spfDkimHint: "For better deliverability, ensure SPF and DKIM records are configured for your sending domain.",
+              spfDkimHint: "For better deliverability, ensure SPF and DKIM records are configured.",
               testTools: ["mail-tester.com", "mxtoolbox.com/deliverability"]
             }
           }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
-      } catch (sendError: any) {
-        lastError = sendError;
-        console.error(`[send-test-email] Attempt ${attempt} failed:`, sendError.message);
+      }
+
+      lastError = result.error || "Failed to send email";
+      lastErrorCode = result.errorCode || "";
+    } else {
+      // Priority 2: Database mailboxes with automatic failover
+      console.log(`[send-test-email] Using database mailboxes with failover`);
+
+      while (attemptCount < maxFailovers) {
+        attemptCount++;
         
-        // Don't retry on authentication errors (permanent failures)
-        if (sendError.message.includes("535") || sendError.message.includes("Authentication")) {
+        // Get next available mailbox (excluding already tried ones)
+        const mailbox = await getNextMailbox(supabase, triedMailboxIds);
+
+        if (!mailbox) {
+          console.log(`[send-test-email] No more mailboxes available for failover`);
+          break;
+        }
+
+        triedMailboxIds.push(mailbox.mailbox_id);
+        
+        const domain = getDomainFromEmail(mailbox.smtp_from);
+        const messageId = generateMessageId(domain);
+        const useTls = mailbox.smtp_port === 465;
+
+        console.log(`[send-test-email] Attempt ${attemptCount}/${maxFailovers} with mailbox ${mailbox.mailbox_id}`);
+
+        const result = await sendEmailWithConfig(
+          recipientEmail,
+          emailSubject,
+          {
+            host: mailbox.smtp_host,
+            port: mailbox.smtp_port,
+            username: mailbox.smtp_user,
+            password: String(mailbox.smtp_password),
+            fromEmail: mailbox.smtp_from,
+            fromName: "Nullsto",
+            useTls
+          },
+          messageId,
+          "DATABASE_MAILBOX"
+        );
+
+        // Log the attempt
+        await logEmailAttempt(supabase, {
+          mailboxId: mailbox.mailbox_id,
+          recipientEmail,
+          subject: emailSubject,
+          status: result.success ? 'sent' : 'failed',
+          errorCode: result.errorCode,
+          errorMessage: result.error,
+          smtpResponse: result.error,
+          mailboxName: mailbox.smtp_from,
+          smtpHost: mailbox.smtp_host,
+          configSource: 'DATABASE_MAILBOX',
+          messageId,
+          attemptCount
+        });
+
+        if (result.success) {
+          // Increment usage on success
+          await incrementMailboxUsage(supabase, mailbox.mailbox_id);
+
+          return new Response(
+            JSON.stringify({ 
+              success: true, 
+              message: `Test email sent successfully to ${recipientEmail}`,
+              details: {
+                recipient: recipientEmail,
+                smtpServer: `${mailbox.smtp_host}:${mailbox.smtp_port}`,
+                configSource: "DATABASE_MAILBOX",
+                messageId,
+                attemptCount,
+                mailboxId: mailbox.mailbox_id
+              },
+              deliverabilityInfo: {
+                checkSpam: true,
+                spamHint: "If you don't see the email in your inbox, check your Spam/Junk folder.",
+                spfDkimHint: "For better deliverability, ensure SPF and DKIM records are configured.",
+                testTools: ["mail-tester.com", "mxtoolbox.com/deliverability"]
+              }
+            }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        // Handle failure - check if we should failover
+        lastError = result.error || "Failed to send email";
+        lastErrorCode = result.errorCode || "";
+
+        // Mark mailbox as unhealthy for 550/rate limit errors
+        if (result.errorCode === '550' || result.error?.includes('suspicious') || result.error?.includes('rate')) {
+          console.log(`[send-test-email] Mailbox ${mailbox.mailbox_id} marked unhealthy, attempting failover...`);
+          await markMailboxUnhealthy(supabase, mailbox.mailbox_id, result.error || 'Rate limited');
+          continue; // Try next mailbox
+        }
+
+        // For auth errors (535) or other permanent failures, don't failover
+        if (result.errorCode === '535') {
           console.log(`[send-test-email] Authentication error - not retrying`);
           break;
         }
-        
-        // Don't retry on rate limit/suspicious activity (needs time cooldown)
-        if (sendError.message.includes("550") || sendError.message.includes("suspicious")) {
-          console.log(`[send-test-email] Rate limit or suspicious activity - not retrying`);
-          break;
-        }
-        
-        if (attempt < maxRetries) {
-          const delay = Math.pow(2, attempt) * 1000; // Exponential backoff: 2s, 4s, 8s
-          console.log(`[send-test-email] Waiting ${delay}ms before retry...`);
-          await sleep(delay);
+
+        // For temporary errors, try once more with same mailbox before failover
+        if (attemptCount < maxFailovers) {
+          await sleep(2000);
         }
       }
-    }
-    
-    // Close client if still open
-    try {
-      await client.close();
-    } catch {
-      // Ignore close errors
+
+      // Fallback to environment variables if no database mailboxes worked
+      const envHost = Deno.env.get("SMTP_HOST");
+      const envUser = Deno.env.get("SMTP_USER");
+      const envPass = Deno.env.get("SMTP_PASSWORD");
+
+      if (envHost && envUser && envPass && triedMailboxIds.length > 0) {
+        console.log(`[send-test-email] Attempting fallback to environment variables`);
+        
+        const envPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
+        const envFrom = Deno.env.get("SMTP_FROM") || envUser;
+        const domain = getDomainFromEmail(envFrom);
+        const messageId = generateMessageId(domain);
+        
+        const result = await sendEmailWithConfig(
+          recipientEmail,
+          emailSubject,
+          {
+            host: envHost,
+            port: envPort,
+            username: envUser,
+            password: String(envPass),
+            fromEmail: envFrom,
+            fromName: "Nullsto",
+            useTls: envPort === 465
+          },
+          messageId,
+          "ENV_VARIABLES"
+        );
+
+        await logEmailAttempt(supabase, {
+          mailboxId: null,
+          recipientEmail,
+          subject: emailSubject,
+          status: result.success ? 'sent' : 'failed',
+          errorCode: result.errorCode,
+          errorMessage: result.error,
+          smtpResponse: result.error,
+          mailboxName: envFrom,
+          smtpHost: envHost,
+          configSource: 'ENV_VARIABLES',
+          messageId,
+          attemptCount: attemptCount + 1
+        });
+
+        if (result.success) {
+          return new Response(
+            JSON.stringify({ 
+              success: true, 
+              message: `Test email sent successfully to ${recipientEmail}`,
+              details: {
+                recipient: recipientEmail,
+                smtpServer: `${envHost}:${envPort}`,
+                configSource: "ENV_VARIABLES",
+                messageId
+              },
+              deliverabilityInfo: {
+                checkSpam: true,
+                spamHint: "If you don't see the email in your inbox, check your Spam/Junk folder."
+              }
+            }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        lastError = result.error || lastError;
+        lastErrorCode = result.errorCode || lastErrorCode;
+      }
     }
 
-    // If we get here, all retries failed
-    throw lastError || new Error("Failed to send email after multiple attempts");
-
-  } catch (error: any) {
-    console.error("[send-test-email] Error:", error);
-    
-    let errorMessage = error.message || "Failed to send email";
+    // All attempts failed
+    let errorMessage = lastError;
     let hint = "";
     let retryable = true;
-    
-    // Provide more helpful error messages with hints
-    if (errorMessage.includes("535") || errorMessage.includes("Authentication") || errorMessage.includes("auth") || errorMessage.includes("Incorrect authentication")) {
+
+    if (lastErrorCode === '535' || lastError.includes("Authentication") || lastError.includes("auth")) {
       errorMessage = "SMTP authentication failed.";
       hint = "Check your username and password are correct. Some providers require app-specific passwords.";
       retryable = false;
-    } else if (errorMessage.includes("Connection") || errorMessage.includes("connect")) {
+    } else if (lastError.includes("Connection") || lastError.includes("connect")) {
       errorMessage = "Could not connect to SMTP server.";
       hint = "Verify the host and port are correct and the server is reachable.";
-    } else if (errorMessage.includes("TLS") || errorMessage.includes("SSL") || errorMessage.includes("tls")) {
+    } else if (lastError.includes("TLS") || lastError.includes("SSL")) {
       errorMessage = "SSL/TLS connection failed.";
       hint = "Try changing the encryption setting (SSL for port 465, TLS for port 587).";
-    } else if (errorMessage.includes("550") || errorMessage.includes("Cannot send") || errorMessage.includes("suspicious")) {
-      errorMessage = "SMTP server rejected the request.";
-      hint = "The mailbox may be rate-limited or blocked. Wait 1-2 hours and try again, or add more mailboxes in Admin → Mailboxes for load balancing.";
+    } else if (lastErrorCode === '550' || lastError.includes("suspicious") || lastError.includes("rate")) {
+      errorMessage = "All mailboxes are rate-limited or blocked.";
+      hint = "Wait 1-2 hours for cooldown, or add more mailboxes in Admin → Mailboxes.";
       retryable = false;
-    } else if (errorMessage.includes("lookup") || errorMessage.includes("DNS") || errorMessage.includes("getaddrinfo") || errorMessage.includes("ENOTFOUND") || errorMessage.includes("not known")) {
+    } else if (lastError.includes("lookup") || lastError.includes("DNS")) {
       errorMessage = "Could not resolve SMTP hostname.";
-      hint = "Check that the SMTP host is correct. Configure a mailbox in Admin → Mailboxes.";
-    } else if (errorMessage.includes("timeout")) {
-      errorMessage = "Connection timed out.";
-      hint = "The SMTP server may be slow or unreachable. Try again later.";
+      hint = "Check that the SMTP host is correct.";
     }
 
-    console.error(`[send-test-email] Friendly error: ${errorMessage}. Hint: ${hint}. Raw: ${error.message}`);
+    console.error(`[send-test-email] All ${attemptCount} attempts failed. Last error: ${lastError}`);
 
-    // Return 200 so the frontend can display friendly error details without invoke() throwing
     return new Response(
       JSON.stringify({ 
         success: false, 
         error: hint ? `${errorMessage} ${hint}` : errorMessage,
-        details: error.message,
-        retryable: retryable,
+        details: lastError,
+        retryable,
+        attemptsMade: attemptCount,
+        mailboxesTried: triedMailboxIds.length,
         deliverabilityInfo: {
           checkSpam: true,
           spamHint: "If emails are being sent but not received, check your Spam/Junk folder.",
           commonIssues: [
-            "Missing SPF record for sending domain",
-            "Missing DKIM configuration",
+            "All configured mailboxes are rate-limited",
+            "Missing SPF/DKIM records",
             "Sending domain not verified",
-            "Rate limiting by mail provider"
+            "Add more mailboxes for load balancing"
           ]
         }
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+
+  } catch (error: unknown) {
+    console.error("[send-test-email] Unexpected error:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: errorMessage || "An unexpected error occurred",
+        retryable: true
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

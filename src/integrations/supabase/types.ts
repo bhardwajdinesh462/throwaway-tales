@@ -370,6 +370,71 @@ export type Database = {
           },
         ]
       }
+      email_logs: {
+        Row: {
+          attempt_count: number | null
+          config_source: string | null
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          failed_at: string | null
+          id: string
+          mailbox_id: string | null
+          mailbox_name: string | null
+          message_id: string | null
+          recipient_email: string
+          sent_at: string | null
+          smtp_host: string | null
+          smtp_response: string | null
+          status: string
+          subject: string | null
+        }
+        Insert: {
+          attempt_count?: number | null
+          config_source?: string | null
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          failed_at?: string | null
+          id?: string
+          mailbox_id?: string | null
+          mailbox_name?: string | null
+          message_id?: string | null
+          recipient_email: string
+          sent_at?: string | null
+          smtp_host?: string | null
+          smtp_response?: string | null
+          status?: string
+          subject?: string | null
+        }
+        Update: {
+          attempt_count?: number | null
+          config_source?: string | null
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          failed_at?: string | null
+          id?: string
+          mailbox_id?: string | null
+          mailbox_name?: string | null
+          message_id?: string | null
+          recipient_email?: string
+          sent_at?: string | null
+          smtp_host?: string | null
+          smtp_response?: string | null
+          status?: string
+          subject?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_logs_mailbox_id_fkey"
+            columns: ["mailbox_id"]
+            isOneToOne: false
+            referencedRelation: "mailboxes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_restrictions: {
         Row: {
           created_at: string
@@ -1232,6 +1297,44 @@ export type Database = {
           user_id: string
         }[]
       }
+      get_email_logs: {
+        Args: {
+          p_page?: number
+          p_page_size?: number
+          p_search?: string
+          p_status_filter?: string
+        }
+        Returns: {
+          attempt_count: number
+          config_source: string
+          created_at: string
+          error_code: string
+          error_message: string
+          failed_at: string
+          id: string
+          mailbox_id: string
+          mailbox_name: string
+          message_id: string
+          recipient_email: string
+          sent_at: string
+          smtp_host: string
+          smtp_response: string
+          status: string
+          subject: string
+          total_count: number
+        }[]
+      }
+      get_email_stats: {
+        Args: never
+        Returns: {
+          failed_today: number
+          sent_today: number
+          success_rate: number
+          total_bounced: number
+          total_failed: number
+          total_sent: number
+        }[]
+      }
       get_suspended_users: {
         Args: never
         Returns: {
@@ -1265,6 +1368,23 @@ export type Database = {
           p_details?: Json
           p_record_id?: string
           p_table_name: string
+        }
+        Returns: string
+      }
+      log_email_attempt: {
+        Args: {
+          p_attempt_count?: number
+          p_config_source?: string
+          p_error_code?: string
+          p_error_message?: string
+          p_mailbox_id: string
+          p_mailbox_name?: string
+          p_message_id?: string
+          p_recipient_email: string
+          p_smtp_host?: string
+          p_smtp_response?: string
+          p_status: string
+          p_subject: string
         }
         Returns: string
       }

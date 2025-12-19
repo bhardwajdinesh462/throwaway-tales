@@ -34,7 +34,7 @@ export const useNotificationSounds = () => {
     audioUnlocked: false,
   });
 
-  // Load settings
+  // Load settings - but NEVER persist audioUnlocked since browser requires fresh interaction each session
   useEffect(() => {
     const key = user ? `${STORAGE_KEY}_${user.id}` : STORAGE_KEY;
     const saved = storage.get<SoundSettings>(key, {
@@ -43,7 +43,8 @@ export const useNotificationSounds = () => {
       volume: 0.5,
       audioUnlocked: false,
     });
-    setSettings(saved);
+    // Always reset audioUnlocked to false on page load - browser requires fresh user interaction
+    setSettings({ ...saved, audioUnlocked: false });
   }, [user]);
 
   // Save settings
@@ -94,7 +95,10 @@ export const useNotificationSounds = () => {
 
   // Play notification sound
   const playSound = useCallback(async (overrideTone?: SoundTone) => {
-    if (!settings.enabled && !overrideTone) return;
+    if (!settings.enabled && !overrideTone) {
+      console.log('[useNotificationSounds] Sound disabled, skipping');
+      return;
+    }
     
     const tone = overrideTone || settings.tone;
     if (tone === 'none') return;
@@ -107,8 +111,11 @@ export const useNotificationSounds = () => {
       
       // Resume context if suspended (browser autoplay policy)
       if (audioContext.state === 'suspended') {
+        console.log('[useNotificationSounds] Attempting to resume suspended audio context...');
         await audioContext.resume();
       }
+      
+      console.log('[useNotificationSounds] Playing sound:', tone, 'volume:', settings.volume);
 
       const masterGain = audioContext.createGain();
       masterGain.connect(audioContext.destination);

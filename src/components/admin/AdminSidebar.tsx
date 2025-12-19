@@ -29,6 +29,7 @@ import {
   Crown,
   Ban,
   FileWarning,
+  Activity,
 } from "lucide-react";
 import {
   Sidebar,
@@ -93,6 +94,7 @@ const AdminSidebar = () => {
   ];
 
   const advancedMenuItems = [
+    { title: "Mailbox Health", url: "/admin/mailbox-health", icon: Activity },
     { title: "Email Logs", url: "/admin/email-logs", icon: FileWarning },
     { title: "Audit Logs", url: "/admin/audit-logs", icon: Clock },
     { title: "IP Blocking", url: "/admin/ip-blocking", icon: ShieldCheck },

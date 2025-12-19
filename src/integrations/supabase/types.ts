@@ -173,6 +173,39 @@ export type Database = {
         }
         Relationships: []
       }
+      blocked_ips: {
+        Row: {
+          blocked_at: string
+          blocked_by: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          ip_address: string
+          is_active: boolean
+          reason: string | null
+        }
+        Insert: {
+          blocked_at?: string
+          blocked_by: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          ip_address: string
+          is_active?: boolean
+          reason?: string | null
+        }
+        Update: {
+          blocked_at?: string
+          blocked_by?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          ip_address?: string
+          is_active?: boolean
+          reason?: string | null
+        }
+        Relationships: []
+      }
       blogs: {
         Row: {
           author: string
@@ -847,6 +880,7 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      is_ip_blocked: { Args: { p_ip_address: string }; Returns: boolean }
       log_admin_access: {
         Args: {
           p_action: string

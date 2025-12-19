@@ -63,6 +63,8 @@ import AdminRoleApprovals from "./pages/admin/AdminRoleApprovals";
 import AdminSettingsOverview from "./pages/admin/AdminSettingsOverview";
 import AdminRegistration from "./pages/admin/AdminRegistration";
 import AdminPayments from "./pages/admin/AdminPayments";
+import AdminIPBlocking from "./pages/admin/AdminIPBlocking";
+import Pricing from "./pages/Pricing";
 
 // Initialize default data on app load
 initializeDefaultData();
@@ -96,7 +98,7 @@ const App = () => (
                     <Route path="/privacy" element={<PrivacyPolicy />} />
                     <Route path="/terms" element={<TermsOfService />} />
                     <Route path="/cookies" element={<CookiePolicy />} />
-
+                    <Route path="/pricing" element={<Pricing />} />
                     {/* Protected User Routes - Require Authentication */}
                     <Route path="/history" element={
                       <ProtectedRoute requireAuth>
@@ -152,6 +154,7 @@ const App = () => (
                       <Route path="user-settings" element={<AdminUserSettings />} />
                       <Route path="registration" element={<AdminRegistration />} />
                       <Route path="payments" element={<AdminPayments />} />
+                      <Route path="ip-blocking" element={<AdminIPBlocking />} />
                       <Route path="admins" element={<AdminAdmins />} />
                       <Route path="seo" element={<AdminSEO />} />
                       <Route path="blog-settings" element={<AdminBlogSettings />} />

@@ -514,36 +514,44 @@ const Profile = () => {
                         <strong className="text-foreground">Account ID:</strong> {user.id.slice(0, 8)}...
                       </p>
                     </div>
+                  </CardContent>
+                </Card>
 
-                    {/* Danger Zone */}
-                    <div className="pt-4 border-t border-border">
-                      <h4 className="text-sm font-medium text-destructive mb-3">Danger Zone</h4>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="destructive" className="w-full sm:w-auto">
-                            <Trash2 className="w-4 h-4 mr-2" />
+                {/* Two-Factor Authentication */}
+                <TwoFactorSetup />
+
+                {/* Danger Zone */}
+                <Card className="glass-card border-destructive/30">
+                  <CardHeader>
+                    <CardTitle className="text-destructive">Danger Zone</CardTitle>
+                    <CardDescription>Irreversible account actions</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="destructive" className="w-full sm:w-auto">
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Sign Out
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="glass-card">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Sign out?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            You will be signed out of your account.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={handleDeleteAccount}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          >
                             Sign Out
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent className="glass-card">
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Sign out?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              You will be signed out of your account.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={handleDeleteAccount}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              Sign Out
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </CardContent>
                 </Card>
               </div>

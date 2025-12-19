@@ -155,12 +155,16 @@ serve(async (req: Request): Promise<Response> => {
       </html>
     `;
 
-    // Send the email
+    // Send the email with proper content type
     await client.send({
       from: smtpFrom,
       to: email,
       subject: `Verify your email for ${siteName}`,
-      html: htmlBody,
+      content: htmlBody,
+      mimeContent: [{
+        mimeType: "text/html",
+        content: htmlBody,
+      }],
     });
 
     await client.close();

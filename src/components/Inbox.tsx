@@ -52,8 +52,8 @@ const Inbox = () => {
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const refreshRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Notification sounds
-  const { playSound, unlockAudio, isAudioUnlocked } = useNotificationSounds();
+  // Notification sounds - auto-unlocks on user interaction
+  const { playSound } = useNotificationSounds();
 
   // 5. All useCallback hooks together
   const handleNewEmail = useCallback(() => {
@@ -478,23 +478,6 @@ const Inbox = () => {
               <span>Encrypted</span>
             </div>
             
-            {!isAudioUnlocked && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={async () => {
-                  const unlocked = await unlockAudio();
-                  if (unlocked) {
-                    toast.success("Sound notifications enabled!");
-                  }
-                }}
-                className="text-xs text-amber-600 hover:text-amber-500"
-                title="Click to enable notification sounds (required by browser)"
-              >
-                <Bell className="w-4 h-4 mr-1" />
-                Enable Sounds
-              </Button>
-            )}
             
             {pushPermission !== "granted" && (
               <Button

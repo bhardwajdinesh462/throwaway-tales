@@ -172,15 +172,7 @@ const Header = () => {
                     <History className="w-4 h-4 mr-2" />
                     Email History
                   </DropdownMenuItem>
-                  {isAdmin && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => navigate("/admin")}>
-                        <Settings className="w-4 h-4 mr-2" />
-                        {t('adminPanel')}
-                      </DropdownMenuItem>
-                    </>
-                  )}
+                  <DropdownMenuSeparator />
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleSignOut} className="text-destructive">
                     <LogOut className="w-4 h-4 mr-2" />
@@ -272,11 +264,6 @@ const Header = () => {
                   <Button variant="glass" onClick={() => { navigate("/history"); setMobileMenuOpen(false); }}>
                     Email History
                   </Button>
-                  {isAdmin && (
-                    <Button variant="glass" onClick={() => { navigate("/admin"); setMobileMenuOpen(false); }}>
-                      {t('adminPanel')}
-                    </Button>
-                  )}
                   <Button variant="destructive" onClick={handleSignOut}>
                     {t('signOut')}
                   </Button>

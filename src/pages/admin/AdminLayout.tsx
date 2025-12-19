@@ -1,5 +1,4 @@
-import { useEffect } from "react";
-import { useNavigate, Outlet, useLocation } from "react-router-dom";
+import { useLocation, Outlet } from "react-router-dom";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
@@ -12,15 +11,9 @@ import { Loader2 } from "lucide-react";
 const AdminLayout = () => {
   const { user, isAdmin, isLoading } = useAuth();
   const { t } = useLanguage();
-  const navigate = useNavigate();
   const location = useLocation();
 
-  useEffect(() => {
-    if (!isLoading && (!user || !isAdmin)) {
-      navigate("/");
-    }
-  }, [user, isAdmin, isLoading, navigate]);
-
+  // ProtectedRoute handles the redirect, just show loading here
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -29,6 +22,7 @@ const AdminLayout = () => {
     );
   }
 
+  // Safety check - shouldn't reach here if ProtectedRoute works correctly
   if (!user || !isAdmin) return null;
 
   const getPageTitle = () => {

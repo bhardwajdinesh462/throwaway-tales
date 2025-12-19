@@ -12,6 +12,7 @@ import { EmailServiceProvider } from "@/contexts/EmailServiceContext";
 import CacheRefresh from "@/components/CacheRefresh";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import UpdatePrompt from "@/components/UpdatePrompt";
+import ProtectedRoute from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Blog from "./pages/Blog";
 import BlogPost from "./pages/BlogPost";
@@ -60,6 +61,7 @@ import AdminDeployGuide from "./pages/admin/AdminDeployGuide";
 import AdminRateLimits from "./pages/admin/AdminRateLimits";
 import AdminRoleApprovals from "./pages/admin/AdminRoleApprovals";
 import AdminSettingsOverview from "./pages/admin/AdminSettingsOverview";
+import AdminRegistration from "./pages/admin/AdminRegistration";
 
 // Initialize default data on app load
 initializeDefaultData();
@@ -84,22 +86,51 @@ const App = () => (
                 <Sonner />
                 <BrowserRouter>
                   <Routes>
+                    {/* Public Routes */}
                     <Route path="/" element={<Index />} />
                     <Route path="/blog" element={<Blog />} />
                     <Route path="/blog/:slug" element={<BlogPost />} />
                     <Route path="/contact" element={<Contact />} />
                     <Route path="/auth" element={<Auth />} />
-                    <Route path="/history" element={<History />} />
-                    <Route path="/dashboard" element={<Dashboard />} />
-                    <Route path="/deploy-guide" element={<DeployGuide />} />
-                    <Route path="/admin-guide" element={<AdminGuide />} />
                     <Route path="/privacy" element={<PrivacyPolicy />} />
                     <Route path="/terms" element={<TermsOfService />} />
                     <Route path="/cookies" element={<CookiePolicy />} />
-                    <Route path="/profile" element={<Profile />} />
 
-                    {/* Admin Routes */}
-                    <Route path="/admin" element={<AdminLayout />}>
+                    {/* Protected User Routes - Require Authentication */}
+                    <Route path="/history" element={
+                      <ProtectedRoute requireAuth>
+                        <History />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/dashboard" element={
+                      <ProtectedRoute requireAuth>
+                        <Dashboard />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/profile" element={
+                      <ProtectedRoute requireAuth>
+                        <Profile />
+                      </ProtectedRoute>
+                    } />
+
+                    {/* Hidden Admin Guides - Protected */}
+                    <Route path="/deploy-guide" element={
+                      <ProtectedRoute requireAuth requireAdmin>
+                        <DeployGuide />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/admin-guide" element={
+                      <ProtectedRoute requireAuth requireAdmin>
+                        <AdminGuide />
+                      </ProtectedRoute>
+                    } />
+
+                    {/* Admin Routes - Require Admin Role */}
+                    <Route path="/admin" element={
+                      <ProtectedRoute requireAuth requireAdmin>
+                        <AdminLayout />
+                      </ProtectedRoute>
+                    }>
                       <Route index element={<AdminDashboard />} />
                       <Route path="analytics" element={<AdminAnalytics />} />
                       <Route path="users" element={<AdminUsers />} />
@@ -118,6 +149,7 @@ const App = () => (
                       <Route path="deploy-guide" element={<AdminDeployGuide />} />
                       <Route path="appearance" element={<AdminAppearance />} />
                       <Route path="user-settings" element={<AdminUserSettings />} />
+                      <Route path="registration" element={<AdminRegistration />} />
                       <Route path="admins" element={<AdminAdmins />} />
                       <Route path="seo" element={<AdminSEO />} />
                       <Route path="blog-settings" element={<AdminBlogSettings />} />

@@ -7,7 +7,11 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
-import { Cog, Save, Eye, EyeOff, Send, CheckCircle, XCircle, Loader2, AlertTriangle, ExternalLink, Wifi, WifiOff } from "lucide-react";
+import { 
+  Cog, Save, Eye, EyeOff, Send, CheckCircle, XCircle, Loader2, AlertTriangle, 
+  ExternalLink, Wifi, Database, RefreshCw, Plus, Trash2, AlertCircle, Info,
+  CheckCircle2, Link as LinkIcon
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -17,6 +21,18 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import { supabase } from "@/integrations/supabase/client";
 
 const SMTP_SETTINGS_KEY = 'smtp_settings';
@@ -40,6 +56,31 @@ interface ConfigStatus {
 interface EmailConfig {
   smtp: { configured: boolean; secrets: ConfigStatus[] };
   imap: { configured: boolean; secrets: ConfigStatus[] };
+}
+
+interface Mailbox {
+  id: string;
+  name: string;
+  smtp_host: string | null;
+  smtp_port: number | null;
+  smtp_user: string | null;
+  smtp_password: string | null;
+  smtp_from: string | null;
+  is_active: boolean | null;
+  emails_sent_today: number | null;
+  emails_sent_this_hour: number | null;
+  daily_limit: number | null;
+  hourly_limit: number | null;
+  last_error: string | null;
+  last_error_at: string | null;
+}
+
+interface DeliverabilityInfo {
+  checkSpam: boolean;
+  spamHint: string;
+  spfDkimHint?: string;
+  testTools?: string[];
+  commonIssues?: string[];
 }
 
 const defaultSettings: SMTPSettings = {
@@ -71,12 +112,20 @@ const AdminSMTPSettings = () => {
   const [testEmailDialogOpen, setTestEmailDialogOpen] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; deliverabilityInfo?: DeliverabilityInfo } | null>(null);
   const [backendConfig, setBackendConfig] = useState<EmailConfig | null>(null);
   const [isLoadingConfig, setIsLoadingConfig] = useState(true);
+  
+  // Database mailbox state
+  const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
+  const [selectedMailboxId, setSelectedMailboxId] = useState<string | null>(null);
+  const [isLoadingMailboxes, setIsLoadingMailboxes] = useState(false);
+  const [isSavingToDb, setIsSavingToDb] = useState(false);
+  const [syncSource, setSyncSource] = useState<'local' | 'database'>('local');
 
   useEffect(() => {
     fetchBackendConfig();
+    fetchMailboxes();
   }, []);
 
   const fetchBackendConfig = async () => {
@@ -92,13 +141,143 @@ const AdminSMTPSettings = () => {
     }
   };
 
-  const handleSave = () => {
+  const fetchMailboxes = async () => {
+    setIsLoadingMailboxes(true);
+    try {
+      const { data, error } = await supabase
+        .from('mailboxes')
+        .select('*')
+        .order('priority', { ascending: true });
+      
+      if (error) throw error;
+      setMailboxes(data || []);
+      
+      // If we have mailboxes and none selected, select the first active one
+      if (data && data.length > 0 && !selectedMailboxId) {
+        const firstActive = data.find(m => m.is_active);
+        if (firstActive) {
+          setSelectedMailboxId(firstActive.id);
+          loadMailboxToForm(firstActive);
+        }
+      }
+    } catch (error: any) {
+      console.error("Error fetching mailboxes:", error);
+      toast.error("Failed to load mailboxes");
+    } finally {
+      setIsLoadingMailboxes(false);
+    }
+  };
+
+  const loadMailboxToForm = (mailbox: Mailbox) => {
+    setSettings({
+      host: mailbox.smtp_host || '',
+      port: mailbox.smtp_port || 587,
+      username: mailbox.smtp_user || '',
+      password: mailbox.smtp_password || '',
+      encryption: mailbox.smtp_port === 465 ? 'ssl' : 'tls',
+      fromEmail: mailbox.smtp_from || mailbox.smtp_user || '',
+      fromName: mailbox.name || 'Nullsto',
+      enabled: mailbox.is_active ?? false,
+    });
+    setSyncSource('database');
+    setConnectionStatus('idle');
+    toast.success(`Loaded mailbox: ${mailbox.name}`);
+  };
+
+  const handleSelectMailbox = (mailboxId: string) => {
+    setSelectedMailboxId(mailboxId);
+    const mailbox = mailboxes.find(m => m.id === mailboxId);
+    if (mailbox) {
+      loadMailboxToForm(mailbox);
+    }
+  };
+
+  const handleSaveLocal = () => {
     setIsSaving(true);
     storage.set(SMTP_SETTINGS_KEY, settings);
+    setSyncSource('local');
     setTimeout(() => {
       setIsSaving(false);
       toast.success("SMTP settings saved locally for testing!");
     }, 500);
+  };
+
+  const handleSaveToDatabase = async () => {
+    if (!settings.host || !settings.username || !settings.password) {
+      toast.error("Please fill in host, username, and password");
+      return;
+    }
+
+    setIsSavingToDb(true);
+    try {
+      const mailboxData = {
+        name: settings.fromName || 'Default Mailbox',
+        smtp_host: settings.host,
+        smtp_port: settings.port,
+        smtp_user: settings.username,
+        smtp_password: settings.password,
+        smtp_from: settings.fromEmail || settings.username,
+        is_active: settings.enabled,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (selectedMailboxId) {
+        // Update existing mailbox
+        const { error } = await supabase
+          .from('mailboxes')
+          .update(mailboxData)
+          .eq('id', selectedMailboxId);
+        
+        if (error) throw error;
+        toast.success("Mailbox updated in database!");
+      } else {
+        // Insert new mailbox
+        const { data, error } = await supabase
+          .from('mailboxes')
+          .insert(mailboxData)
+          .select()
+          .single();
+        
+        if (error) throw error;
+        setSelectedMailboxId(data.id);
+        toast.success("New mailbox created in database!");
+      }
+      
+      setSyncSource('database');
+      await fetchMailboxes();
+    } catch (error: any) {
+      console.error("Error saving to database:", error);
+      toast.error(error.message || "Failed to save mailbox to database");
+    } finally {
+      setIsSavingToDb(false);
+    }
+  };
+
+  const handleDeleteMailbox = async () => {
+    if (!selectedMailboxId) return;
+    
+    if (mailboxes.length <= 1) {
+      toast.error("Cannot delete the last mailbox");
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('mailboxes')
+        .delete()
+        .eq('id', selectedMailboxId);
+      
+      if (error) throw error;
+      
+      toast.success("Mailbox deleted");
+      setSelectedMailboxId(null);
+      setSettings(defaultSettings);
+      setSyncSource('local');
+      await fetchMailboxes();
+    } catch (error: any) {
+      console.error("Error deleting mailbox:", error);
+      toast.error(error.message || "Failed to delete mailbox");
+    }
   };
 
   const handleTestConnection = async () => {
@@ -177,10 +356,18 @@ const AdminSMTPSettings = () => {
       if (error) throw error;
 
       if (data.success) {
-        setTestResult({ success: true, message: data.message });
+        setTestResult({ 
+          success: true, 
+          message: data.message,
+          deliverabilityInfo: data.deliverabilityInfo
+        });
         toast.success(`Test email sent to ${testEmail}!`);
       } else {
-        setTestResult({ success: false, message: data.error });
+        setTestResult({ 
+          success: false, 
+          message: data.error,
+          deliverabilityInfo: data.deliverabilityInfo
+        });
         toast.error(data.error || "Failed to send test email");
       }
     } catch (error: any) {
@@ -196,6 +383,7 @@ const AdminSMTPSettings = () => {
   const updateSetting = <K extends keyof SMTPSettings>(key: K, value: SMTPSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
     setConnectionStatus('idle');
+    setSyncSource('local');
   };
 
   return (
@@ -220,7 +408,7 @@ const AdminSMTPSettings = () => {
                 Send Test Email
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-lg">
               <DialogHeader>
                 <DialogTitle>Send Test Email</DialogTitle>
                 <DialogDescription>
@@ -245,15 +433,53 @@ const AdminSMTPSettings = () => {
                   <p><strong>Body:</strong> This is a test email to verify your SMTP configuration.</p>
                 </div>
                 {testResult && (
-                  <div className={`p-4 rounded-lg flex items-center gap-2 ${
-                    testResult.success ? 'bg-green-500/10 text-green-500' : 'bg-destructive/10 text-destructive'
+                  <div className={`p-4 rounded-lg space-y-3 ${
+                    testResult.success ? 'bg-green-500/10 border border-green-500/30' : 'bg-destructive/10 border border-destructive/30'
                   }`}>
-                    {testResult.success ? (
-                      <CheckCircle className="w-5 h-5 flex-shrink-0" />
-                    ) : (
-                      <XCircle className="w-5 h-5 flex-shrink-0" />
+                    <div className="flex items-center gap-2">
+                      {testResult.success ? (
+                        <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+                      ) : (
+                        <XCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+                      )}
+                      <span className={`text-sm ${testResult.success ? 'text-green-500' : 'text-destructive'}`}>
+                        {testResult.message}
+                      </span>
+                    </div>
+                    
+                    {testResult.deliverabilityInfo && (
+                      <div className="bg-amber-500/10 border border-amber-500/30 rounded p-3 text-sm">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="font-medium text-amber-600 dark:text-amber-400">
+                              {testResult.deliverabilityInfo.spamHint}
+                            </p>
+                            {testResult.deliverabilityInfo.spfDkimHint && (
+                              <p className="text-muted-foreground mt-1">
+                                {testResult.deliverabilityInfo.spfDkimHint}
+                              </p>
+                            )}
+                            {testResult.deliverabilityInfo.testTools && (
+                              <div className="mt-2 flex gap-2">
+                                {testResult.deliverabilityInfo.testTools.map((tool, i) => (
+                                  <a
+                                    key={i}
+                                    href={`https://${tool}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-primary hover:underline flex items-center gap-1"
+                                  >
+                                    <LinkIcon className="w-3 h-3" />
+                                    {tool}
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     )}
-                    <span className="text-sm">{testResult.message}</span>
                   </div>
                 )}
               </div>
@@ -275,12 +501,121 @@ const AdminSMTPSettings = () => {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-          <Button onClick={handleSave} disabled={isSaving}>
-            <Save className="w-4 h-4 mr-2" />
-            {isSaving ? 'Saving...' : 'Save Changes'}
-          </Button>
         </div>
       </div>
+
+      {/* Database Mailbox Selector */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Database className="w-5 h-5" />
+              Database Mailboxes
+            </span>
+            <div className="flex items-center gap-2">
+              <Badge variant={syncSource === 'database' ? 'default' : 'outline'}>
+                {syncSource === 'database' ? 'Synced with DB' : 'Local Only'}
+              </Badge>
+              <Button variant="outline" size="sm" onClick={fetchMailboxes} disabled={isLoadingMailboxes}>
+                <RefreshCw className={`w-4 h-4 ${isLoadingMailboxes ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
+          </CardTitle>
+          <CardDescription>
+            Mailboxes stored in the database are used by edge functions for sending emails with load balancing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <Select
+              value={selectedMailboxId || ""}
+              onValueChange={handleSelectMailbox}
+            >
+              <SelectTrigger className="flex-1">
+                <SelectValue placeholder="Select a mailbox to edit..." />
+              </SelectTrigger>
+              <SelectContent>
+                {mailboxes.map((mailbox) => (
+                  <SelectItem key={mailbox.id} value={mailbox.id}>
+                    <div className="flex items-center gap-2">
+                      {mailbox.is_active ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-500" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-muted-foreground" />
+                      )}
+                      <span>{mailbox.name}</span>
+                      <span className="text-muted-foreground text-xs">
+                        ({mailbox.smtp_host})
+                      </span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSelectedMailboxId(null);
+                setSettings(defaultSettings);
+                setSyncSource('local');
+              }}
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              New
+            </Button>
+            {selectedMailboxId && (
+              <Button variant="destructive" size="icon" onClick={handleDeleteMailbox}>
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+
+          {/* Mailbox stats if selected */}
+          {selectedMailboxId && mailboxes.find(m => m.id === selectedMailboxId) && (
+            <div className="grid grid-cols-4 gap-2 p-3 bg-muted rounded-lg text-sm">
+              {(() => {
+                const mb = mailboxes.find(m => m.id === selectedMailboxId)!;
+                return (
+                  <>
+                    <div>
+                      <span className="text-muted-foreground">Today:</span>{' '}
+                      <strong>{mb.emails_sent_today || 0}</strong>/{mb.daily_limit || 100}
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">This hour:</span>{' '}
+                      <strong>{mb.emails_sent_this_hour || 0}</strong>/{mb.hourly_limit || 20}
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Status:</span>{' '}
+                      <Badge variant={mb.is_active ? "default" : "secondary"}>
+                        {mb.is_active ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </div>
+                    <div>
+                      {mb.last_error && (
+                        <span className="text-destructive text-xs" title={mb.last_error}>
+                          Last error: {new Date(mb.last_error_at!).toLocaleTimeString()}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <Button onClick={handleSaveLocal} disabled={isSaving} variant="outline">
+              <Save className="w-4 h-4 mr-2" />
+              {isSaving ? 'Saving...' : 'Save Local'}
+            </Button>
+            <Button onClick={handleSaveToDatabase} disabled={isSavingToDb}>
+              <Database className="w-4 h-4 mr-2" />
+              {isSavingToDb ? 'Saving...' : selectedMailboxId ? 'Update in Database' : 'Save to Database'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Backend Configuration Status */}
       <Card className={backendConfig?.smtp.configured ? 'border-green-500/50' : 'border-yellow-500/50'}>
@@ -387,7 +722,7 @@ const AdminSMTPSettings = () => {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
-            <span>SMTP Configuration (Testing)</span>
+            <span>SMTP Configuration</span>
             <div className="flex items-center gap-2">
               <Label htmlFor="smtp-enabled">Enable SMTP</Label>
               <Switch
@@ -398,7 +733,7 @@ const AdminSMTPSettings = () => {
             </div>
           </CardTitle>
           <CardDescription>
-            Use this form to test SMTP settings. Values entered here are used for the "Send Test Email" feature.
+            Configure SMTP settings. Save to database to enable use by edge functions.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -490,6 +825,89 @@ const AdminSMTPSettings = () => {
                 value={settings.fromName}
                 onChange={(e) => updateSetting('fromName', e.target.value)}
               />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Email Deliverability Guide */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Info className="w-5 h-5" />
+            Email Deliverability Guide
+          </CardTitle>
+          <CardDescription>
+            Improve email deliverability and avoid spam folders
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Alert>
+            <AlertCircle className="w-4 h-4" />
+            <AlertTitle>Check Spam Folder First!</AlertTitle>
+            <AlertDescription>
+              If test emails are sent successfully but not received, check your spam/junk folder. 
+              New sending domains often get filtered.
+            </AlertDescription>
+          </Alert>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 bg-muted rounded-lg">
+              <h4 className="font-medium mb-2 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-green-500" />
+                SPF Record
+              </h4>
+              <p className="text-sm text-muted-foreground mb-2">
+                Add an SPF record to authorize your mail server.
+              </p>
+              <code className="text-xs bg-background p-2 rounded block">
+                v=spf1 include:_spf.your-provider.com ~all
+              </code>
+            </div>
+            <div className="p-4 bg-muted rounded-lg">
+              <h4 className="font-medium mb-2 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-green-500" />
+                DKIM Record
+              </h4>
+              <p className="text-sm text-muted-foreground mb-2">
+                Enable DKIM signing in your email provider's settings.
+              </p>
+              <code className="text-xs bg-background p-2 rounded block">
+                Contact your email provider for DKIM setup
+              </code>
+            </div>
+          </div>
+
+          <div className="p-4 bg-muted rounded-lg">
+            <h4 className="font-medium mb-2">Test Your Email Deliverability</h4>
+            <div className="flex gap-2 flex-wrap">
+              <a 
+                href="https://www.mail-tester.com" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-sm text-primary hover:underline flex items-center gap-1"
+              >
+                <ExternalLink className="w-3 h-3" />
+                mail-tester.com
+              </a>
+              <a 
+                href="https://mxtoolbox.com/deliverability" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-sm text-primary hover:underline flex items-center gap-1"
+              >
+                <ExternalLink className="w-3 h-3" />
+                MXToolbox Deliverability
+              </a>
+              <a 
+                href="https://www.learndmarc.com" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-sm text-primary hover:underline flex items-center gap-1"
+              >
+                <ExternalLink className="w-3 h-3" />
+                Learn DMARC
+              </a>
             </div>
           </div>
         </CardContent>

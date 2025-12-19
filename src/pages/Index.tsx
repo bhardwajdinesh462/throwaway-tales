@@ -9,6 +9,7 @@ import Footer from "@/components/Footer";
 import SEOHead from "@/components/SEOHead";
 import JsonLd from "@/components/JsonLd";
 import BannerDisplay from "@/components/BannerDisplay";
+import LiveStatsWidget from "@/components/LiveStatsWidget";
 import { motion } from "framer-motion";
 
 const Index = () => {
@@ -25,6 +26,13 @@ const Index = () => {
       
       <main>
         <HeroSection />
+        
+        {/* Live Stats Section */}
+        <section className="py-8 border-b border-border/30">
+          <div className="container mx-auto px-4">
+            <LiveStatsWidget />
+          </div>
+        </section>
 
         {/* Inbox Section with improved layout */}
         <section className="py-16 relative">

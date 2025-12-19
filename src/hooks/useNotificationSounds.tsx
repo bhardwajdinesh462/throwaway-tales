@@ -26,6 +26,13 @@ const STORAGE_KEY = 'notification_sound_settings';
 export const useNotificationSounds = () => {
   const { user } = useAuth();
   const audioContextRef = useRef<AudioContext | null>(null);
+  // Use ref to track settings for stable playSound reference
+  const settingsRef = useRef<SoundSettings>({
+    enabled: true,
+    tone: 'default',
+    volume: 0.5,
+    audioUnlocked: false,
+  });
   
   const [settings, setSettings] = useState<SoundSettings>({
     enabled: true,
@@ -33,6 +40,11 @@ export const useNotificationSounds = () => {
     volume: 0.5,
     audioUnlocked: false,
   });
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   // Load settings - but NEVER persist audioUnlocked since browser requires fresh interaction each session
   useEffect(() => {
@@ -110,18 +122,22 @@ export const useNotificationSounds = () => {
     };
   }, [settings.enabled, settings.audioUnlocked, unlockAudio]);
 
-  // Play notification sound
+  // Play notification sound - uses ref for stable reference
   const playSound = useCallback(async (overrideTone?: SoundTone) => {
-    if (!settings.enabled && !overrideTone) {
+    const currentSettings = settingsRef.current;
+    
+    if (!currentSettings.enabled && !overrideTone) {
       console.log('[useNotificationSounds] Sound disabled, skipping');
       return;
     }
     
-    const tone = overrideTone || settings.tone;
+    const tone = overrideTone || currentSettings.tone;
     if (tone === 'none') return;
 
     const frequencies = SOUND_FREQUENCIES[tone];
     if (!frequencies.length) return;
+
+    console.log('[useNotificationSounds] 🔊 Playing sound:', tone, 'volume:', currentSettings.volume);
 
     try {
       const audioContext = getAudioContext();
@@ -131,12 +147,10 @@ export const useNotificationSounds = () => {
         console.log('[useNotificationSounds] Attempting to resume suspended audio context...');
         await audioContext.resume();
       }
-      
-      console.log('[useNotificationSounds] Playing sound:', tone, 'volume:', settings.volume);
 
       const masterGain = audioContext.createGain();
       masterGain.connect(audioContext.destination);
-      masterGain.gain.setValueAtTime(settings.volume * 0.3, audioContext.currentTime);
+      masterGain.gain.setValueAtTime(currentSettings.volume * 0.3, audioContext.currentTime);
       masterGain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
 
       frequencies.forEach((freq, index) => {
@@ -161,13 +175,15 @@ export const useNotificationSounds = () => {
       });
       
       // Mark audio as unlocked if it played successfully
-      if (!settings.audioUnlocked) {
+      if (!currentSettings.audioUnlocked) {
         updateSettings({ audioUnlocked: true });
       }
+      
+      console.log('[useNotificationSounds] ✅ Sound played successfully');
     } catch (error) {
-      console.error('Error playing notification sound:', error);
+      console.error('[useNotificationSounds] Error playing notification sound:', error);
     }
-  }, [settings.enabled, settings.tone, settings.volume, settings.audioUnlocked, getAudioContext, updateSettings]);
+  }, [getAudioContext, updateSettings]);
 
   // Preview sound (always plays regardless of enabled setting)
   const previewSound = useCallback((tone: SoundTone) => {

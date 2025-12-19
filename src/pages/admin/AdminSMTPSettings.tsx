@@ -338,19 +338,24 @@ const AdminSMTPSettings = () => {
     setTestResult(null);
     
     try {
+      const requestBody: any = { recipientEmail: testEmail };
+
+      // If settings are loaded from the database, let the backend pick an available mailbox
+      // (avoids sending passwords over the wire and enables load balancing).
+      if (syncSource !== 'database' || !selectedMailboxId) {
+        requestBody.smtpConfig = {
+          host: settings.host,
+          port: settings.port,
+          username: settings.username,
+          password: settings.password,
+          encryption: settings.encryption,
+          fromEmail: settings.fromEmail,
+          fromName: settings.fromName,
+        };
+      }
+
       const { data, error } = await supabase.functions.invoke('send-test-email', {
-        body: {
-          recipientEmail: testEmail,
-          smtpConfig: {
-            host: settings.host,
-            port: settings.port,
-            username: settings.username,
-            password: settings.password,
-            encryption: settings.encryption,
-            fromEmail: settings.fromEmail,
-            fromName: settings.fromName,
-          }
-        }
+        body: requestBody,
       });
 
       if (error) throw error;

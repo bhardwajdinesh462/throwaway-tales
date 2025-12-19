@@ -334,6 +334,7 @@ Message-ID: ${messageId}
 
     console.error(`[send-test-email] Friendly error: ${errorMessage}. Hint: ${hint}. Raw: ${error.message}`);
 
+    // Return 200 so the frontend can display friendly error details without invoke() throwing
     return new Response(
       JSON.stringify({ 
         success: false, 
@@ -351,7 +352,7 @@ Message-ID: ${messageId}
           ]
         }
       }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

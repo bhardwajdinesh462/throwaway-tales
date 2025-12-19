@@ -58,44 +58,78 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
+    let isMounted = true;
+
+    const hydrateUser = async (nextSession: Session | null) => {
+      if (!isMounted) return;
+
+      const nextUser = nextSession?.user ?? null;
+      if (!nextUser) {
+        setProfile(null);
+        setIsAdmin(false);
+        return;
+      }
+
+      // Fetch in parallel; keep isLoading=true until role is known to avoid redirect races.
+      await Promise.all([
+        fetchProfile(nextUser.id),
+        checkAdminStatus(nextUser.id),
+      ]);
+    };
+
     // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      setSession(nextSession);
+      setUser(nextSession?.user ?? null);
 
-        // Defer Supabase calls with setTimeout to prevent deadlocks
-        if (session?.user) {
-          setTimeout(() => {
-            fetchProfile(session.user.id);
-            checkAdminStatus(session.user.id);
-          }, 0);
-        } else {
-          setProfile(null);
-          setIsAdmin(false);
-        }
-
-        if (event === 'SIGNED_OUT') {
-          setProfile(null);
-          setIsAdmin(false);
-        }
+      // Signed out / no session
+      if (event === "SIGNED_OUT" || !nextSession?.user) {
+        setProfile(null);
+        setIsAdmin(false);
+        setIsLoading(false);
+        return;
       }
-    );
 
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        fetchProfile(session.user.id);
-        checkAdminStatus(session.user.id);
-      }
-      
-      setIsLoading(false);
+      setIsLoading(true);
+      // Defer Supabase calls with setTimeout to prevent deadlocks
+      setTimeout(() => {
+        hydrateUser(nextSession)
+          .catch((err) => console.error("Error hydrating user:", err))
+          .finally(() => {
+            if (isMounted) setIsLoading(false);
+          });
+      }, 0);
     });
 
-    return () => subscription.unsubscribe();
+    // THEN check for existing session
+    (async () => {
+      const {
+        data: { session: initialSession },
+      } = await supabase.auth.getSession();
+
+      if (!isMounted) return;
+
+      setSession(initialSession);
+      setUser(initialSession?.user ?? null);
+
+      if (initialSession?.user) {
+        setIsLoading(true);
+        try {
+          await hydrateUser(initialSession);
+        } catch (err) {
+          console.error("Error hydrating initial session:", err);
+        }
+      }
+
+      if (isMounted) setIsLoading(false);
+    })();
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signUp = async (email: string, password: string, name?: string): Promise<{ error: Error | null }> => {

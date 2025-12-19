@@ -203,17 +203,25 @@ serve(async (req: Request) => {
       );
     }
 
-    // Verify the token matches
+    // Verify the token matches - use maybeSingle to avoid error when not found
     const { data: tempEmail, error: verifyError } = await supabase
       .from('temp_emails')
       .select('id, secret_token, address, domain_id, expires_at, is_active')
       .eq('id', tempEmailId)
-      .single();
+      .maybeSingle();
 
-    if (verifyError || !tempEmail) {
-      console.log('[secure-email-access] Temp email not found:', verifyError);
+    if (verifyError) {
+      console.log('[secure-email-access] Error fetching temp email:', verifyError);
       return new Response(
-        JSON.stringify({ error: 'Temp email not found' }),
+        JSON.stringify({ error: 'Database error', details: verifyError.message }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!tempEmail) {
+      console.log('[secure-email-access] Temp email not found for ID:', tempEmailId);
+      return new Response(
+        JSON.stringify({ error: 'Temp email not found', code: 'EMAIL_NOT_FOUND' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

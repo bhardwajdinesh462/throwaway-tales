@@ -95,7 +95,7 @@ serve(async (req: Request): Promise<Response> => {
     const smtpPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
     const smtpUser = Deno.env.get("SMTP_USER");
     const smtpPass = Deno.env.get("SMTP_PASSWORD");
-    const smtpFrom = Deno.env.get("SMTP_FROM") || `noreply@${siteName.toLowerCase()}.com`;
+    const smtpFrom = Deno.env.get("SMTP_FROM") || Deno.env.get("SMTP_USER") || `noreply@${siteName.toLowerCase()}.com`;
 
     if (!smtpHost || !smtpUser || !smtpPass) {
       console.error("SMTP not configured - skipping email send");

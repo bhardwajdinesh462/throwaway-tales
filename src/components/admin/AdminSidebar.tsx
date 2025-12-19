@@ -85,6 +85,7 @@ const AdminSidebar = () => {
     { title: "Email Setup", url: "/admin/email-setup", icon: Wand2 },
     { title: "SMTP", url: "/admin/smtp", icon: Cog },
     { title: "IMAP", url: "/admin/imap", icon: MailOpen },
+    { title: "Mailboxes", url: "/admin/mailboxes", icon: Mail },
     { title: "SEO", url: "/admin/seo", icon: Search },
     { title: "Blog Settings", url: "/admin/blog-settings", icon: Newspaper },
     { title: "Languages", url: "/admin/languages", icon: Languages },

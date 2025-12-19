@@ -21,6 +21,15 @@ interface CreateVerificationRequest {
   name?: string;
 }
 
+interface MailboxConfig {
+  mailbox_id: string | null;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_user: string;
+  smtp_password: string;
+  smtp_from: string;
+}
+
 serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -102,14 +111,44 @@ serve(async (req: Request): Promise<Response> => {
     // Use raw token in the link (will be hashed for comparison when verifying)
     const verifyLink = `${siteUrl}/verify-email?token=${rawToken}`;
 
-    // Get SMTP configuration
-    const smtpHost = Deno.env.get("SMTP_HOST");
-    const smtpPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
-    const smtpUser = Deno.env.get("SMTP_USER");
-    const smtpPass = Deno.env.get("SMTP_PASSWORD");
-    const smtpFrom = Deno.env.get("SMTP_FROM") || Deno.env.get("SMTP_USER") || `noreply@${siteName.toLowerCase()}.com`;
+    // Try to get mailbox from load balancer (database) first
+    let mailboxConfig: MailboxConfig | null = null;
+    
+    const { data: mailboxData } = await supabase.rpc('select_available_mailbox');
+    
+    if (mailboxData && mailboxData.length > 0) {
+      const mb = mailboxData[0];
+      mailboxConfig = {
+        mailbox_id: mb.mailbox_id,
+        smtp_host: mb.smtp_host,
+        smtp_port: mb.smtp_port,
+        smtp_user: mb.smtp_user,
+        smtp_password: mb.smtp_password,
+        smtp_from: mb.smtp_from || mb.smtp_user
+      };
+      console.log(`Using mailbox from database: ${mailboxConfig.mailbox_id}`);
+    } else {
+      // Fall back to environment variables
+      const smtpHost = Deno.env.get("SMTP_HOST");
+      const smtpPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
+      const smtpUser = Deno.env.get("SMTP_USER");
+      const smtpPass = Deno.env.get("SMTP_PASSWORD");
+      const smtpFrom = Deno.env.get("SMTP_FROM") || smtpUser;
 
-    if (!smtpHost || !smtpUser || !smtpPass) {
+      if (smtpHost && smtpUser && smtpPass) {
+        mailboxConfig = {
+          mailbox_id: null,
+          smtp_host: smtpHost,
+          smtp_port: smtpPort,
+          smtp_user: smtpUser,
+          smtp_password: smtpPass,
+          smtp_from: smtpFrom || `noreply@${siteName.toLowerCase()}.com`
+        };
+        console.log("Using SMTP from environment variables");
+      }
+    }
+
+    if (!mailboxConfig) {
       console.error("SMTP not configured - skipping email send");
       return new Response(
         JSON.stringify({ 
@@ -162,36 +201,64 @@ This link will expire in 24 hours.
 
 If you didn't create an account with ${siteName}, you can safely ignore this email.`;
 
-    // Create SMTP client using denomailer
-    const client = new SMTPClient({
-      connection: {
-        hostname: smtpHost,
-        port: smtpPort,
-        tls: smtpPort === 465,
-        auth: {
-          username: smtpUser,
-          password: smtpPass,
+    try {
+      // Create SMTP client using denomailer
+      const client = new SMTPClient({
+        connection: {
+          hostname: mailboxConfig.smtp_host,
+          port: mailboxConfig.smtp_port,
+          tls: mailboxConfig.smtp_port === 465,
+          auth: {
+            username: mailboxConfig.smtp_user,
+            password: mailboxConfig.smtp_password,
+          },
         },
-      },
-    });
+      });
 
-    // Send the email with proper multipart content
-    await client.send({
-      from: smtpFrom,
-      to: email,
-      subject: `Verify your email for ${siteName}`,
-      content: textBody,
-      html: htmlBody,
-    });
+      // Send the email with proper multipart content
+      await client.send({
+        from: mailboxConfig.smtp_from,
+        to: email,
+        subject: `Verify your email for ${siteName}`,
+        content: textBody,
+        html: htmlBody,
+      });
 
-    await client.close();
+      await client.close();
 
-    console.log("Verification email sent successfully to:", email);
+      // Increment mailbox usage if using database mailbox
+      if (mailboxConfig.mailbox_id) {
+        await supabase.rpc('increment_mailbox_usage', { p_mailbox_id: mailboxConfig.mailbox_id });
+        console.log(`Incremented usage for mailbox ${mailboxConfig.mailbox_id}`);
+      }
 
-    return new Response(
-      JSON.stringify({ success: true, message: "Verification email sent" }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+      console.log("Verification email sent successfully to:", email);
+
+      return new Response(
+        JSON.stringify({ success: true, message: "Verification email sent" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    } catch (smtpError: any) {
+      console.error("SMTP error:", smtpError);
+      
+      // Record error for database mailbox
+      if (mailboxConfig.mailbox_id) {
+        await supabase.rpc('record_mailbox_error', { 
+          p_mailbox_id: mailboxConfig.mailbox_id, 
+          p_error: smtpError.message || 'SMTP send failed'
+        });
+      }
+
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          warning: "Verification created but email failed to send",
+          error: smtpError.message,
+          token: rawToken
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
   } catch (error: any) {
     console.error("Error in create-verification-and-send:", error);

@@ -79,6 +79,7 @@ const AdminPayments = lazy(() => import("./pages/admin/AdminPayments"));
 const AdminIPBlocking = lazy(() => import("./pages/admin/AdminIPBlocking"));
 const AdminSubscriptions = lazy(() => import("./pages/admin/AdminSubscriptions"));
 const AdminEmailRestrictions = lazy(() => import("./pages/admin/AdminEmailRestrictions"));
+const AdminMailboxes = lazy(() => import("./pages/admin/AdminMailboxes"));
 
 // Defer initialization to idle time
 if (typeof requestIdleCallback !== 'undefined') {
@@ -262,6 +263,7 @@ const App = () => (
                             <Route path="role-approvals" element={<AdminRoleApprovals />} />
                             <Route path="subscriptions" element={<AdminSubscriptions />} />
                             <Route path="email-restrictions" element={<AdminEmailRestrictions />} />
+                            <Route path="mailboxes" element={<AdminMailboxes />} />
                           </Route>
 
                           <Route path="*" element={<NotFound />} />

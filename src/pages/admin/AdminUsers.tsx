@@ -139,11 +139,13 @@ const AdminUsers = () => {
   const deleteUser = async (userId: string) => {
     setDeletingUserId(userId);
     try {
-      const { error } = await supabase.rpc('delete_user_as_admin', {
-        target_user_id: userId
+      // Use the edge function to completely delete user from auth.users
+      const { data, error } = await supabase.functions.invoke('delete-user-complete', {
+        body: { userId }
       });
 
       if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
       toast.success("User deleted successfully");
       setSelectedUsers(prev => {

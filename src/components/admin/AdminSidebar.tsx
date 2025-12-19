@@ -26,6 +26,8 @@ import {
   Wand2,
   LayoutList,
   CreditCard,
+  Crown,
+  Ban,
 } from "lucide-react";
 import {
   Sidebar,
@@ -77,6 +79,8 @@ const AdminSidebar = () => {
     { title: "User & Guest", url: "/admin/user-settings", icon: UserCog },
     { title: "Registration", url: "/admin/registration", icon: Shield },
     { title: "Payments", url: "/admin/payments", icon: CreditCard },
+    { title: "Subscriptions", url: "/admin/subscriptions", icon: Crown },
+    { title: "Email Restrictions", url: "/admin/email-restrictions", icon: Ban },
     { title: "Admins", url: "/admin/admins", icon: Shield },
     { title: "Email Setup", url: "/admin/email-setup", icon: Wand2 },
     { title: "SMTP", url: "/admin/smtp", icon: Cog },

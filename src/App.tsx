@@ -65,6 +65,8 @@ import AdminSettingsOverview from "./pages/admin/AdminSettingsOverview";
 import AdminRegistration from "./pages/admin/AdminRegistration";
 import AdminPayments from "./pages/admin/AdminPayments";
 import AdminIPBlocking from "./pages/admin/AdminIPBlocking";
+import AdminSubscriptions from "./pages/admin/AdminSubscriptions";
+import AdminEmailRestrictions from "./pages/admin/AdminEmailRestrictions";
 import Pricing from "./pages/Pricing";
 import BillingHistory from "./pages/BillingHistory";
 
@@ -178,6 +180,8 @@ const App = () => (
                       <Route path="audit-logs" element={<AdminAuditLogs />} />
                       <Route path="rate-limits" element={<AdminRateLimits />} />
                       <Route path="role-approvals" element={<AdminRoleApprovals />} />
+                      <Route path="subscriptions" element={<AdminSubscriptions />} />
+                      <Route path="email-restrictions" element={<AdminEmailRestrictions />} />
                     </Route>
 
                     <Route path="*" element={<NotFound />} />

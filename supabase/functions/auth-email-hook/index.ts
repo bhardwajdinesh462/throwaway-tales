@@ -89,10 +89,10 @@ serve(async (req: Request): Promise<Response> => {
     const { data: settingsData } = await supabase
       .from('app_settings')
       .select('value')
-      .eq('key', 'general_settings')
+      .eq('key', 'general')
       .single();
 
-    const siteName = settingsData?.value?.siteName || 'Nullsto Temp Mail';
+    const siteName = settingsData?.value?.siteName || 'Nullsto Mails';
     const siteUrl = settingsData?.value?.siteUrl || Deno.env.get("SUPABASE_URL")?.replace('.supabase.co', '') || 'https://nullsto.com';
 
     // Build action URL

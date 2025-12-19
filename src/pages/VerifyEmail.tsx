@@ -69,52 +69,37 @@ const VerifyEmail = () => {
       return;
     }
 
+    const userId = user?.id;
+    if (!userId) {
+      toast.error("Please log in to resend verification email");
+      return;
+    }
+
     setIsResending(true);
     try {
-      // Generate new token
-      const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, '');
-      
-      // Get user id - if logged in use that, otherwise we need to look it up
-      let userId = user?.id;
-      
-      if (!userId) {
-        // Can't create verification without user id, prompt to log in
-        toast.error("Please log in to resend verification email");
-        setIsResending(false);
-        return;
-      }
-
-      // Insert new verification record
-      const { error: insertError } = await supabase
-        .from('email_verifications')
-        .insert({
-          user_id: userId,
-          email: emailToUse,
-          token: token,
-        });
-
-      if (insertError) {
-        toast.error("Failed to create verification record");
-        setIsResending(false);
-        return;
-      }
-
-      // Send verification email
-      const { error } = await supabase.functions.invoke('send-verification-email', {
+      // Use the combined edge function that bypasses RLS
+      const { data, error } = await supabase.functions.invoke('create-verification-and-send', {
         body: {
           userId: userId,
           email: emailToUse,
-          name: user?.user_metadata?.display_name,
-          token: token,
-        },
+          name: user?.user_metadata?.display_name || emailToUse.split('@')[0]
+        }
       });
 
       if (error) {
+        console.error('Error sending verification email:', error);
         toast.error(error.message || "Failed to send verification email");
-      } else {
-        toast.success("Verification email sent! Check your inbox.");
+        return;
       }
+
+      if (data?.error) {
+        toast.error(data.error);
+        return;
+      }
+
+      toast.success("Verification email sent! Check your inbox.");
     } catch (error) {
+      console.error('Error sending verification email:', error);
       toast.error("Failed to send verification email");
     } finally {
       setIsResending(false);

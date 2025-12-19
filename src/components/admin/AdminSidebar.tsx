@@ -75,6 +75,7 @@ const AdminSidebar = () => {
     { title: "Appearance", url: "/admin/appearance", icon: Paintbrush },
     { title: t('themes'), url: "/admin/themes", icon: Palette },
     { title: "User & Guest", url: "/admin/user-settings", icon: UserCog },
+    { title: "Registration", url: "/admin/registration", icon: UserCog },
     { title: "Admins", url: "/admin/admins", icon: Shield },
     { title: "Email Setup", url: "/admin/email-setup", icon: Wand2 },
     { title: "SMTP", url: "/admin/smtp", icon: Cog },

@@ -1,18 +1,22 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Mail, Lock, User, ArrowRight, Loader2, Chrome, KeyRound } from "lucide-react";
+import { Mail, Lock, User, ArrowRight, Loader2, Chrome, KeyRound, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useRegistrationSettings } from "@/hooks/useRegistrationSettings";
 import { toast } from "sonner";
 import { z } from "zod";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import DOMPurify from "dompurify";
 
-const emailSchema = z.string().email("Please enter a valid email address");
-const passwordSchema = z.string().min(6, "Password must be at least 6 characters");
+const emailSchema = z.string().email("Please enter a valid email address").max(255);
+const passwordSchema = z.string().min(6, "Password must be at least 6 characters").max(128);
+const nameSchema = z.string().max(100).optional();
 
 type AuthMode = 'login' | 'signup' | 'forgot' | 'reset';
 
@@ -24,12 +28,12 @@ const Auth = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { user, signIn, signUp, signInWithGoogle, signInWithFacebook, resetPassword, updatePassword } = useAuth();
+  const { user, isAdmin, signIn, signUp, signInWithGoogle, signInWithFacebook, resetPassword, updatePassword } = useAuth();
   const { t } = useLanguage();
+  const { settings: regSettings, isLoading: regLoading } = useRegistrationSettings();
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Check if we're in password reset mode from URL
     if (searchParams.get('mode') === 'reset') {
       setMode('reset');
     }
@@ -38,15 +42,28 @@ const Auth = () => {
   useEffect(() => {
     // Only redirect if user is logged in and NOT in reset mode
     if (user && mode !== 'reset') {
-      navigate("/");
+      // Redirect based on role
+      if (isAdmin) {
+        navigate("/admin");
+      } else {
+        navigate("/dashboard");
+      }
     }
-  }, [user, navigate, mode]);
+  }, [user, isAdmin, navigate, mode]);
+
+  // Sanitize inputs
+  const sanitizeInput = (input: string) => {
+    return DOMPurify.sanitize(input.trim());
+  };
 
   const validateInputs = (validatePassword = true) => {
     try {
       emailSchema.parse(email);
       if (validatePassword) {
         passwordSchema.parse(password);
+      }
+      if (mode === 'signup') {
+        nameSchema.parse(name);
       }
       return true;
     } catch (error) {
@@ -61,37 +78,48 @@ const Auth = () => {
     e.preventDefault();
     setIsSubmitting(true);
 
+    // Sanitize all inputs
+    const sanitizedEmail = sanitizeInput(email);
+    const sanitizedName = sanitizeInput(name);
+
     try {
       if (mode === 'login') {
         if (!validateInputs()) {
           setIsSubmitting(false);
           return;
         }
-        const { error } = await signIn(email, password);
+        const { error } = await signIn(sanitizedEmail, password);
         if (error) {
           toast.error(error.message);
         } else {
           toast.success("Welcome back!");
-          navigate("/");
+          // Navigation handled by useEffect
         }
       } else if (mode === 'signup') {
+        // Check if registration is allowed
+        if (!regSettings.allowRegistration) {
+          toast.error(regSettings.registrationMessage);
+          setIsSubmitting(false);
+          return;
+        }
+
         if (!validateInputs()) {
           setIsSubmitting(false);
           return;
         }
-        const { error } = await signUp(email, password, name);
+        const { error } = await signUp(sanitizedEmail, password, sanitizedName);
         if (error) {
           toast.error(error.message);
         } else {
           toast.success("Account created successfully!");
-          navigate("/");
+          // Navigation handled by useEffect
         }
       } else if (mode === 'forgot') {
         if (!validateInputs(false)) {
           setIsSubmitting(false);
           return;
         }
-        const { error } = await resetPassword(email);
+        const { error } = await resetPassword(sanitizedEmail);
         if (error) {
           toast.error(error.message);
         } else {
@@ -118,7 +146,7 @@ const Auth = () => {
           toast.error(error.message);
         } else {
           toast.success("Password updated successfully!");
-          navigate("/");
+          navigate("/dashboard");
         }
       }
     } catch (error) {
@@ -129,23 +157,27 @@ const Auth = () => {
   };
 
   const handleGoogleSignIn = async () => {
+    if (mode === 'signup' && !regSettings.allowRegistration) {
+      toast.error(regSettings.registrationMessage);
+      return;
+    }
     setIsSubmitting(true);
     const { error } = await signInWithGoogle();
     if (error) {
       toast.error(error.message);
-    } else {
-      navigate("/");
     }
     setIsSubmitting(false);
   };
 
   const handleFacebookSignIn = async () => {
+    if (mode === 'signup' && !regSettings.allowRegistration) {
+      toast.error(regSettings.registrationMessage);
+      return;
+    }
     setIsSubmitting(true);
     const { error } = await signInWithFacebook();
     if (error) {
       toast.error(error.message);
-    } else {
-      navigate("/");
     }
     setIsSubmitting(false);
   };
@@ -177,6 +209,14 @@ const Auth = () => {
     }
   };
 
+  if (regLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -196,6 +236,16 @@ const Auth = () => {
               </p>
             </div>
 
+            {/* Registration Disabled Warning */}
+            {mode === 'signup' && !regSettings.allowRegistration && (
+              <Alert className="mb-6 border-amber-500/50 bg-amber-500/10">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                <AlertDescription className="text-amber-600 dark:text-amber-400">
+                  {regSettings.registrationMessage}
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="glass-card p-8">
               {/* Social Login - only show for login/signup */}
               {(mode === 'login' || mode === 'signup') && (
@@ -205,7 +255,7 @@ const Auth = () => {
                       variant="glass"
                       className="w-full"
                       onClick={handleGoogleSignIn}
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || (mode === 'signup' && !regSettings.allowRegistration)}
                     >
                       <Chrome className="w-5 h-5 mr-2" />
                       {t('continueWithGoogle')}
@@ -214,7 +264,7 @@ const Auth = () => {
                       variant="glass"
                       className="w-full"
                       onClick={handleFacebookSignIn}
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || (mode === 'signup' && !regSettings.allowRegistration)}
                     >
                       <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
@@ -249,6 +299,8 @@ const Auth = () => {
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         className="pl-10 bg-secondary/50 border-border"
+                        maxLength={100}
+                        disabled={!regSettings.allowRegistration}
                       />
                     </div>
                   </div>
@@ -268,6 +320,8 @@ const Auth = () => {
                         onChange={(e) => setEmail(e.target.value)}
                         className="pl-10 bg-secondary/50 border-border"
                         required
+                        maxLength={255}
+                        disabled={mode === 'signup' && !regSettings.allowRegistration}
                       />
                     </div>
                   </div>
@@ -287,6 +341,8 @@ const Auth = () => {
                         onChange={(e) => setPassword(e.target.value)}
                         className="pl-10 bg-secondary/50 border-border"
                         required
+                        maxLength={128}
+                        disabled={mode === 'signup' && !regSettings.allowRegistration}
                       />
                     </div>
                   </div>
@@ -306,6 +362,7 @@ const Auth = () => {
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         className="pl-10 bg-secondary/50 border-border"
                         required
+                        maxLength={128}
                       />
                     </div>
                   </div>
@@ -327,7 +384,7 @@ const Auth = () => {
                   type="submit"
                   variant="neon"
                   className="w-full"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || (mode === 'signup' && !regSettings.allowRegistration)}
                 >
                   {isSubmitting ? (
                     <Loader2 className="w-5 h-5 animate-spin" />

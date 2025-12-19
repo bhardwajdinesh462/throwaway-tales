@@ -55,12 +55,6 @@ const Dashboard = () => {
   const [tempEmails, setTempEmails] = useState<TempEmail[]>([]);
   const [totalEmailsReceived, setTotalEmailsReceived] = useState(0);
 
-  useEffect(() => {
-    if (!authLoading && !user) {
-      navigate("/auth");
-    }
-  }, [user, authLoading, navigate]);
-
   // Fetch user's temp emails
   useEffect(() => {
     const fetchUserData = async () => {

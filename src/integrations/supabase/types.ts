@@ -430,12 +430,43 @@ export type Database = {
         }
         Relationships: []
       }
+      email_verifications: {
+        Row: {
+          created_at: string | null
+          email: string
+          expires_at: string | null
+          id: string
+          token: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          email: string
+          expires_at?: string | null
+          id?: string
+          token?: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string
+          expires_at?: string | null
+          id?: string
+          token?: string
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
           created_at: string
           display_name: string | null
           email: string | null
+          email_verified: boolean | null
           id: string
           updated_at: string
           user_id: string
@@ -445,6 +476,7 @@ export type Database = {
           created_at?: string
           display_name?: string | null
           email?: string | null
+          email_verified?: boolean | null
           id?: string
           updated_at?: string
           user_id: string
@@ -454,6 +486,7 @@ export type Database = {
           created_at?: string
           display_name?: string | null
           email?: string | null
+          email_verified?: boolean | null
           id?: string
           updated_at?: string
           user_id?: string
@@ -1001,6 +1034,7 @@ export type Database = {
           created_at: string
           display_name: string | null
           email: string | null
+          email_verified: boolean | null
           id: string
           updated_at: string
           user_id: string

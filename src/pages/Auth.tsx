@@ -13,6 +13,7 @@ import { z } from "zod";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import DOMPurify from "dompurify";
+import { supabase } from "@/integrations/supabase/client";
 
 const emailSchema = z.string().email("Please enter a valid email address").max(255);
 const passwordSchema = z.string().min(6, "Password must be at least 6 characters").max(128);
@@ -107,12 +108,40 @@ const Auth = () => {
           setIsSubmitting(false);
           return;
         }
-        const { error } = await signUp(sanitizedEmail, password, sanitizedName);
+        const { error, data } = await signUp(sanitizedEmail, password, sanitizedName);
         if (error) {
           toast.error(error.message);
-        } else {
+        } else if (data?.user) {
+          // Generate verification token and create verification record
+          try {
+            const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, '');
+            
+            // Insert verification record using service role via edge function
+            const { error: insertError } = await supabase
+              .from('email_verifications')
+              .insert({
+                user_id: data.user.id,
+                email: sanitizedEmail,
+                token: token,
+              });
+
+            if (!insertError) {
+              // Send verification email via edge function
+              await supabase.functions.invoke('send-verification-email', {
+                body: {
+                  userId: data.user.id,
+                  email: sanitizedEmail,
+                  name: sanitizedName,
+                  token: token,
+                },
+              });
+            }
+          } catch (verificationError) {
+            console.error('Failed to send verification email:', verificationError);
+          }
+          
           toast.success("Account created! Please check your email to verify.");
-          navigate("/verify-email");
+          navigate("/verify-email", { state: { email: sanitizedEmail } });
         }
       } else if (mode === 'forgot') {
         if (!validateInputs(false)) {

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { 
   Forward, Mail, Trash2, Plus, Check, X, Loader2, 
-  AlertCircle, ToggleLeft, ToggleRight
+  AlertCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,14 +10,20 @@ import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { toast } from "sonner";
 import { z } from "zod";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ForwardingRule {
   id: string;
   temp_email_id: string;
-  temp_email_address: string;
   forward_to_address: string;
   is_active: boolean;
   created_at: string;
+  temp_email_address?: string;
+}
+
+interface TempEmail {
+  id: string;
+  address: string;
 }
 
 const emailSchema = z.string().email("Please enter a valid email address");
@@ -25,34 +31,71 @@ const emailSchema = z.string().email("Please enter a valid email address");
 const EmailForwarding = () => {
   const { user } = useAuth();
   const [rules, setRules] = useState<ForwardingRule[]>([]);
+  const [tempEmails, setTempEmails] = useState<TempEmail[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newForwardTo, setNewForwardTo] = useState("");
   const [selectedTempEmail, setSelectedTempEmail] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
 
-  // Load forwarding rules from localStorage
+  // Load forwarding rules and temp emails from database
   useEffect(() => {
     if (!user) {
       setIsLoading(false);
       return;
     }
 
-    const stored = localStorage.getItem("nullsto_forwarding_rules");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      setRules(parsed.filter((r: ForwardingRule) => r.temp_email_id.startsWith(user.id.slice(0, 8))));
-    }
-    setIsLoading(false);
-  }, [user]);
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        // Fetch user's temp emails
+        const { data: tempEmailsData, error: tempError } = await supabase
+          .from("temp_emails")
+          .select("id, address")
+          .eq("user_id", user.id)
+          .eq("is_active", true);
 
-  // Get user's temp emails from localStorage
-  const getUserTempEmails = () => {
-    const stored = localStorage.getItem("nullsto_temp_emails");
-    if (!stored) return [];
-    const emails = JSON.parse(stored);
-    return emails.filter((e: any) => e.user_id === user?.id);
-  };
+        if (tempError) {
+          console.error("Error fetching temp emails:", tempError);
+        } else {
+          setTempEmails(tempEmailsData || []);
+        }
+
+        // Fetch forwarding rules
+        const { data: rulesData, error: rulesError } = await supabase
+          .from("email_forwarding")
+          .select(`
+            id,
+            temp_email_id,
+            forward_to_address,
+            is_active,
+            created_at
+          `)
+          .eq("user_id", user.id);
+
+        if (rulesError) {
+          console.error("Error fetching forwarding rules:", rulesError);
+        } else {
+          // Map rules with temp email addresses
+          const rulesWithAddresses = (rulesData || []).map(rule => {
+            const tempEmail = tempEmailsData?.find(te => te.id === rule.temp_email_id);
+            return {
+              ...rule,
+              temp_email_address: tempEmail?.address || "Unknown address"
+            };
+          });
+          setRules(rulesWithAddresses);
+        }
+      } catch (error) {
+        console.error("Error loading data:", error);
+        toast.error("Failed to load forwarding rules");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [user]);
 
   const handleAddRule = async () => {
     if (!user) {
@@ -74,40 +117,83 @@ const EmailForwarding = () => {
 
     setIsAdding(true);
 
-    const newRule: ForwardingRule = {
-      id: `fwd_${Date.now()}`,
-      temp_email_id: selectedTempEmail,
-      temp_email_address: getUserTempEmails().find((e: any) => e.id === selectedTempEmail)?.address || "",
-      forward_to_address: newForwardTo,
-      is_active: true,
-      created_at: new Date().toISOString(),
-    };
+    try {
+      const { data, error } = await supabase
+        .from("email_forwarding")
+        .insert({
+          temp_email_id: selectedTempEmail,
+          forward_to_address: newForwardTo,
+          user_id: user.id,
+          is_active: true
+        })
+        .select()
+        .single();
 
-    const updatedRules = [...rules, newRule];
-    setRules(updatedRules);
-    localStorage.setItem("nullsto_forwarding_rules", JSON.stringify(updatedRules));
+      if (error) {
+        if (error.code === "23505") {
+          toast.error("A forwarding rule already exists for this email");
+        } else {
+          throw error;
+        }
+        return;
+      }
 
-    setNewForwardTo("");
-    setSelectedTempEmail("");
-    setShowAddForm(false);
-    setIsAdding(false);
-    toast.success("Forwarding rule created!");
+      const tempEmail = tempEmails.find(te => te.id === selectedTempEmail);
+      const newRule: ForwardingRule = {
+        ...data,
+        temp_email_address: tempEmail?.address || "Unknown address"
+      };
+
+      setRules(prev => [...prev, newRule]);
+      setNewForwardTo("");
+      setSelectedTempEmail("");
+      setShowAddForm(false);
+      toast.success("Forwarding rule created!");
+    } catch (error) {
+      console.error("Error creating rule:", error);
+      toast.error("Failed to create forwarding rule");
+    } finally {
+      setIsAdding(false);
+    }
   };
 
-  const handleToggleRule = (ruleId: string) => {
-    const updatedRules = rules.map((r) =>
-      r.id === ruleId ? { ...r, is_active: !r.is_active } : r
-    );
-    setRules(updatedRules);
-    localStorage.setItem("nullsto_forwarding_rules", JSON.stringify(updatedRules));
-    toast.success("Forwarding rule updated");
+  const handleToggleRule = async (ruleId: string) => {
+    const rule = rules.find(r => r.id === ruleId);
+    if (!rule) return;
+
+    try {
+      const { error } = await supabase
+        .from("email_forwarding")
+        .update({ is_active: !rule.is_active })
+        .eq("id", ruleId);
+
+      if (error) throw error;
+
+      setRules(prev => prev.map(r =>
+        r.id === ruleId ? { ...r, is_active: !r.is_active } : r
+      ));
+      toast.success("Forwarding rule updated");
+    } catch (error) {
+      console.error("Error toggling rule:", error);
+      toast.error("Failed to update rule");
+    }
   };
 
-  const handleDeleteRule = (ruleId: string) => {
-    const updatedRules = rules.filter((r) => r.id !== ruleId);
-    setRules(updatedRules);
-    localStorage.setItem("nullsto_forwarding_rules", JSON.stringify(updatedRules));
-    toast.success("Forwarding rule deleted");
+  const handleDeleteRule = async (ruleId: string) => {
+    try {
+      const { error } = await supabase
+        .from("email_forwarding")
+        .delete()
+        .eq("id", ruleId);
+
+      if (error) throw error;
+
+      setRules(prev => prev.filter(r => r.id !== ruleId));
+      toast.success("Forwarding rule deleted");
+    } catch (error) {
+      console.error("Error deleting rule:", error);
+      toast.error("Failed to delete rule");
+    }
   };
 
   if (!user) {
@@ -121,8 +207,6 @@ const EmailForwarding = () => {
       </div>
     );
   }
-
-  const tempEmails = getUserTempEmails();
 
   return (
     <div className="space-y-6">
@@ -148,8 +232,16 @@ const EmailForwarding = () => {
         </Button>
       </div>
 
+      {tempEmails.length === 0 && !isLoading && (
+        <div className="bg-secondary/50 border border-border rounded-lg p-4">
+          <p className="text-sm text-muted-foreground text-center">
+            You need to create a temporary email first before setting up forwarding.
+          </p>
+        </div>
+      )}
+
       {/* Add New Rule Form */}
-      {showAddForm && (
+      {showAddForm && tempEmails.length > 0 && (
         <motion.div
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: "auto" }}
@@ -168,7 +260,7 @@ const EmailForwarding = () => {
                 className="w-full bg-secondary/50 border border-border rounded-lg px-4 py-2 text-foreground"
               >
                 <option value="">Choose an email...</option>
-                {tempEmails.map((email: any) => (
+                {tempEmails.map((email) => (
                   <option key={email.id} value={email.id}>
                     {email.address}
                   </option>

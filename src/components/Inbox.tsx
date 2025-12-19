@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, RefreshCw, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube, Loader2, Bell, Paperclip, Shield } from "lucide-react";
+import { Mail, RefreshCw, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube, Loader2, Bell, Paperclip, Shield, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ReceivedEmail } from "@/hooks/useSecureEmailService";
 import { useEmailService } from "@/contexts/EmailServiceContext";
@@ -14,6 +14,8 @@ import EmailPreview from "@/components/EmailPreview";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import InboxDiagnostics, { saveImapFetchStats } from "@/components/InboxDiagnostics";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
 interface NotificationPreferences {
   soundEnabled: boolean;
   pushEnabled: boolean;
@@ -43,6 +45,7 @@ const Inbox = () => {
   const [loadingAttachments, setLoadingAttachments] = useState(false);
   const [isCheckingMail, setIsCheckingMail] = useState(false);
   const [isSendingTest, setIsSendingTest] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
   
   // 4. All useRef hooks together
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
@@ -328,6 +331,71 @@ const Inbox = () => {
     }
   };
 
+  // Copy current email address to clipboard
+  const copyEmailAddress = useCallback(() => {
+    if (currentEmail?.address) {
+      navigator.clipboard.writeText(currentEmail.address);
+      toast.success("Email address copied!");
+    }
+  }, [currentEmail?.address]);
+
+  // Navigate emails with J/K keys - using refs to avoid stale closures
+  const navigateUp = useCallback(() => {
+    if (receivedEmails.length === 0) return;
+    setSelectedIndex(prev => {
+      const newIndex = Math.max(0, prev - 1);
+      const email = receivedEmails[newIndex];
+      if (email) {
+        setSelectedEmail(email);
+        if (!email.is_read) markAsRead(email.id);
+      }
+      return newIndex;
+    });
+  }, [receivedEmails, markAsRead]);
+
+  const navigateDown = useCallback(() => {
+    if (receivedEmails.length === 0) return;
+    setSelectedIndex(prev => {
+      const newIndex = Math.min(receivedEmails.length - 1, prev + 1);
+      const email = receivedEmails[newIndex];
+      if (email) {
+        setSelectedEmail(email);
+        if (!email.is_read) markAsRead(email.id);
+      }
+      return newIndex;
+    });
+  }, [receivedEmails, markAsRead]);
+
+  // Open selected email with Enter
+  const openSelectedEmail = useCallback(() => {
+    if (receivedEmails.length > 0) {
+      const email = receivedEmails[selectedIndex];
+      if (email) {
+        setSelectedEmail(email);
+        if (!email.is_read) markAsRead(email.id);
+      }
+    }
+  }, [receivedEmails, selectedIndex, markAsRead]);
+
+  // Close email preview with Escape
+  const closeEmailPreview = useCallback(() => {
+    setSelectedEmail(null);
+  }, []);
+
+  // Keyboard shortcuts
+  const { showHelp, setShowHelp, shortcuts } = useKeyboardShortcuts({
+    enabled: true,
+    shortcuts: [
+      { key: 'r', description: 'Refresh inbox', action: () => handleRefresh(false) },
+      { key: 'c', description: 'Copy email address', action: copyEmailAddress },
+      { key: 'j', description: 'Next email', action: navigateDown },
+      { key: 'k', description: 'Previous email', action: navigateUp },
+      { key: 'Enter', description: 'Open email', action: openSelectedEmail },
+      { key: 'Escape', description: 'Close email preview', action: closeEmailPreview },
+      { key: 'n', description: 'Check new mail', action: handleCheckMail },
+    ],
+  });
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -428,6 +496,15 @@ const Inbox = () => {
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
               {t('refresh')}
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowHelp(true)}
+              title="Keyboard shortcuts (?)"
+            >
+              <Keyboard className="w-4 h-4" />
             </Button>
 
           </div>
@@ -550,6 +627,13 @@ const Inbox = () => {
         {/* Diagnostics Panel */}
         <InboxDiagnostics />
       </div>
+
+      {/* Keyboard Shortcuts Help Modal */}
+      <KeyboardShortcutsHelp
+        isOpen={showHelp}
+        onClose={() => setShowHelp(false)}
+        shortcuts={shortcuts}
+      />
     </motion.div>
   );
 };

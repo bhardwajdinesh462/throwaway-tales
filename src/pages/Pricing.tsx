@@ -411,11 +411,104 @@ const PricingPage = () => {
             })}
           </div>
 
+          {/* Testimonials Section */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.6 }}
+            className="mt-20 mb-16"
+          >
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+                Loved by <span className="gradient-text">Thousands</span>
+              </h2>
+              <p className="text-muted-foreground max-w-xl mx-auto">
+                See what our users are saying about Nullsto
+              </p>
+            </div>
+            
+            <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+              {[
+                {
+                  name: 'Sarah M.',
+                  role: 'Freelance Designer',
+                  avatar: 'SM',
+                  rating: 5,
+                  text: 'Nullsto has been a game-changer for my workflow. No more spam in my main inbox when signing up for design resources!',
+                },
+                {
+                  name: 'Alex K.',
+                  role: 'Software Developer',
+                  avatar: 'AK',
+                  rating: 5,
+                  text: 'The API access in the Pro plan is fantastic. I integrated it into my testing pipeline and it works flawlessly.',
+                },
+                {
+                  name: 'Maria L.',
+                  role: 'Marketing Manager',
+                  avatar: 'ML',
+                  rating: 5,
+                  text: 'Finally, a temp email service that actually works! The AI summaries save me so much time reviewing newsletters.',
+                },
+                {
+                  name: 'James R.',
+                  role: 'Security Analyst',
+                  avatar: 'JR',
+                  rating: 5,
+                  text: 'As someone who values privacy, Nullsto gives me peace of mind. The encryption and security features are top-notch.',
+                },
+                {
+                  name: 'Emma T.',
+                  role: 'Student',
+                  avatar: 'ET',
+                  rating: 5,
+                  text: 'Perfect for signing up to educational platforms. The free tier is generous and the interface is super intuitive.',
+                },
+                {
+                  name: 'David P.',
+                  role: 'Startup Founder',
+                  avatar: 'DP',
+                  rating: 5,
+                  text: 'We use the Business plan for our team. Custom domains and webhook notifications are exactly what we needed.',
+                },
+              ].map((testimonial, index) => (
+                <motion.div
+                  key={index}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.7 + index * 0.1 }}
+                >
+                  <Card className="h-full hover:border-primary/30 transition-all duration-300 bg-card/50 backdrop-blur-sm">
+                    <CardContent className="p-6">
+                      <div className="flex items-center gap-1 mb-4">
+                        {Array.from({ length: testimonial.rating }).map((_, i) => (
+                          <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                        ))}
+                      </div>
+                      <p className="text-muted-foreground mb-4 text-sm leading-relaxed">
+                        "{testimonial.text}"
+                      </p>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground font-medium text-sm">
+                          {testimonial.avatar}
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground text-sm">{testimonial.name}</p>
+                          <p className="text-xs text-muted-foreground">{testimonial.role}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+
           {/* Bottom Section */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.7 }}
+            transition={{ delay: 0.8 }}
             className="mt-16 text-center"
           >
             <div className="glass-card p-8 max-w-3xl mx-auto">

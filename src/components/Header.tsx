@@ -8,7 +8,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAppearanceSettings } from "@/hooks/useAppearanceSettings";
 import { useGeneralSettings } from "@/hooks/useGeneralSettings";
-import nullstoLogo from "@/assets/nullsto-logo.png";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -112,15 +112,17 @@ const Header = () => {
                 whileTap={{ scale: 0.95 }}
                 transition={{ type: "spring", stiffness: 400, damping: 17 }}
               >
-                <img 
-                  src={appearanceSettings.logoUrl && appearanceSettings.logoUrl.length > 0 ? appearanceSettings.logoUrl : nullstoLogo} 
-                  alt={generalSettings.siteName || 'Nullsto'} 
-                  className="h-9 w-auto object-contain"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = nullstoLogo;
-                  }}
-                />
+                {appearanceSettings.logoUrl ? (
+                  <img 
+                    src={appearanceSettings.logoUrl} 
+                    alt={generalSettings.siteName || 'Nullsto'} 
+                    className="h-9 w-auto object-contain"
+                  />
+                ) : (
+                  <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground font-bold text-lg">
+                    {(generalSettings.siteName || 'N')[0]}
+                  </div>
+                )}
               </motion.div>
               <span className="text-xl font-bold gradient-text">{generalSettings.siteName || 'Nullsto'}</span>
             </Link>

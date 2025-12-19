@@ -53,7 +53,7 @@ const Inbox = () => {
   const refreshRef = useRef<NodeJS.Timeout | null>(null);
 
   // Notification sounds
-  const { playSound } = useNotificationSounds();
+  const { playSound, unlockAudio, isAudioUnlocked } = useNotificationSounds();
 
   // 5. All useCallback hooks together
   const handleNewEmail = useCallback(() => {
@@ -65,7 +65,7 @@ const Inbox = () => {
   }, [refetch, playSound]);
 
   // 6. Real-time hook (must be called unconditionally)
-  const { newEmailCount, resetCount, pushPermission, requestPushPermission } = useRealtimeEmails({
+  const { newEmailCount, resetCount, pushPermission, requestPushPermission, audioUnlocked: realtimeAudioUnlocked, unlockAudio: unlockRealtimeAudio } = useRealtimeEmails({
     tempEmailId: currentEmail?.id,
     onNewEmail: handleNewEmail,
     showToast: true,
@@ -468,6 +468,24 @@ const Inbox = () => {
               <Shield className="w-3 h-3" />
               <span>Encrypted</span>
             </div>
+            
+            {!isAudioUnlocked && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  const unlocked = await unlockAudio();
+                  if (unlocked) {
+                    toast.success("Sound notifications enabled!");
+                  }
+                }}
+                className="text-xs text-amber-600 hover:text-amber-500"
+                title="Click to enable notification sounds (required by browser)"
+              >
+                <Bell className="w-4 h-4 mr-1" />
+                Enable Sounds
+              </Button>
+            )}
             
             {pushPermission !== "granted" && (
               <Button

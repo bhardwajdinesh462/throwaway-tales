@@ -9,7 +9,7 @@ import AdminSidebar from "@/components/admin/AdminSidebar";
 import { Loader2 } from "lucide-react";
 
 const AdminLayout = () => {
-  const { user, isAdmin, isLoading } = useAuth();
+  const { user, isLoading } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
 
@@ -23,7 +23,7 @@ const AdminLayout = () => {
   }
 
   // Safety check - shouldn't reach here if ProtectedRoute works correctly
-  if (!user || !isAdmin) return null;
+  if (!user) return null;
 
   const getPageTitle = () => {
     const path = location.pathname;

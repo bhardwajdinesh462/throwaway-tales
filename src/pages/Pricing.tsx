@@ -8,13 +8,17 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useSupabaseAuth';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useEmailVerification } from '@/hooks/useEmailVerification';
+import { supabase } from '@/integrations/supabase/client';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
+import EmailVerificationBanner from '@/components/EmailVerificationBanner';
 
 const PricingPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { tiers, subscription, isLoading } = useSubscription();
+  const { requiresVerification } = useEmailVerification();
   const [selectedBilling, setSelectedBilling] = useState<'monthly' | 'yearly'>('monthly');
   const [processingTier, setProcessingTier] = useState<string | null>(null);
 
@@ -30,23 +34,49 @@ const PricingPage = () => {
       return;
     }
 
+    // Check email verification
+    if (requiresVerification()) {
+      toast.error('Please verify your email before subscribing to a premium plan');
+      return;
+    }
+
     setProcessingTier(tierId);
 
-    // In a real implementation, this would:
-    // 1. Call a Supabase edge function that creates a Stripe checkout session
-    // 2. Redirect to Stripe checkout
-    // For now, show a placeholder message
-    
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      toast.info(
-        `To enable ${tierName} subscription checkout, configure your Stripe API keys in the admin panel under Settings > Payments.`,
-        { duration: 5000 }
-      );
+      const { data, error } = await supabase.functions.invoke('create-checkout', {
+        body: {
+          tier_id: tierId,
+          billing_cycle: selectedBilling,
+          success_url: `${window.location.origin}/dashboard?checkout=success`,
+          cancel_url: `${window.location.origin}/pricing?checkout=cancelled`,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (data.code === 'STRIPE_NOT_CONFIGURED') {
+        toast.info(
+          'Stripe is not configured yet. Please add your Stripe API keys in the admin panel under Settings > Payments.',
+          { duration: 5000 }
+        );
+        return;
+      }
+
+      if (data.code === 'EMAIL_NOT_VERIFIED') {
+        toast.error('Please verify your email before subscribing');
+        return;
+      }
+
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else {
+        throw new Error('No checkout URL received');
+      }
     } catch (error) {
-      toast.error('Failed to start checkout');
+      console.error('Checkout error:', error);
+      toast.error('Failed to start checkout. Please try again.');
     } finally {
       setProcessingTier(null);
     }
@@ -73,6 +103,9 @@ const PricingPage = () => {
       <Header />
       <main className="pt-24 pb-16">
         <div className="container mx-auto px-4">
+          {/* Email Verification Banner */}
+          {user && <EmailVerificationBanner />}
+
           {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}

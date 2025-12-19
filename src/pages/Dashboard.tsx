@@ -30,6 +30,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow, format } from "date-fns";
 import { toast } from "sonner";
 import PremiumBadge from "@/components/PremiumBadge";
+import EmailVerificationBanner from "@/components/EmailVerificationBanner";
 
 interface TempEmail {
   id: string;
@@ -134,6 +135,9 @@ const Dashboard = () => {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Home
           </Button>
+
+          {/* Email Verification Banner */}
+          <EmailVerificationBanner />
 
           {/* Welcome Header */}
           <motion.div

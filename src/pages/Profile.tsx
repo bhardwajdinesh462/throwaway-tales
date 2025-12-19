@@ -35,6 +35,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { storage, STORAGE_KEYS } from "@/lib/storage";
 import { formatDistanceToNow } from "date-fns";
 import TwoFactorSetup from "@/components/TwoFactorSetup";
+import SubscriptionManagement from "@/components/SubscriptionManagement";
 import {
   Select,
   SelectContent,
@@ -219,7 +220,7 @@ const Profile = () => {
 
           {/* Tabs */}
           <Tabs defaultValue="saved" className="space-y-6">
-            <TabsList className="grid grid-cols-4 bg-card border border-border">
+            <TabsList className="grid grid-cols-5 bg-card border border-border">
               <TabsTrigger value="saved" className="flex items-center gap-2">
                 <Star className="w-4 h-4" />
                 <span className="hidden sm:inline">Saved</span>
@@ -227,6 +228,10 @@ const Profile = () => {
               <TabsTrigger value="history" className="flex items-center gap-2">
                 <Clock className="w-4 h-4" />
                 <span className="hidden sm:inline">History</span>
+              </TabsTrigger>
+              <TabsTrigger value="billing" className="flex items-center gap-2">
+                <Mail className="w-4 h-4" />
+                <span className="hidden sm:inline">Billing</span>
               </TabsTrigger>
               <TabsTrigger value="notifications" className="flex items-center gap-2">
                 <Bell className="w-4 h-4" />
@@ -347,6 +352,11 @@ const Profile = () => {
                   )}
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* Billing/Subscription Tab */}
+            <TabsContent value="billing">
+              <SubscriptionManagement />
             </TabsContent>
 
             {/* Notifications */}

@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect, useRef } from "react";
+import { motion, useSpring, useTransform } from "framer-motion";
 import { Mail, Users, Globe, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -11,6 +11,29 @@ interface Stats {
   totalEmailsGenerated: number;
 }
 
+// Animated counter component with spring animation
+const AnimatedCounter = ({ value, isAnimating }: { value: number; isAnimating: boolean }) => {
+  const spring = useSpring(0, { stiffness: 100, damping: 30 });
+  const display = useTransform(spring, (current) => {
+    if (current >= 1000000) return `${(current / 1000000).toFixed(1)}M`;
+    if (current >= 1000) return `${(current / 1000).toFixed(1)}K`;
+    return Math.floor(current).toString();
+  });
+
+  useEffect(() => {
+    spring.set(value);
+  }, [value, spring]);
+
+  return (
+    <motion.span
+      animate={isAnimating ? { scale: [1, 1.15, 1], color: ["inherit", "hsl(var(--primary))", "inherit"] } : {}}
+      transition={{ duration: 0.4 }}
+    >
+      <motion.span>{display}</motion.span>
+    </motion.span>
+  );
+};
+
 const LiveStatsWidget = () => {
   const [stats, setStats] = useState<Stats>({
     emailsToday: 0,
@@ -20,6 +43,8 @@ const LiveStatsWidget = () => {
     totalEmailsGenerated: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [animatingIndex, setAnimatingIndex] = useState<number | null>(null);
+  const initialLoadRef = useRef(true);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -43,13 +68,48 @@ const LiveStatsWidget = () => {
     };
 
     // Defer initial fetch to not block main thread
-    const timeoutId = setTimeout(fetchStats, 100);
+    const timeoutId = setTimeout(() => {
+      fetchStats();
+      initialLoadRef.current = false;
+    }, 100);
     
     // Refresh every 60 seconds
     const interval = setInterval(fetchStats, 60000);
     return () => {
       clearTimeout(timeoutId);
       clearInterval(interval);
+    };
+  }, []);
+
+  // Subscribe to realtime inserts on temp_emails for live counter updates
+  useEffect(() => {
+    const channel = supabase
+      .channel('temp-emails-stats')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'temp_emails'
+        },
+        () => {
+          // Only animate after initial load
+          if (!initialLoadRef.current) {
+            setStats(prev => ({
+              ...prev,
+              totalEmailsGenerated: prev.totalEmailsGenerated + 1,
+              activeAddresses: prev.activeAddresses + 1,
+            }));
+            // Trigger animation on "Emails Generated" (index 1)
+            setAnimatingIndex(1);
+            setTimeout(() => setAnimatingIndex(null), 500);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
     };
   }, []);
 
@@ -84,12 +144,6 @@ const LiveStatsWidget = () => {
     },
   ];
 
-  const formatNumber = (num: number) => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return num.toString();
-  };
-
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       {statItems.map((item, index) => (
@@ -114,19 +168,13 @@ const LiveStatsWidget = () => {
             </div>
 
             <div className="space-y-1">
-              <motion.p
-                className="text-2xl md:text-3xl font-bold text-foreground"
-                key={item.value}
-                initial={{ opacity: 0, scale: 0.5 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ type: "spring", stiffness: 300, damping: 20 }}
-              >
+              <p className="text-2xl md:text-3xl font-bold text-foreground">
                 {isLoading ? (
                   <span className="inline-block w-12 h-8 bg-secondary animate-pulse rounded" />
                 ) : (
-                  formatNumber(item.value)
+                  <AnimatedCounter value={item.value} isAnimating={animatingIndex === index} />
                 )}
-              </motion.p>
+              </p>
               <p className="text-xs text-muted-foreground">{item.label}</p>
             </div>
 

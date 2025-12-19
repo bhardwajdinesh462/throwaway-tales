@@ -7,7 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDistanceToNow, format } from "date-fns";
 import DOMPurify from "dompurify";
 import EmailAttachments, { Attachment } from "@/components/EmailAttachments";
-
+import EmailSummary from "@/components/EmailSummary";
+import { useAdminRole } from "@/hooks/useAdminRole";
 interface EmailPreviewProps {
   email: {
     id: string;
@@ -71,11 +72,11 @@ const getAvatarColor = (email: string) => {
 
 const EmailPreview = ({ email, attachments, loadingAttachments, onClose }: EmailPreviewProps) => {
   const [viewMode, setViewMode] = useState<'html' | 'text'>('html');
+  const { isAdmin } = useAdminRole();
   
   const { name: senderName, email: senderEmail } = parseEmailAddress(email.from_address);
   const initials = getInitials(senderName, senderEmail);
   const avatarColor = getAvatarColor(senderEmail);
-  
   // Sanitize HTML for safe rendering
   const sanitizedHtml = email.html_body 
     ? DOMPurify.sanitize(email.html_body, {
@@ -142,15 +143,23 @@ const EmailPreview = ({ email, attachments, loadingAttachments, onClose }: Email
 
           {/* Actions */}
           <div className="flex items-center gap-1 shrink-0">
+            <EmailSummary 
+              emailId={email.id}
+              subject={email.subject}
+              body={email.body}
+              htmlBody={email.html_body}
+            />
             <Button variant="ghost" size="icon" className="h-8 w-8" title="Reply">
               <Reply className="w-4 h-4" />
             </Button>
             <Button variant="ghost" size="icon" className="h-8 w-8" title="Forward">
               <Forward className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title="Delete">
-              <Trash2 className="w-4 h-4" />
-            </Button>
+            {isAdmin && (
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title="Delete (Admin)">
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose} title="Close">
               <X className="w-4 h-4" />
             </Button>

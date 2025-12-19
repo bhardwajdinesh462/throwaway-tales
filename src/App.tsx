@@ -10,6 +10,8 @@ import { NotificationProvider } from "@/components/NotificationSystem";
 import { initializeDefaultData } from "@/lib/storage";
 import { EmailServiceProvider } from "@/contexts/EmailServiceContext";
 import CacheRefresh from "@/components/CacheRefresh";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import UpdatePrompt from "@/components/UpdatePrompt";
 import Index from "./pages/Index";
 import Blog from "./pages/Blog";
 import BlogPost from "./pages/BlogPost";
@@ -70,11 +72,13 @@ const App = () => (
         <AuthProvider>
           {/* Ensures old caches are cleared once per version for all users */}
           <CacheRefresh />
+          <UpdatePrompt />
 
           {/* Provide email service to ALL routes (Index, History, Profile, Admin, etc.) */}
           <EmailServiceProvider>
             <NotificationProvider>
               <TooltipProvider>
+                <ErrorBoundary>
                 <Toaster />
                 <Sonner />
                 <BrowserRouter>
@@ -132,6 +136,7 @@ const App = () => (
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </BrowserRouter>
+                </ErrorBoundary>
               </TooltipProvider>
             </NotificationProvider>
           </EmailServiceProvider>

@@ -32,3 +32,9 @@ verify_jwt = false
 
 [functions.delete-duplicate-emails]
 verify_jwt = false
+
+[functions.summarize-email]
+verify_jwt = false
+
+[functions.get-public-stats]
+verify_jwt = false

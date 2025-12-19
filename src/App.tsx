@@ -15,10 +15,10 @@ import CacheRefresh from "@/components/CacheRefresh";
 import ErrorBoundary, { PageErrorBoundary } from "@/components/ErrorBoundary";
 import UpdatePrompt from "@/components/UpdatePrompt";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 
-// Lazy load public pages
-const Index = lazy(() => import("./pages/Index"));
+// Import Index directly (no lazy loading for main page - faster initial load)
+import Index from "./pages/Index";
 const Blog = lazy(() => import("./pages/Blog"));
 const BlogPost = lazy(() => import("./pages/BlogPost"));
 const Contact = lazy(() => import("./pages/Contact"));
@@ -80,19 +80,20 @@ const AdminIPBlocking = lazy(() => import("./pages/admin/AdminIPBlocking"));
 const AdminSubscriptions = lazy(() => import("./pages/admin/AdminSubscriptions"));
 const AdminEmailRestrictions = lazy(() => import("./pages/admin/AdminEmailRestrictions"));
 
-// Initialize default data on app load
-initializeDefaultData();
+// Defer initialization to idle time
+if (typeof requestIdleCallback !== 'undefined') {
+  requestIdleCallback(() => initializeDefaultData());
+} else {
+  setTimeout(() => initializeDefaultData(), 1);
+}
 
 // Create query client with optimized caching
 const queryClient = createQueryClient();
 
-// Page loading spinner
+// Minimal page loader for lazy routes (not shown on Index)
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
-    <div className="text-center">
-      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-      <p className="text-muted-foreground text-sm">Loading...</p>
-    </div>
+    <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
   </div>
 );
 

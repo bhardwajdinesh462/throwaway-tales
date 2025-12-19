@@ -39,11 +39,15 @@ const LiveStatsWidget = () => {
       }
     };
 
-    fetchStats();
+    // Defer initial fetch to not block main thread
+    const timeoutId = setTimeout(fetchStats, 100);
     
     // Refresh every 60 seconds
     const interval = setInterval(fetchStats, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(timeoutId);
+      clearInterval(interval);
+    };
   }, []);
 
   const statItems = [

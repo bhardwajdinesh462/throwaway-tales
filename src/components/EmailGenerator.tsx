@@ -130,25 +130,9 @@ const EmailGenerator = () => {
         <div className="absolute -bottom-4 -right-4 w-32 h-32 bg-accent/10 rounded-full blur-2xl" />
         
         <div className="glass-card p-8 md:p-10 relative overflow-hidden">
-          {/* Animated Border */}
-          <div className="absolute inset-0 rounded-xl">
-            <motion.div
-              className="absolute inset-0 rounded-xl"
-              style={{
-                background: "linear-gradient(90deg, hsl(var(--primary)), hsl(var(--accent)), hsl(var(--primary)))",
-                backgroundSize: "200% 100%",
-              }}
-              animate={{
-                backgroundPosition: ["0% 0%", "200% 0%"],
-              }}
-              transition={{
-                duration: 3,
-                repeat: Infinity,
-                ease: "linear",
-              }}
-            />
-            <div className="absolute inset-[1px] rounded-xl bg-card" />
-          </div>
+          {/* Static gradient border - no infinite JS animation */}
+          <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-primary via-accent to-primary" />
+          <div className="absolute inset-[1px] rounded-xl bg-card" />
           
           <div className="relative z-10">
             {/* Header */}

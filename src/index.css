@@ -9,6 +9,35 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Performance-optimized CSS animations */
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.1); }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes scale-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 8s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+.animate-scale-x {
+  animation: scale-x 0.6s ease-out forwards;
+  transform-origin: left;
+}
+
 @layer base {
   :root {
     --background: 222 47% 5%;

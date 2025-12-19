@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useSupabaseAuth";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { SettingsProvider } from "@/contexts/SettingsContext";
 import { NotificationProvider } from "@/components/NotificationSystem";
 import { initializeDefaultData } from "@/lib/storage";
 import { EmailServiceProvider } from "@/contexts/EmailServiceContext";
@@ -80,17 +81,18 @@ const App = () => (
     <ThemeProvider>
       <LanguageProvider>
         <AuthProvider>
-          {/* Ensures old caches are cleared once per version for all users */}
-          <CacheRefresh />
-          <UpdatePrompt />
+          <SettingsProvider>
+            {/* Ensures old caches are cleared once per version for all users */}
+            <CacheRefresh />
+            <UpdatePrompt />
 
-          {/* Provide email service to ALL routes (Index, History, Profile, Admin, etc.) */}
-          <EmailServiceProvider>
-            <NotificationProvider>
-              <TooltipProvider>
-                <ErrorBoundary>
-                <Toaster />
-                <Sonner />
+            {/* Provide email service to ALL routes (Index, History, Profile, Admin, etc.) */}
+            <EmailServiceProvider>
+              <NotificationProvider>
+                <TooltipProvider>
+                  <ErrorBoundary>
+                  <Toaster />
+                  <Sonner />
                 <BrowserRouter>
                   <Routes>
                     {/* Public Routes */}
@@ -191,6 +193,7 @@ const App = () => (
               </TooltipProvider>
             </NotificationProvider>
           </EmailServiceProvider>
+          </SettingsProvider>
         </AuthProvider>
       </LanguageProvider>
     </ThemeProvider>

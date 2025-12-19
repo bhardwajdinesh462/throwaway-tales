@@ -1,16 +1,16 @@
 // Local Storage Keys
 export const STORAGE_KEYS = {
-  USER: 'trashmails_user',
-  USERS_DB: 'trashmails_users',
-  DOMAINS: 'trashmails_domains',
-  TEMP_EMAILS: 'trashmails_temp_emails',
-  RECEIVED_EMAILS: 'trashmails_received_emails',
-  SAVED_EMAILS: 'trashmails_saved_emails',
-  SETTINGS: 'trashmails_settings',
-  BLOGS: 'trashmails_blogs',
-  PAGES: 'trashmails_pages',
-  THEME: 'trashmails_theme',
-  LANGUAGE: 'trashmails_language',
+  USER: 'nullsto_user',
+  USERS_DB: 'nullsto_users',
+  DOMAINS: 'nullsto_domains',
+  TEMP_EMAILS: 'nullsto_temp_emails',
+  RECEIVED_EMAILS: 'nullsto_received_emails',
+  SAVED_EMAILS: 'nullsto_saved_emails',
+  SETTINGS: 'nullsto_settings',
+  BLOGS: 'nullsto_blogs',
+  PAGES: 'nullsto_pages',
+  THEME: 'nullsto_theme',
+  LANGUAGE: 'nullsto_language',
 } as const;
 
 // Generic storage functions
@@ -53,8 +53,8 @@ export const initializeDefaultData = () => {
       requireCaptcha: false,
       enableNotifications: true,
       maintenanceMode: false,
-      welcomeMessage: 'Welcome to TrashMails! Generate instant, anonymous email addresses.',
-      footerText: '© 2024 TrashMails. All rights reserved.',
+      welcomeMessage: 'Welcome to Nullsto! Generate instant, anonymous email addresses.',
+      footerText: '© 2024 Nullsto. All rights reserved.',
       customDomainEnabled: true,
     });
   }
@@ -90,7 +90,7 @@ export const initializeDefaultData = () => {
   // Default pages
   if (!localStorage.getItem(STORAGE_KEYS.PAGES)) {
     storage.set(STORAGE_KEYS.PAGES, [
-      { id: '1', title: 'About Us', slug: 'about', content: 'About TrashMails...', published: true },
+      { id: '1', title: 'About Us', slug: 'about', content: 'About Nullsto...', published: true },
       { id: '2', title: 'Privacy Policy', slug: 'privacy', content: 'Privacy policy content...', published: true },
       { id: '3', title: 'Terms of Service', slug: 'terms', content: 'Terms of service...', published: true },
     ]);

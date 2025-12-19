@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useSettings } from '@/contexts/SettingsContext';
 
 interface WebsiteJsonLdProps {
   name?: string;
@@ -44,10 +45,14 @@ interface SoftwareApplicationJsonLdProps {
 
 // Website Schema
 export const WebsiteJsonLd = ({
-  name = 'TrashMails',
-  description = 'Generate instant, anonymous email addresses. Perfect for sign-ups, testing, and keeping your real inbox spam-free.',
+  name,
+  description,
   url = typeof window !== 'undefined' ? window.location.origin : '',
 }: WebsiteJsonLdProps) => {
+  const { general } = useSettings();
+  const siteName = name || general.siteName;
+  const siteDescription = description || general.siteDescription;
+
   useEffect(() => {
     const script = document.createElement('script');
     script.type = 'application/ld+json';
@@ -55,8 +60,8 @@ export const WebsiteJsonLd = ({
     script.textContent = JSON.stringify({
       '@context': 'https://schema.org',
       '@type': 'WebSite',
-      name,
-      description,
+      name: siteName,
+      description: siteDescription,
       url,
       potentialAction: {
         '@type': 'SearchAction',
@@ -73,18 +78,21 @@ export const WebsiteJsonLd = ({
       const el = document.getElementById('website-jsonld');
       if (el) el.remove();
     };
-  }, [name, description, url]);
+  }, [siteName, siteDescription, url]);
 
   return null;
 };
 
 // Organization Schema
 export const OrganizationJsonLd = ({
-  name = 'TrashMails',
+  name,
   url = typeof window !== 'undefined' ? window.location.origin : '',
   logo = '/og-image.png',
   sameAs = [],
 }: OrganizationJsonLdProps) => {
+  const { general } = useSettings();
+  const siteName = name || general.siteName;
+
   useEffect(() => {
     const script = document.createElement('script');
     script.type = 'application/ld+json';
@@ -92,7 +100,7 @@ export const OrganizationJsonLd = ({
     script.textContent = JSON.stringify({
       '@context': 'https://schema.org',
       '@type': 'Organization',
-      name,
+      name: siteName,
       url,
       logo: `${url}${logo}`,
       sameAs,
@@ -111,19 +119,23 @@ export const OrganizationJsonLd = ({
       const el = document.getElementById('organization-jsonld');
       if (el) el.remove();
     };
-  }, [name, url, logo, sameAs]);
+  }, [siteName, url, logo, sameAs]);
 
   return null;
 };
 
 // Software Application Schema
 export const SoftwareApplicationJsonLd = ({
-  name = 'TrashMails',
-  description = 'Free disposable email service for protecting your privacy online.',
+  name,
+  description,
   applicationCategory = 'WebApplication',
   operatingSystem = 'Any',
   offers = { price: '0', priceCurrency: 'USD' },
 }: SoftwareApplicationJsonLdProps) => {
+  const { general } = useSettings();
+  const siteName = name || general.siteName;
+  const siteDescription = description || general.siteDescription;
+
   useEffect(() => {
     const script = document.createElement('script');
     script.type = 'application/ld+json';
@@ -131,8 +143,8 @@ export const SoftwareApplicationJsonLd = ({
     script.textContent = JSON.stringify({
       '@context': 'https://schema.org',
       '@type': 'SoftwareApplication',
-      name,
-      description,
+      name: siteName,
+      description: siteDescription,
       applicationCategory,
       operatingSystem,
       offers: {
@@ -156,7 +168,7 @@ export const SoftwareApplicationJsonLd = ({
       const el = document.getElementById('software-jsonld');
       if (el) el.remove();
     };
-  }, [name, description, applicationCategory, operatingSystem, offers]);
+  }, [siteName, siteDescription, applicationCategory, operatingSystem, offers]);
 
   return null;
 };

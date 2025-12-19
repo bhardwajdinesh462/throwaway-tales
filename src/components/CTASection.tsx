@@ -1,8 +1,11 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Shield, Zap } from "lucide-react";
+import { useSettings } from "@/contexts/SettingsContext";
 
 const CTASection = () => {
+  const { general } = useSettings();
+
   return (
     <section className="py-24 relative overflow-hidden">
       {/* Background */}
@@ -33,7 +36,7 @@ const CTASection = () => {
           </h2>
 
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
-            Join over 1 million users who trust TrashMails for their temporary email needs. 
+            Join over 1 million users who trust {general.siteName} for their temporary email needs. 
             Start generating disposable emails today – it's completely free!
           </p>
 

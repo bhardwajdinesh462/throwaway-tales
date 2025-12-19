@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, RefreshCw, Check, QrCode, Star, Volume2, Plus, Edit2, Sparkles } from "lucide-react";
+import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { QRCodeSVG } from "qrcode.react";
 import {
   Select,
   SelectContent,
@@ -23,6 +22,7 @@ import {
 import { useEmailService } from "@/contexts/EmailServiceContext";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { EmailQRCode } from "@/components/EmailQRCode";
 
 const EmailGenerator = () => {
   const { user } = useAuth();
@@ -37,7 +37,6 @@ const EmailGenerator = () => {
     addCustomDomain,
   } = useEmailService();
   const [copied, setCopied] = useState(false);
-  const [showQR, setShowQR] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [customDomainDialog, setCustomDomainDialog] = useState(false);
   const [customEmailDialog, setCustomEmailDialog] = useState(false);
@@ -280,18 +279,12 @@ const EmailGenerator = () => {
                 </Button>
               </motion.div>
 
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={() => setShowQR(!showQR)}
-                  disabled={!currentEmail}
-                  className="border-border hover:bg-secondary"
-                >
-                  <QrCode className="w-4 h-4 mr-2" />
-                  {t('qrCode')}
-                </Button>
-              </motion.div>
+              {/* QR Code Button with Modal */}
+              {currentEmail && (
+                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                  <EmailQRCode email={currentEmail.address} />
+                </motion.div>
+              )}
 
               <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
                 <Button 
@@ -317,27 +310,6 @@ const EmailGenerator = () => {
                 </Button>
               </motion.div>
             </div>
-
-            {/* QR Code Display */}
-            <AnimatePresence>
-              {showQR && currentEmail && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="flex justify-center mt-8 pt-8 border-t border-border/50"
-                >
-                  <motion.div 
-                    className="bg-white p-4 rounded-2xl shadow-2xl"
-                    initial={{ scale: 0.8, rotate: -5 }}
-                    animate={{ scale: 1, rotate: 0 }}
-                    transition={{ type: "spring", stiffness: 300 }}
-                  >
-                    <QRCodeSVG value={currentEmail.address} size={160} />
-                  </motion.div>
-                </motion.div>
-              )}
-            </AnimatePresence>
 
             {/* Expiration Notice */}
             {currentEmail && (

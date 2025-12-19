@@ -46,10 +46,12 @@ const Header = () => {
   };
 
   const navItems = [
-    { label: t('features'), href: "/#features" },
+    { label: t('features'), href: "/features" },
+    { label: t('pricing'), href: "/pricing" },
     { label: t('howItWorks'), href: "/#how-it-works" },
     { label: t('faq'), href: "/#faq" },
     { label: t('blog'), href: "/blog" },
+    { label: t('about'), href: "/about" },
     { label: t('contact'), href: "/contact" },
   ];
 

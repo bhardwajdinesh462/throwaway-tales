@@ -37,6 +37,7 @@ const Pricing = lazy(() => import("./pages/Pricing"));
 const BillingHistory = lazy(() => import("./pages/BillingHistory"));
 const PremiumFeatures = lazy(() => import("./pages/PremiumFeatures"));
 const APIAccess = lazy(() => import("./pages/APIAccess"));
+const About = lazy(() => import("./pages/About"));
 
 // Lazy load admin pages
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
@@ -157,6 +158,11 @@ const App = () => (
                           <Route path="/features" element={
                             <PageErrorBoundary name="Features">
                               <PremiumFeatures />
+                            </PageErrorBoundary>
+                          } />
+                          <Route path="/about" element={
+                            <PageErrorBoundary name="About">
+                              <About />
                             </PageErrorBoundary>
                           } />
                           <Route path="/billing" element={

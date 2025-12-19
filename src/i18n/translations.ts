@@ -2,6 +2,7 @@ export const translations = {
   en: {
     // Navigation
     features: 'Features',
+    pricing: 'Pricing',
     howItWorks: 'How It Works',
     faq: 'FAQ',
     blog: 'Blog',
@@ -141,6 +142,7 @@ export const translations = {
   ar: {
     // Navigation
     features: 'المميزات',
+    pricing: 'الأسعار',
     howItWorks: 'كيف يعمل',
     faq: 'الأسئلة الشائعة',
     blog: 'المدونة',
@@ -204,6 +206,7 @@ export const translations = {
   es: {
     // Navigation
     features: 'Características',
+    pricing: 'Precios',
     howItWorks: 'Cómo Funciona',
     faq: 'Preguntas Frecuentes',
     blog: 'Blog',
@@ -247,6 +250,7 @@ export const translations = {
   fr: {
     // Navigation
     features: 'Fonctionnalités',
+    pricing: 'Tarifs',
     howItWorks: 'Comment ça marche',
     faq: 'FAQ',
     blog: 'Blog',

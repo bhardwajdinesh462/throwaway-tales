@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SmtpClient } from "https://deno.land/x/smtp@v0.7.0/mod.ts";
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -162,27 +162,20 @@ This link will expire in 24 hours.
 
 If you didn't create an account with ${siteName}, you can safely ignore this email.`;
 
-    // Create SMTP client
-    const client = new SmtpClient();
-    
-    // Connect based on port (TLS vs STARTTLS)
-    if (smtpPort === 465) {
-      await client.connectTLS({
+    // Create SMTP client using denomailer
+    const client = new SMTPClient({
+      connection: {
         hostname: smtpHost,
         port: smtpPort,
-        username: smtpUser,
-        password: smtpPass,
-      });
-    } else {
-      await client.connect({
-        hostname: smtpHost,
-        port: smtpPort,
-        username: smtpUser,
-        password: smtpPass,
-      });
-    }
+        tls: smtpPort === 465,
+        auth: {
+          username: smtpUser,
+          password: smtpPass,
+        },
+      },
+    });
 
-    // Send the email with proper content type
+    // Send the email with proper multipart content
     await client.send({
       from: smtpFrom,
       to: email,

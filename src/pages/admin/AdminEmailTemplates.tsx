@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useGeneralSettings } from "@/hooks/useGeneralSettings";
-import { Mail, Plus, Trash2, Edit, Save, Loader2, Info } from "lucide-react";
+import { Mail, Plus, Trash2, Edit, Save, Loader2, Info, Send, Eye } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Table,
   TableBody,
@@ -24,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -61,6 +63,17 @@ const AdminEmailTemplates = () => {
     type: 'custom' as EmailTemplate['type'] 
   });
 
+  // Test email state
+  const [isTestDialogOpen, setIsTestDialogOpen] = useState(false);
+  const [testTemplate, setTestTemplate] = useState<EmailTemplate | null>(null);
+  const [testEmail, setTestEmail] = useState('');
+  const [testName, setTestName] = useState('');
+  const [isSendingTest, setIsSendingTest] = useState(false);
+
+  // Preview dialog state
+  const [isPreviewDialogOpen, setIsPreviewDialogOpen] = useState(false);
+  const [previewTemplate, setPreviewTemplateData] = useState<EmailTemplate | null>(null);
+
   // Load templates from database
   useEffect(() => {
     loadTemplates();
@@ -69,7 +82,6 @@ const AdminEmailTemplates = () => {
   const loadTemplates = async () => {
     setIsLoading(true);
     try {
-      // Use type assertion since types may not be synced yet
       const { data, error } = await (supabase
         .from('email_templates' as any)
         .select('*')
@@ -103,7 +115,6 @@ const AdminEmailTemplates = () => {
     setIsSaving(true);
     try {
       if (editingTemplate) {
-        // Update existing template
         const { error } = await (supabase
           .from('email_templates' as any)
           .update({
@@ -117,7 +128,6 @@ const AdminEmailTemplates = () => {
         if (error) throw error;
         toast.success("Template updated!");
       } else {
-        // Create new template
         const { error } = await (supabase
           .from('email_templates' as any)
           .insert({
@@ -131,7 +141,6 @@ const AdminEmailTemplates = () => {
         toast.success("Template created!");
       }
 
-      // Reload templates
       await loadTemplates();
       
       setFormData({ name: '', subject: '', body: '', type: 'custom' });
@@ -173,6 +182,51 @@ const AdminEmailTemplates = () => {
     }
   };
 
+  const handleSendTest = async () => {
+    if (!testEmail || !testTemplate) {
+      toast.error("Please enter a recipient email");
+      return;
+    }
+
+    setIsSendingTest(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-template-email', {
+        body: {
+          templateId: testTemplate.id,
+          recipientEmail: testEmail,
+          recipientName: testName || undefined,
+        },
+      });
+
+      if (error) throw error;
+      
+      if (data?.success) {
+        toast.success(`Test email sent to ${testEmail}!`);
+        setIsTestDialogOpen(false);
+        setTestEmail('');
+        setTestName('');
+        setTestTemplate(null);
+      } else {
+        throw new Error(data?.error || 'Failed to send test email');
+      }
+    } catch (error: any) {
+      console.error('Error sending test email:', error);
+      toast.error(error.message || 'Failed to send test email');
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
+
+  const openTestDialog = (template: EmailTemplate) => {
+    setTestTemplate(template);
+    setIsTestDialogOpen(true);
+  };
+
+  const openPreviewDialog = (template: EmailTemplate) => {
+    setPreviewTemplateData(template);
+    setIsPreviewDialogOpen(true);
+  };
+
   const getTypeBadge = (type: EmailTemplate['type']) => {
     const colors: Record<string, string> = {
       welcome: 'bg-green-500/20 text-green-500',
@@ -185,11 +239,11 @@ const AdminEmailTemplates = () => {
   };
 
   // Preview template with variables replaced
-  const previewTemplate = (text: string) => {
+  const previewTemplateText = (text: string) => {
     return text
       .replace(/\{\{site_name\}\}/g, generalSettings.siteName)
-      .replace(/\{\{name\}\}/g, 'User Name')
-      .replace(/\{\{email\}\}/g, 'user@example.com')
+      .replace(/\{\{name\}\}/g, testName || 'User Name')
+      .replace(/\{\{email\}\}/g, testEmail || 'user@example.com')
       .replace(/\{\{link\}\}/g, 'https://example.com/action')
       .replace(/\{\{reset_link\}\}/g, 'https://example.com/reset')
       .replace(/\{\{verify_link\}\}/g, 'https://example.com/verify');
@@ -278,7 +332,7 @@ const AdminEmailTemplates = () => {
                 />
                 {formData.subject && (
                   <p className="text-xs text-muted-foreground">
-                    Preview: {previewTemplate(formData.subject)}
+                    Preview: {previewTemplateText(formData.subject)}
                   </p>
                 )}
               </div>
@@ -299,7 +353,7 @@ const AdminEmailTemplates = () => {
                   <Label className="text-muted-foreground">Preview</Label>
                   <div className="p-4 bg-muted/30 rounded-lg border border-border">
                     <pre className="whitespace-pre-wrap text-sm font-sans">
-                      {previewTemplate(formData.body)}
+                      {previewTemplateText(formData.body)}
                     </pre>
                   </div>
                 </div>
@@ -343,26 +397,213 @@ const AdminEmailTemplates = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {templates.map((template) => (
-                  <TableRow key={template.id}>
-                    <TableCell className="font-medium">{template.name}</TableCell>
-                    <TableCell className="text-muted-foreground max-w-[300px] truncate">
-                      {previewTemplate(template.subject)}
-                    </TableCell>
-                    <TableCell>{getTypeBadge(template.type)}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => handleEdit(template)}>
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(template.id)} className="text-destructive">
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                <AnimatePresence>
+                  {templates.map((template) => (
+                    <motion.tr
+                      key={template.id}
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      className="border-b transition-colors hover:bg-muted/50"
+                    >
+                      <TableCell className="font-medium">{template.name}</TableCell>
+                      <TableCell className="text-muted-foreground max-w-[250px] truncate">
+                        {previewTemplateText(template.subject)}
+                      </TableCell>
+                      <TableCell>{getTypeBadge(template.type)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => openPreviewDialog(template)}
+                              title="Preview template"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                          </motion.div>
+                          <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => openTestDialog(template)}
+                              className="text-primary"
+                              title="Send test email"
+                            >
+                              <Send className="w-4 h-4" />
+                            </Button>
+                          </motion.div>
+                          <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => handleEdit(template)}
+                              title="Edit template"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                          </motion.div>
+                          <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => handleDelete(template.id)} 
+                              className="text-destructive"
+                              title="Delete template"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </motion.div>
+                        </div>
+                      </TableCell>
+                    </motion.tr>
+                  ))}
+                </AnimatePresence>
               </TableBody>
             </Table>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Test Email Dialog */}
+      <Dialog open={isTestDialogOpen} onOpenChange={setIsTestDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="w-5 h-5 text-primary" />
+              Send Test Email
+            </DialogTitle>
+            <DialogDescription>
+              Send a test email using the "{testTemplate?.name}" template.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Recipient Email *</Label>
+              <Input 
+                type="email"
+                value={testEmail} 
+                onChange={(e) => setTestEmail(e.target.value)} 
+                placeholder="test@example.com"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Recipient Name (optional)</Label>
+              <Input 
+                value={testName} 
+                onChange={(e) => setTestName(e.target.value)} 
+                placeholder="John Doe"
+              />
+              <p className="text-xs text-muted-foreground">
+                Used for the {"{{name}}"} variable
+              </p>
+            </div>
+            
+            {testTemplate && (
+              <div className="p-3 bg-muted/30 rounded-lg border border-border">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Subject Preview:</p>
+                <p className="text-sm">{previewTemplateText(testTemplate.subject)}</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsTestDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSendTest} disabled={isSendingTest || !testEmail}>
+              {isSendingTest ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4 mr-2" />
+              )}
+              Send Test
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Preview Dialog */}
+      <Dialog open={isPreviewDialogOpen} onOpenChange={setIsPreviewDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5 text-primary" />
+              Preview: {previewTemplate?.name}
+            </DialogTitle>
+          </DialogHeader>
+          {previewTemplate && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-1">
+                <Label className="text-muted-foreground">Subject</Label>
+                <div className="p-3 bg-muted/30 rounded-lg border border-border font-medium">
+                  {previewTemplateText(previewTemplate.subject)}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-muted-foreground">Body</Label>
+                <div className="p-4 bg-card rounded-lg border border-border shadow-inner">
+                  <div 
+                    className="prose prose-sm dark:prose-invert max-w-none"
+                    style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
+                  >
+                    {previewTemplateText(previewTemplate.body).split('\n').map((line, i) => (
+                      <p key={i} className="my-2">{line || <br />}</p>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Badge variant="outline">{previewTemplate.type.replace('_', ' ')}</Badge>
+                {previewTemplate.created_at && (
+                  <span className="text-xs text-muted-foreground">
+                    Created: {new Date(previewTemplate.created_at).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPreviewDialogOpen(false)}>
+              Close
+            </Button>
+            {previewTemplate && (
+              <Button onClick={() => {
+                setIsPreviewDialogOpen(false);
+                openTestDialog(previewTemplate);
+              }}>
+                <Send className="w-4 h-4 mr-2" />
+                Send Test
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Info Card */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Info className="w-5 h-5 text-primary" />
+            About Auth Email Templates
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground space-y-2">
+          <p>
+            Templates with type <Badge className="bg-blue-500/20 text-blue-500 mx-1">verification</Badge> 
+            will be used for email verification when users sign up.
+          </p>
+          <p>
+            Templates with type <Badge className="bg-yellow-500/20 text-yellow-500 mx-1">password reset</Badge> 
+            will be used when users request a password reset.
+          </p>
+          <p>
+            Templates with type <Badge className="bg-green-500/20 text-green-500 mx-1">welcome</Badge> 
+            will be sent to users after successful signup.
+          </p>
+          <p className="text-xs mt-4 pt-2 border-t border-border">
+            Note: The auth-email-hook edge function uses these templates. Make sure you have at least one template for each type.
+          </p>
         </CardContent>
       </Card>
     </div>

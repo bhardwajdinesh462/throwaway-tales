@@ -1114,6 +1114,10 @@ export type Database = {
         Returns: boolean
       }
       unsuspend_user: { Args: { target_user_id: string }; Returns: boolean }
+      validate_email_access_from_headers: {
+        Args: { p_temp_email_id: string }
+        Returns: boolean
+      }
       verify_temp_email_token: {
         Args: { p_temp_email_id: string; p_token: string }
         Returns: boolean

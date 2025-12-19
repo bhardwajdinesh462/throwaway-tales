@@ -35,6 +35,8 @@ const Profile = lazy(() => import("./pages/Profile"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Pricing = lazy(() => import("./pages/Pricing"));
 const BillingHistory = lazy(() => import("./pages/BillingHistory"));
+const PremiumFeatures = lazy(() => import("./pages/PremiumFeatures"));
+const APIAccess = lazy(() => import("./pages/APIAccess"));
 
 // Lazy load admin pages
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
@@ -152,10 +154,22 @@ const App = () => (
                               <Pricing />
                             </PageErrorBoundary>
                           } />
+                          <Route path="/features" element={
+                            <PageErrorBoundary name="Features">
+                              <PremiumFeatures />
+                            </PageErrorBoundary>
+                          } />
                           <Route path="/billing" element={
                             <ProtectedRoute requireAuth>
                               <PageErrorBoundary name="Billing">
                                 <BillingHistory />
+                              </PageErrorBoundary>
+                            </ProtectedRoute>
+                          } />
+                          <Route path="/api-access" element={
+                            <ProtectedRoute requireAuth>
+                              <PageErrorBoundary name="APIAccess">
+                                <APIAccess />
                               </PageErrorBoundary>
                             </ProtectedRoute>
                           } />

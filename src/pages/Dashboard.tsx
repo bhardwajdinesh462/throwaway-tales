@@ -15,7 +15,13 @@ import {
   Zap,
   Shield,
   TrendingUp,
-  Calendar
+  Calendar,
+  Users,
+  Search,
+  Download,
+  Webhook,
+  FileText,
+  Key,
 } from "lucide-react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -31,6 +37,9 @@ import { formatDistanceToNow, format } from "date-fns";
 import { toast } from "sonner";
 import PremiumBadge from "@/components/PremiumBadge";
 import EmailVerificationBanner from "@/components/EmailVerificationBanner";
+import EmailAliases from "@/components/EmailAliases";
+import WebhookNotifications from "@/components/WebhookNotifications";
+import EmailTemplates from "@/components/EmailTemplates";
 
 interface TempEmail {
   id: string;
@@ -243,14 +252,18 @@ const Dashboard = () => {
 
           {/* Main Content Tabs */}
           <Tabs defaultValue="overview" className="space-y-6">
-            <TabsList className="grid grid-cols-4 bg-card border border-border">
+            <TabsList className="grid grid-cols-5 bg-card border border-border">
               <TabsTrigger value="overview" className="flex items-center gap-2">
                 <BarChart3 className="w-4 h-4" />
                 <span className="hidden sm:inline">Overview</span>
               </TabsTrigger>
+              <TabsTrigger value="tools" className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4" />
+                <span className="hidden sm:inline">Tools</span>
+              </TabsTrigger>
               <TabsTrigger value="subscription" className="flex items-center gap-2">
                 <CreditCard className="w-4 h-4" />
-                <span className="hidden sm:inline">Subscription</span>
+                <span className="hidden sm:inline">Plans</span>
               </TabsTrigger>
               <TabsTrigger value="emails" className="flex items-center gap-2">
                 <Mail className="w-4 h-4" />
@@ -340,6 +353,76 @@ const Dashboard = () => {
                         </div>
                       </>
                     )}
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
+            {/* Tools Tab */}
+            <TabsContent value="tools">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card className="glass-card border-border">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="w-5 h-5 text-primary" />
+                      Email Aliases
+                    </CardTitle>
+                    <CardDescription>
+                      Create multiple addresses from one temp email
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <EmailAliases />
+                  </CardContent>
+                </Card>
+
+                <Card className="glass-card border-border">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Webhook className="w-5 h-5 text-primary" />
+                      Webhooks
+                    </CardTitle>
+                    <CardDescription>
+                      Send notifications to Discord, Slack, or custom endpoints
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <WebhookNotifications />
+                  </CardContent>
+                </Card>
+
+                <Card className="glass-card border-border lg:col-span-2">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="w-5 h-5 text-primary" />
+                      Email Templates
+                    </CardTitle>
+                    <CardDescription>
+                      Create reusable reply templates
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <EmailTemplates />
+                  </CardContent>
+                </Card>
+
+                <Card className="glass-card border-border lg:col-span-2">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-primary/10">
+                          <Key className="w-5 h-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-medium">API Access</p>
+                          <p className="text-sm text-muted-foreground">Programmatic email management</p>
+                        </div>
+                      </div>
+                      <Button onClick={() => navigate("/api-access")} className="gap-2">
+                        <Key className="w-4 h-4" />
+                        Manage API Keys
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               </div>

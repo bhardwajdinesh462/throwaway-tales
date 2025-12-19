@@ -370,6 +370,36 @@ export type Database = {
           },
         ]
       }
+      email_restrictions: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          is_active: boolean
+          restriction_type: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          is_active?: boolean
+          restriction_type: string
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          is_active?: boolean
+          restriction_type?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -926,6 +956,14 @@ export type Database = {
         }
         Returns: boolean
       }
+      admin_assign_subscription: {
+        Args: {
+          duration_months?: number
+          target_tier_id: string
+          target_user_id: string
+        }
+        Returns: boolean
+      }
       admin_get_all_profiles: {
         Args: never
         Returns: {
@@ -944,7 +982,25 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      admin_get_user_subscription: {
+        Args: { target_user_id: string }
+        Returns: {
+          current_period_end: string
+          current_period_start: string
+          status: string
+          subscription_id: string
+          tier_id: string
+          tier_name: string
+        }[]
+      }
       bulk_delete_users: { Args: { user_ids: string[] }; Returns: number }
+      check_email_restrictions: {
+        Args: { email_address: string }
+        Returns: {
+          error_message: string
+          is_valid: boolean
+        }[]
+      }
       check_rate_limit: {
         Args: {
           p_action_type: string

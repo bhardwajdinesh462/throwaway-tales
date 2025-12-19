@@ -460,6 +460,102 @@ export type Database = {
         }
         Relationships: []
       }
+      mailboxes: {
+        Row: {
+          auto_delete_after_store: boolean | null
+          created_at: string
+          daily_limit: number | null
+          emails_sent_this_hour: number | null
+          emails_sent_today: number | null
+          hourly_limit: number | null
+          id: string
+          imap_host: string | null
+          imap_password: string | null
+          imap_port: number | null
+          imap_user: string | null
+          is_active: boolean | null
+          last_day_reset: string | null
+          last_error: string | null
+          last_error_at: string | null
+          last_hour_reset: string | null
+          last_polled_at: string | null
+          last_sent_at: string | null
+          name: string
+          priority: number | null
+          receiving_email: string | null
+          smtp_from: string | null
+          smtp_host: string | null
+          smtp_password: string | null
+          smtp_port: number | null
+          smtp_user: string | null
+          storage_limit_bytes: number | null
+          storage_used_bytes: number | null
+          updated_at: string
+        }
+        Insert: {
+          auto_delete_after_store?: boolean | null
+          created_at?: string
+          daily_limit?: number | null
+          emails_sent_this_hour?: number | null
+          emails_sent_today?: number | null
+          hourly_limit?: number | null
+          id?: string
+          imap_host?: string | null
+          imap_password?: string | null
+          imap_port?: number | null
+          imap_user?: string | null
+          is_active?: boolean | null
+          last_day_reset?: string | null
+          last_error?: string | null
+          last_error_at?: string | null
+          last_hour_reset?: string | null
+          last_polled_at?: string | null
+          last_sent_at?: string | null
+          name: string
+          priority?: number | null
+          receiving_email?: string | null
+          smtp_from?: string | null
+          smtp_host?: string | null
+          smtp_password?: string | null
+          smtp_port?: number | null
+          smtp_user?: string | null
+          storage_limit_bytes?: number | null
+          storage_used_bytes?: number | null
+          updated_at?: string
+        }
+        Update: {
+          auto_delete_after_store?: boolean | null
+          created_at?: string
+          daily_limit?: number | null
+          emails_sent_this_hour?: number | null
+          emails_sent_today?: number | null
+          hourly_limit?: number | null
+          id?: string
+          imap_host?: string | null
+          imap_password?: string | null
+          imap_port?: number | null
+          imap_user?: string | null
+          is_active?: boolean | null
+          last_day_reset?: string | null
+          last_error?: string | null
+          last_error_at?: string | null
+          last_hour_reset?: string | null
+          last_polled_at?: string | null
+          last_sent_at?: string | null
+          name?: string
+          priority?: number | null
+          receiving_email?: string | null
+          smtp_from?: string | null
+          smtp_host?: string | null
+          smtp_password?: string | null
+          smtp_port?: number | null
+          smtp_user?: string | null
+          storage_limit_bytes?: number | null
+          storage_used_bytes?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -1156,6 +1252,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      increment_mailbox_usage: {
+        Args: { p_mailbox_id: string }
+        Returns: undefined
+      }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
       is_ip_blocked: { Args: { p_ip_address: string }; Returns: boolean }
       is_user_suspended: { Args: { check_user_id: string }; Returns: boolean }
@@ -1168,7 +1268,24 @@ export type Database = {
         }
         Returns: string
       }
+      record_mailbox_error: {
+        Args: { p_error: string; p_mailbox_id: string }
+        Returns: undefined
+      }
       remove_admin_role: { Args: { target_user_id: string }; Returns: boolean }
+      reset_mailbox_daily_counters: { Args: never; Returns: undefined }
+      reset_mailbox_hourly_counters: { Args: never; Returns: undefined }
+      select_available_mailbox: {
+        Args: never
+        Returns: {
+          mailbox_id: string
+          smtp_from: string
+          smtp_host: string
+          smtp_password: string
+          smtp_port: number
+          smtp_user: string
+        }[]
+      }
       suspend_user: {
         Args: {
           suspend_until?: string

@@ -99,7 +99,10 @@ const Inbox = () => {
       try {
         // For fast delivery, auto-refresh performs a lightweight IMAP poll (latest-N).
         if (opts?.pollImap) {
-          await triggerImapFetch({ mode: "latest", limit: 10 });
+          const result = await triggerImapFetch({ mode: "latest", limit: 10 });
+          if ((result?.stats?.stored ?? 0) > 0) {
+            playSound();
+          }
         } else {
           await refetch();
         }
@@ -171,6 +174,9 @@ const Inbox = () => {
       });
       
       if (stats?.stored > 0) {
+        if (soundEnabled) {
+          playSound();
+        }
         toast.success(`Found ${stats.stored} new email${stats.stored > 1 ? 's' : ''}!`);
       } else if (stats?.noMatch > 0) {
         toast.info(`${stats.noMatch} emails scanned but none matched your temp address`);
@@ -268,6 +274,9 @@ const Inbox = () => {
       });
       
       if (stats?.stored > 0) {
+        if (soundEnabled) {
+          playSound();
+        }
         toast.success(`Email received! ${stats.stored} new message${stats.stored > 1 ? 's' : ''}`);
       } else if (stats?.noMatch > 0) {
         toast.warning('Mail scanned but did not match your temp address. Check logs for recipient parsing.');

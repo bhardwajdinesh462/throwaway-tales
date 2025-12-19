@@ -69,12 +69,12 @@ export const useNotificationSounds = () => {
   const unlockAudio = useCallback(async () => {
     try {
       const audioContext = getAudioContext();
-      
+
       // Resume if suspended
       if (audioContext.state === 'suspended') {
         await audioContext.resume();
       }
-      
+
       // Play a silent sound to unlock
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
@@ -83,7 +83,7 @@ export const useNotificationSounds = () => {
       gainNode.connect(audioContext.destination);
       oscillator.start();
       oscillator.stop(audioContext.currentTime + 0.001);
-      
+
       updateSettings({ audioUnlocked: true });
       console.log('[useNotificationSounds] Audio unlocked successfully');
       return true;
@@ -92,6 +92,23 @@ export const useNotificationSounds = () => {
       return false;
     }
   }, [getAudioContext, updateSettings]);
+
+  // Attempt to unlock audio on first interaction (required by browser autoplay policies)
+  useEffect(() => {
+    if (!settings.enabled || settings.audioUnlocked) return;
+
+    const handler = () => {
+      void unlockAudio();
+    };
+
+    window.addEventListener('pointerdown', handler, { once: true, capture: true });
+    window.addEventListener('keydown', handler, { once: true, capture: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', handler, true);
+      window.removeEventListener('keydown', handler, true);
+    };
+  }, [settings.enabled, settings.audioUnlocked, unlockAudio]);
 
   // Play notification sound
   const playSound = useCallback(async (overrideTone?: SoundTone) => {

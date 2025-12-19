@@ -37,27 +37,55 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
     }
   }, []);
 
+  const isInIframe = useCallback(() => {
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
+  }, []);
+
   const requestPushPermission = useCallback(async () => {
-    if (!("Notification" in window)) {
-      toast.error("Push notifications are not supported in this browser");
+    if (!('Notification' in window)) {
+      toast.error('Push notifications are not supported in this browser');
+      return false;
+    }
+
+    // Browsers commonly block permission prompts inside embedded previews/iframes.
+    if (isInIframe()) {
+      toast.error('Notifications can’t be enabled in the embedded preview. Open the app in a new tab, then try again.');
+      return false;
+    }
+
+    // If the user previously blocked notifications, we cannot re-prompt programmatically.
+    if (Notification.permission === 'denied') {
+      setPushPermission('denied');
+      toast.error('Notification permission is blocked in your browser settings for this site.');
       return false;
     }
 
     try {
       const permission = await Notification.requestPermission();
       setPushPermission(permission);
-      if (permission === "granted") {
-        toast.success("Push notifications enabled!");
+
+      if (permission === 'granted') {
+        toast.success('Notifications enabled!');
         return true;
-      } else {
-        toast.error("Notification permission denied");
+      }
+
+      if (permission === 'denied') {
+        toast.error('Notification permission denied. Please enable it in your browser settings.');
         return false;
       }
+
+      toast.info('Notification permission dismissed');
+      return false;
     } catch (error) {
-      console.error("Error requesting permission:", error);
+      console.error('Error requesting permission:', error);
+      toast.error('Failed to request notification permission');
       return false;
     }
-  }, []);
+  }, [isInIframe]);
 
   const showPushNotification = useCallback((email: ReceivedEmail) => {
     if (!enablePushNotifications || pushPermission !== "granted") return;
@@ -200,8 +228,10 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
             });
           }
 
-          // Play notification sound
-          playNotificationSound();
+          // Play notification sound (only if caller doesn't handle new-email behavior)
+          if (!onNewEmail) {
+            playNotificationSound();
+          }
 
           // Show push notification (if page is not visible)
           if (document.hidden) {

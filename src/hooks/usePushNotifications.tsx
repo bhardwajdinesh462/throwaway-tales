@@ -58,9 +58,29 @@ export const usePushNotifications = () => {
     loadVapidKey();
   }, []);
 
+  const isInIframe = () => {
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
+  };
+
   const requestPermission = async (): Promise<boolean> => {
     if (!isSupported) {
       toast.error("Push notifications are not supported in this browser");
+      return false;
+    }
+
+    // Browsers commonly block permission prompts inside embedded previews/iframes.
+    if (isInIframe()) {
+      toast.error("Notifications can’t be enabled in the embedded preview. Open the app in a new tab, then try again.");
+      return false;
+    }
+
+    // If already blocked, we cannot re-prompt programmatically.
+    if (Notification.permission === "denied") {
+      toast.error("Notification permission is blocked in your browser settings for this site.");
       return false;
     }
 
@@ -72,7 +92,7 @@ export const usePushNotifications = () => {
       if (granted) {
         toast.success("Notifications enabled!");
       } else if (permission === "denied") {
-        toast.error("Notification permission denied. Please enable in browser settings.");
+        toast.error("Notification permission denied. Please enable it in browser settings.");
       } else {
         toast.info("Notification permission dismissed");
       }

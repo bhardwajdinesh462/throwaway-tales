@@ -6,6 +6,14 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Hash function to match the one used in create-verification-and-send
+async function hashToken(token: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(token);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return btoa(String.fromCharCode(...new Uint8Array(hash)));
+}
+
 serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -28,11 +36,14 @@ serve(async (req: Request): Promise<Response> => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Find the verification record
+    // Hash the provided token to compare with stored hash
+    const hashedToken = await hashToken(token);
+
+    // Find the verification record using the HASHED token
     const { data: verification, error: findError } = await supabase
       .from('email_verifications')
       .select('*')
-      .eq('token', token)
+      .eq('token', hashedToken)
       .is('verified_at', null)
       .single();
 

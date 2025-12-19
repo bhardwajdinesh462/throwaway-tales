@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useSupabaseAuth';
 import { toast } from 'sonner';
+import { storage } from '@/lib/storage';
 
 export interface Domain {
   id: string;
@@ -36,6 +37,31 @@ export interface ReceivedEmail {
 
 const TOKEN_STORAGE_KEY = 'nullsto_email_tokens';
 const CURRENT_EMAIL_ID_KEY = 'nullsto_current_email_id';
+const EMAIL_CREATION_COUNT_KEY = 'nullsto_email_creation_count';
+
+interface EmailCreationCount {
+  date: string;
+  count: number;
+}
+
+const getEmailCreationCount = (): number => {
+  const today = new Date().toISOString().split('T')[0];
+  const data = storage.get<EmailCreationCount>(EMAIL_CREATION_COUNT_KEY, { date: today, count: 0 });
+  if (data.date !== today) {
+    return 0;
+  }
+  return data.count;
+};
+
+const incrementEmailCreationCount = () => {
+  const today = new Date().toISOString().split('T')[0];
+  const data = storage.get<EmailCreationCount>(EMAIL_CREATION_COUNT_KEY, { date: today, count: 0 });
+  if (data.date !== today) {
+    storage.set(EMAIL_CREATION_COUNT_KEY, { date: today, count: 1 });
+  } else {
+    storage.set(EMAIL_CREATION_COUNT_KEY, { date: today, count: data.count + 1 });
+  }
+};
 
 // Helper to store and retrieve tokens locally
 const getStoredToken = (tempEmailId: string): string | null => {
@@ -142,6 +168,37 @@ export const useSecureEmailService = () => {
     setIsGenerating(true);
 
     try {
+      // Fetch admin settings to check limits
+      const { data: settingsData } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'user_settings')
+        .maybeSingle();
+      
+      const adminSettings = settingsData?.value as {
+        allowGuestAccess?: boolean;
+        guestEmailLimit?: number;
+        userEmailLimit?: number;
+      } | null;
+
+      if (adminSettings) {
+        const isGuest = !user;
+        const limit = isGuest ? (adminSettings.guestEmailLimit ?? 5) : (adminSettings.userEmailLimit ?? 50);
+        const currentCount = getEmailCreationCount();
+        
+        if (isGuest && adminSettings.allowGuestAccess === false) {
+          toast.error('Guest email creation is disabled. Please sign in.');
+          setIsGenerating(false);
+          return false;
+        }
+        
+        if (currentCount >= limit && limit > 0) {
+          toast.error(`Daily email creation limit of ${limit} reached`);
+          setIsGenerating(false);
+          return false;
+        }
+      }
+
       const selectedDomain = domainId 
         ? domains.find(d => d.id === domainId) 
         : domains[0];
@@ -206,6 +263,9 @@ export const useSecureEmailService = () => {
 
       setCurrentEmail(newEmail);
       setReceivedEmails([]);
+      
+      // Increment local creation count
+      incrementEmailCreationCount();
 
       if (user) {
         setEmailHistory(prev => [newEmail, ...prev]);

@@ -993,6 +993,10 @@ export type Database = {
           tier_name: string
         }[]
       }
+      admin_revoke_subscription: {
+        Args: { target_user_id: string }
+        Returns: boolean
+      }
       bulk_delete_users: { Args: { user_ids: string[] }; Returns: number }
       check_email_restrictions: {
         Args: { email_address: string }

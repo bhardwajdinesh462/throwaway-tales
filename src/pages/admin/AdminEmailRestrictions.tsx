@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { 
   Ban, 
@@ -8,7 +8,9 @@ import {
   Hash,
   Type,
   Save,
-  AlertTriangle
+  AlertTriangle,
+  Upload,
+  FileText
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -37,6 +40,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 
 interface EmailRestriction {
@@ -56,6 +68,12 @@ const AdminEmailRestrictions = () => {
   const [minCharacters, setMinCharacters] = useState("");
   const [isSavingMinChars, setIsSavingMinChars] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  
+  // Bulk import state
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchRestrictions();
@@ -210,8 +228,120 @@ const AdminEmailRestrictions = () => {
 
   const blockedWords = restrictions.filter(r => r.restriction_type === 'blocked_word');
 
+  // Handle bulk import from text
+  const handleBulkImport = async () => {
+    if (!bulkText.trim() || !user) {
+      toast.error("Please enter words to import");
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      // Split by newlines, commas, or semicolons
+      const words = bulkText
+        .split(/[\n,;]+/)
+        .map(w => w.trim().toLowerCase())
+        .filter(w => w.length > 0);
+      
+      const uniqueWords = [...new Set(words)];
+      const existingWords = restrictions
+        .filter(r => r.restriction_type === 'blocked_word')
+        .map(r => r.value.toLowerCase());
+      
+      const newWords = uniqueWords.filter(w => !existingWords.includes(w));
+      
+      if (newWords.length === 0) {
+        toast.info("All words are already blocked");
+        setIsImporting(false);
+        return;
+      }
+
+      const insertData = newWords.map(word => ({
+        restriction_type: 'blocked_word',
+        value: word,
+        created_by: user.id
+      }));
+
+      const { error } = await supabase
+        .from('email_restrictions')
+        .insert(insertData);
+
+      if (error) throw error;
+
+      toast.success(`Imported ${newWords.length} blocked words`);
+      setBulkText("");
+      setBulkImportOpen(false);
+      fetchRestrictions();
+    } catch (error: any) {
+      console.error("Error importing words:", error);
+      toast.error(error.message || "Failed to import words");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  // Handle file upload
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user) return;
+
+    setIsImporting(true);
+    try {
+      const text = await file.text();
+      // Handle CSV or plain text
+      const words = text
+        .split(/[\n,;]+/)
+        .map(w => w.trim().toLowerCase())
+        .filter(w => w.length > 0 && w !== 'word' && w !== 'blocked_word'); // Skip header rows
+      
+      const uniqueWords = [...new Set(words)];
+      const existingWords = restrictions
+        .filter(r => r.restriction_type === 'blocked_word')
+        .map(r => r.value.toLowerCase());
+      
+      const newWords = uniqueWords.filter(w => !existingWords.includes(w));
+      
+      if (newWords.length === 0) {
+        toast.info("All words from file are already blocked");
+        setIsImporting(false);
+        return;
+      }
+
+      const insertData = newWords.map(word => ({
+        restriction_type: 'blocked_word',
+        value: word,
+        created_by: user.id
+      }));
+
+      const { error } = await supabase
+        .from('email_restrictions')
+        .insert(insertData);
+
+      if (error) throw error;
+
+      toast.success(`Imported ${newWords.length} blocked words from file`);
+      fetchRestrictions();
+    } catch (error: any) {
+      console.error("Error importing from file:", error);
+      toast.error(error.message || "Failed to import from file");
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,.txt"
+        onChange={handleFileUpload}
+        className="hidden"
+      />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
@@ -275,8 +405,8 @@ const AdminEmailRestrictions = () => {
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Add New Blocked Word */}
-          <div className="flex items-end gap-4">
-            <div className="space-y-2 flex-1 max-w-md">
+          <div className="flex items-end gap-4 flex-wrap">
+            <div className="space-y-2 flex-1 min-w-[200px] max-w-md">
               <Label htmlFor="blockedWord">Add Blocked Word</Label>
               <Input
                 id="blockedWord"
@@ -293,6 +423,62 @@ const AdminEmailRestrictions = () => {
                 <Plus className="w-4 h-4 mr-2" />
               )}
               Add Word
+            </Button>
+            
+            {/* Bulk Import Options */}
+            <Dialog open={bulkImportOpen} onOpenChange={setBulkImportOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline">
+                  <FileText className="w-4 h-4 mr-2" />
+                  Paste List
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Bulk Import Blocked Words</DialogTitle>
+                  <DialogDescription>
+                    Paste a list of words to block. Separate words with commas, semicolons, or new lines.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <Textarea
+                    placeholder="spam, test, admin&#10;badword&#10;blocked"
+                    value={bulkText}
+                    onChange={(e) => setBulkText(e.target.value)}
+                    rows={8}
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Each word will be added as a separate blocked word. Duplicates will be skipped.
+                  </p>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setBulkImportOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleBulkImport} disabled={isImporting}>
+                    {isImporting ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                      <Plus className="w-4 h-4 mr-2" />
+                    )}
+                    Import Words
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            
+            <Button 
+              variant="outline" 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
+            >
+              {isImporting ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Upload className="w-4 h-4 mr-2" />
+              )}
+              Upload File
             </Button>
           </div>
 

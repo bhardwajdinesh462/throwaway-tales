@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
 import { supabase } from "@/integrations/supabase/client";
+import { Sparkles } from "lucide-react";
 import { Users, Save } from "lucide-react";
 
 const USER_SETTINGS_KEY = 'trashmails_user_settings';
@@ -22,6 +23,10 @@ interface UserSettings {
   allowPasswordReset: boolean;
   sessionTimeout: number;
   maxSavedEmails: number;
+  // AI Summary settings
+  aiSummaryEnabled: boolean;
+  guestAiSummaryLimit: number;
+  userAiSummaryLimit: number;
 }
 
 const defaultSettings: UserSettings = {
@@ -35,6 +40,10 @@ const defaultSettings: UserSettings = {
   allowPasswordReset: true,
   sessionTimeout: 1440,
   maxSavedEmails: 100,
+  // AI Summary defaults
+  aiSummaryEnabled: true,
+  guestAiSummaryLimit: 3,
+  userAiSummaryLimit: 10,
 };
 
 const AdminUserSettings = () => {
@@ -266,6 +275,55 @@ const AdminUserSettings = () => {
                 onChange={(e) => updateSetting('sessionTimeout', parseInt(e.target.value))}
               />
             </div>
+          </CardContent>
+        </Card>
+
+        {/* AI Email Summary Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-primary" />
+              AI Email Summary
+            </CardTitle>
+            <CardDescription>Configure AI-powered email summary feature</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Enable AI Summaries</Label>
+                <p className="text-sm text-muted-foreground">Allow users to use AI to summarize emails</p>
+              </div>
+              <Switch
+                checked={settings.aiSummaryEnabled}
+                onCheckedChange={(checked) => updateSetting('aiSummaryEnabled', checked)}
+              />
+            </div>
+            {settings.aiSummaryEnabled && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="guestAiSummaryLimit">Guest Daily Limit</Label>
+                  <Input
+                    id="guestAiSummaryLimit"
+                    type="number"
+                    min="0"
+                    value={settings.guestAiSummaryLimit}
+                    onChange={(e) => updateSetting('guestAiSummaryLimit', parseInt(e.target.value) || 0)}
+                  />
+                  <p className="text-xs text-muted-foreground">AI summaries per day for guests (0 = disabled)</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="userAiSummaryLimit">Registered User Daily Limit</Label>
+                  <Input
+                    id="userAiSummaryLimit"
+                    type="number"
+                    min="0"
+                    value={settings.userAiSummaryLimit}
+                    onChange={(e) => updateSetting('userAiSummaryLimit', parseInt(e.target.value) || 0)}
+                  />
+                  <p className="text-xs text-muted-foreground">AI summaries per day for registered users (0 = disabled)</p>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

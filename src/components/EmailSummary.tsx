@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Copy, Check, Link, AlertCircle, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Sparkles, Copy, Check, Link, AlertCircle, Loader2, ChevronDown, ChevronUp, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useSupabaseAuth";
+import { useUserSettings } from "@/hooks/useUserSettings";
+import { storage } from "@/lib/storage";
 
 interface EmailSummaryProps {
   emailId: string;
@@ -21,14 +24,63 @@ interface SummaryResult {
   sender_intent: string;
 }
 
+const AI_SUMMARY_USAGE_KEY = 'nullsto_ai_summary_usage';
+
+interface UsageData {
+  date: string;
+  count: number;
+}
+
+const getUsageToday = (): number => {
+  const today = new Date().toISOString().split('T')[0];
+  const usage = storage.get<UsageData>(AI_SUMMARY_USAGE_KEY, { date: today, count: 0 });
+  if (usage.date !== today) {
+    return 0;
+  }
+  return usage.count;
+};
+
+const incrementUsage = () => {
+  const today = new Date().toISOString().split('T')[0];
+  const usage = storage.get<UsageData>(AI_SUMMARY_USAGE_KEY, { date: today, count: 0 });
+  if (usage.date !== today) {
+    storage.set(AI_SUMMARY_USAGE_KEY, { date: today, count: 1 });
+  } else {
+    storage.set(AI_SUMMARY_USAGE_KEY, { date: today, count: usage.count + 1 });
+  }
+};
+
 const EmailSummary = ({ emailId, subject, body, htmlBody }: EmailSummaryProps) => {
+  const { user } = useAuth();
+  const { settings } = useUserSettings();
   const [isLoading, setIsLoading] = useState(false);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(true);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [usageCount, setUsageCount] = useState(0);
+
+  useEffect(() => {
+    setUsageCount(getUsageToday());
+  }, []);
+
+  // Determine limits based on user type
+  const isGuest = !user;
+  const dailyLimit = isGuest ? settings.guestAiSummaryLimit : settings.userAiSummaryLimit;
+  const isDisabled = !settings.aiSummaryEnabled || dailyLimit === 0;
+  const isLimitReached = usageCount >= dailyLimit && dailyLimit > 0;
 
   const handleSummarize = async () => {
+    if (isDisabled) {
+      toast.error('AI summaries are currently disabled');
+      return;
+    }
+    
+    if (isLimitReached) {
+      toast.error(`Daily limit of ${dailyLimit} AI summaries reached`);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     
@@ -41,6 +93,8 @@ const EmailSummary = ({ emailId, subject, body, htmlBody }: EmailSummaryProps) =
       if (data?.error) throw new Error(data.error);
       
       setSummary(data);
+      incrementUsage();
+      setUsageCount(prev => prev + 1);
       toast.success('Email analyzed successfully!');
     } catch (err: any) {
       console.error('Error summarizing email:', err);
@@ -63,16 +117,30 @@ const EmailSummary = ({ emailId, subject, body, htmlBody }: EmailSummaryProps) =
     }
   };
 
+  // If AI summaries are disabled
+  if (isDisabled) {
+    return null;
+  }
+
   if (!summary && !isLoading) {
     return (
       <Button
         variant="outline"
         size="sm"
         onClick={handleSummarize}
+        disabled={isLimitReached}
         className="gap-2 border-primary/30 hover:bg-primary/10"
+        title={isLimitReached ? `Daily limit of ${dailyLimit} reached` : undefined}
       >
-        <Sparkles className="w-4 h-4 text-primary" />
+        {isLimitReached ? (
+          <Lock className="w-4 h-4 text-muted-foreground" />
+        ) : (
+          <Sparkles className="w-4 h-4 text-primary" />
+        )}
         AI Summary
+        {dailyLimit > 0 && (
+          <span className="text-xs text-muted-foreground">({usageCount}/{dailyLimit})</span>
+        )}
       </Button>
     );
   }

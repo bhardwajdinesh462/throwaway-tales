@@ -7,7 +7,8 @@ import {
   Crown, 
   Calendar, 
   Loader2,
-  CheckCircle
+  CheckCircle,
+  XCircle
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
 
 interface SubscriptionTier {
@@ -67,6 +79,7 @@ const AdminSubscriptions = () => {
   const [durationMonths, setDurationMonths] = useState("1");
   const [isAssigning, setIsAssigning] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [isRevoking, setIsRevoking] = useState(false);
 
   useEffect(() => {
     fetchTiers();
@@ -180,6 +193,36 @@ const AdminSubscriptions = () => {
 
   const handleDialogClose = () => {
     setDialogOpen(false);
+  };
+
+  const revokeSubscription = async () => {
+    if (!foundUser) return;
+
+    setIsRevoking(true);
+    try {
+      const { error } = await supabase.rpc('admin_revoke_subscription', {
+        target_user_id: foundUser.user_id
+      });
+
+      if (error) throw error;
+
+      toast.success(`Subscription revoked for ${foundUser.display_name || foundUser.email}`);
+      
+      // Refresh user subscription
+      const { data: subData } = await supabase.rpc('admin_get_user_subscription', {
+        target_user_id: foundUser.user_id
+      });
+
+      setFoundUser({
+        ...foundUser,
+        current_subscription: subData && subData.length > 0 ? subData[0] : undefined
+      });
+    } catch (error: any) {
+      console.error("Error revoking subscription:", error);
+      toast.error(error.message || "Failed to revoke subscription");
+    } finally {
+      setIsRevoking(false);
+    }
   };
 
   const resetSearch = () => {
@@ -313,8 +356,46 @@ const AdminSubscriptions = () => {
                       <p className="text-muted-foreground">Expires</p>
                       <p>{format(new Date(foundUser.current_subscription.current_period_end), 'MMM d, yyyy')}</p>
                     </div>
+                    </div>
+                    
+                    {/* Revoke button */}
+                    {foundUser.current_subscription.tier_name?.toLowerCase() !== 'free' && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button 
+                            variant="destructive" 
+                            size="sm"
+                            disabled={isRevoking}
+                          >
+                            {isRevoking ? (
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            ) : (
+                              <XCircle className="w-4 h-4 mr-2" />
+                            )}
+                            Revoke Subscription
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Revoke Subscription</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will immediately downgrade {foundUser.display_name || foundUser.email} to the Free tier. 
+                              They will lose access to all premium features.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={revokeSubscription}
+                              className="bg-destructive hover:bg-destructive/90"
+                            >
+                              Revoke
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                   </div>
-                </div>
               )}
 
               {/* Assign New Subscription */}

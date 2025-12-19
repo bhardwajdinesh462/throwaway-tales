@@ -112,29 +112,21 @@ const Auth = () => {
         if (error) {
           toast.error(error.message);
         } else if (data?.user) {
-          // Generate verification token and create verification record
+          // Use combined edge function that handles both DB insert and email sending
+          // This bypasses RLS using service role key
           try {
-            const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, '');
-            
-            // Insert verification record using service role via edge function
-            const { error: insertError } = await supabase
-              .from('email_verifications')
-              .insert({
-                user_id: data.user.id,
+            const { data: verifyResult, error: verifyError } = await supabase.functions.invoke('create-verification-and-send', {
+              body: {
+                userId: data.user.id,
                 email: sanitizedEmail,
-                token: token,
-              });
+                name: sanitizedName,
+              },
+            });
 
-            if (!insertError) {
-              // Send verification email via edge function
-              await supabase.functions.invoke('send-verification-email', {
-                body: {
-                  userId: data.user.id,
-                  email: sanitizedEmail,
-                  name: sanitizedName,
-                  token: token,
-                },
-              });
+            if (verifyError) {
+              console.error('Failed to send verification email:', verifyError);
+            } else {
+              console.log('Verification email sent:', verifyResult);
             }
           } catch (verificationError) {
             console.error('Failed to send verification email:', verificationError);

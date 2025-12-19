@@ -356,9 +356,14 @@ export const useSecureEmailService = () => {
       if (activeEmailIdRef.current !== email.id) return;
 
       if (error) {
-        // Check if this is a 404 "Temp email not found" error
-        const errorMessage = error.message || '';
-        if (errorMessage.includes('404') || errorMessage.includes('Temp email not found')) {
+        // Check if this is an "email not found" error - handle 404 responses
+        const isNotFound = 
+          error.message?.includes('404') || 
+          error.message?.includes('non-2xx') ||
+          data?.code === 'EMAIL_NOT_FOUND' ||
+          data?.error === 'Temp email not found';
+        
+        if (isNotFound) {
           console.warn('[email-service] Temp email not found, clearing stale data and regenerating...');
           clearStaleEmail(email.id);
           setCurrentEmail(null);
@@ -369,13 +374,26 @@ export const useSecureEmailService = () => {
         return;
       }
 
+      // Also check if data contains error (edge function might return error in body)
+      if (data?.error) {
+        if (data.code === 'EMAIL_NOT_FOUND' || data.error === 'Temp email not found') {
+          console.warn('[email-service] Temp email not found (from response), clearing stale data...');
+          clearStaleEmail(email.id);
+          setCurrentEmail(null);
+          initStartedRef.current = false;
+          return;
+        }
+        console.error('Error from edge function:', data.error);
+        return;
+      }
+
       if (data?.emails) {
         setReceivedEmails(data.emails);
       }
     } catch (error: any) {
       // Also handle caught errors for 404
       const errorMessage = error?.message || '';
-      if (errorMessage.includes('404') || errorMessage.includes('Temp email not found')) {
+      if (errorMessage.includes('404') || errorMessage.includes('Temp email not found') || errorMessage.includes('non-2xx')) {
         console.warn('[email-service] Temp email not found (caught), clearing stale data...');
         clearStaleEmail(email.id);
         setCurrentEmail(null);

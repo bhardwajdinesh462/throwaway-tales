@@ -8,6 +8,7 @@ interface Stats {
   totalEmails: number;
   activeAddresses: number;
   activeDomains: number;
+  totalEmailsGenerated: number;
 }
 
 const LiveStatsWidget = () => {
@@ -16,6 +17,7 @@ const LiveStatsWidget = () => {
     totalEmails: 0,
     activeAddresses: 0,
     activeDomains: 0,
+    totalEmailsGenerated: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
 
@@ -30,6 +32,7 @@ const LiveStatsWidget = () => {
             totalEmails: data.totalEmails || 0,
             activeAddresses: data.activeAddresses || 0,
             activeDomains: data.activeDomains || 0,
+            totalEmailsGenerated: data.totalEmailsGenerated || 0,
           });
         }
       } catch (err) {
@@ -60,8 +63,8 @@ const LiveStatsWidget = () => {
     },
     {
       icon: Zap,
-      label: "Total Processed",
-      value: stats.totalEmails,
+      label: "Emails Generated",
+      value: stats.totalEmailsGenerated,
       color: "text-accent",
       bgColor: "bg-accent/20",
     },

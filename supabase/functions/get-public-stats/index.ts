@@ -28,7 +28,8 @@ serve(async (req) => {
       { count: totalEmailsToday },
       { count: totalEmails },
       { count: activeAddresses },
-      { count: totalDomains }
+      { count: totalDomains },
+      { count: totalEmailsGenerated }
     ] = await Promise.all([
       // Emails received today
       supabase
@@ -37,7 +38,7 @@ serve(async (req) => {
         .gte('received_at', todayStart)
         .lt('received_at', todayEnd),
       
-      // Total emails all time
+      // Total emails received all time
       supabase
         .from('received_emails')
         .select('*', { count: 'exact', head: true }),
@@ -53,6 +54,11 @@ serve(async (req) => {
         .from('domains')
         .select('*', { count: 'exact', head: true })
         .eq('is_active', true),
+      
+      // Total temp emails generated all time
+      supabase
+        .from('temp_emails')
+        .select('*', { count: 'exact', head: true }),
     ]);
 
     const stats = {
@@ -60,6 +66,7 @@ serve(async (req) => {
       totalEmails: totalEmails || 0,
       activeAddresses: activeAddresses || 0,
       activeDomains: totalDomains || 0,
+      totalEmailsGenerated: totalEmailsGenerated || 0,
       updatedAt: new Date().toISOString(),
     };
 

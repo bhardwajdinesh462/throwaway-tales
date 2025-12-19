@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,19 +39,63 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // Determine source of SMTP settings for logging
-    const usingRequestConfig = !!(smtpConfig?.host && smtpConfig?.username && smtpConfig?.password);
-    
-    // Get SMTP settings from request first, then environment
-    const host = smtpConfig?.host || Deno.env.get("SMTP_HOST");
-    const port = smtpConfig?.port || parseInt(Deno.env.get("SMTP_PORT") || "587");
-    const username = smtpConfig?.username || Deno.env.get("SMTP_USER");
-    const password = smtpConfig?.password || Deno.env.get("SMTP_PASSWORD");
-    // IMPORTANT: Default fromEmail to username if not provided (most SMTP servers require this)
-    const fromEmail = smtpConfig?.fromEmail || smtpConfig?.username || username;
-    const fromName = smtpConfig?.fromName || "Nullsto";
+    let host: string | undefined;
+    let port: number = 587;
+    let username: string | undefined;
+    let password: string | undefined;
+    let fromEmail: string | undefined;
+    let fromName: string = "Nullsto";
+    let mailboxId: string | null = null;
+    let configSource = "UNKNOWN";
 
-    console.log(`[send-test-email] Config source: ${usingRequestConfig ? 'REQUEST' : 'ENV VARIABLES'}`);
+    // Priority 1: Use smtpConfig from request if provided
+    if (smtpConfig?.host && smtpConfig?.username && smtpConfig?.password) {
+      host = smtpConfig.host;
+      port = smtpConfig.port || 587;
+      username = smtpConfig.username;
+      password = smtpConfig.password;
+      fromEmail = smtpConfig.fromEmail || smtpConfig.username;
+      fromName = smtpConfig.fromName || "Nullsto";
+      configSource = "REQUEST";
+      console.log(`[send-test-email] Using SMTP config from request`);
+    } else {
+      // Priority 2: Try to get from mailbox load balancer
+      try {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const { data: mailboxData, error: mailboxError } = await supabase
+          .rpc('select_available_mailbox');
+
+        if (!mailboxError && mailboxData && mailboxData.length > 0) {
+          const mailbox = mailboxData[0];
+          host = mailbox.smtp_host;
+          port = mailbox.smtp_port || 587;
+          username = mailbox.smtp_user;
+          password = mailbox.smtp_password;
+          fromEmail = mailbox.smtp_from || mailbox.smtp_user;
+          mailboxId = mailbox.mailbox_id;
+          configSource = "DATABASE_MAILBOX";
+          console.log(`[send-test-email] Using mailbox from database: ${mailboxId}`);
+        }
+      } catch (dbError) {
+        console.log(`[send-test-email] Could not get mailbox from database: ${dbError}`);
+      }
+
+      // Priority 3: Fall back to environment variables
+      if (!host || !username || !password) {
+        host = Deno.env.get("SMTP_HOST");
+        port = parseInt(Deno.env.get("SMTP_PORT") || "587");
+        username = Deno.env.get("SMTP_USER");
+        password = Deno.env.get("SMTP_PASSWORD");
+        fromEmail = Deno.env.get("SMTP_FROM") || username;
+        configSource = "ENV_VARIABLES";
+        console.log(`[send-test-email] Using SMTP config from environment variables`);
+      }
+    }
+
+    console.log(`[send-test-email] Config source: ${configSource}`);
     console.log(`[send-test-email] SMTP Host: ${host}, Port: ${port}, Username: ${username}, From: ${fromEmail}`);
 
     if (!host || !username || !password) {
@@ -62,7 +107,7 @@ serve(async (req: Request): Promise<Response> => {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: `SMTP configuration incomplete. Missing: ${missing.join(', ')}. Please configure SMTP settings in Admin → Email → SMTP Settings.` 
+          error: `SMTP configuration incomplete. Missing: ${missing.join(', ')}. Please configure a mailbox in Admin → Mailboxes or set SMTP environment variables.` 
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -70,8 +115,6 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log(`[send-test-email] Sending to ${recipientEmail} via ${host}:${port} from ${fromEmail}`);
 
-    // Use Deno's SMTP client to send email
-    // Note: Deno doesn't have a built-in SMTP client, so we'll use a third-party module
     const { SMTPClient } = await import("https://deno.land/x/denomailer@1.6.0/mod.ts");
 
     const client = new SMTPClient({
@@ -96,7 +139,8 @@ serve(async (req: Request): Promise<Response> => {
           <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
           <p style="color: #666; font-size: 12px;">
             Sent at: ${new Date().toISOString()}<br/>
-            SMTP Server: ${host}:${port}
+            SMTP Server: ${host}:${port}<br/>
+            Config Source: ${configSource}
           </p>
         </body>
       </html>
@@ -111,7 +155,20 @@ serve(async (req: Request): Promise<Response> => {
 
     await client.close();
 
-    console.log(`Test email sent successfully to ${recipientEmail}`);
+    // If we used a database mailbox, increment usage
+    if (mailboxId) {
+      try {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+        await supabase.rpc('increment_mailbox_usage', { p_mailbox_id: mailboxId });
+        console.log(`[send-test-email] Incremented usage for mailbox ${mailboxId}`);
+      } catch (usageError) {
+        console.warn(`[send-test-email] Failed to increment mailbox usage: ${usageError}`);
+      }
+    }
+
+    console.log(`[send-test-email] Test email sent successfully to ${recipientEmail}`);
 
     return new Response(
       JSON.stringify({ 
@@ -120,6 +177,7 @@ serve(async (req: Request): Promise<Response> => {
         details: {
           recipient: recipientEmail,
           smtpServer: `${host}:${port}`,
+          configSource: configSource,
           sentAt: new Date().toISOString()
         }
       }),
@@ -142,12 +200,12 @@ serve(async (req: Request): Promise<Response> => {
     } else if (errorMessage.includes("TLS") || errorMessage.includes("SSL") || errorMessage.includes("tls")) {
       errorMessage = "SSL/TLS connection failed.";
       hint = "Try changing the encryption setting (SSL for port 465, TLS for port 587).";
-    } else if (errorMessage.includes("550") || errorMessage.includes("Cannot send")) {
-      errorMessage = "SMTP server rejected the From address.";
-      hint = "Your From Email must match your SMTP username (e.g., use the same email address).";
-    } else if (errorMessage.includes("DNS") || errorMessage.includes("getaddrinfo") || errorMessage.includes("ENOTFOUND")) {
+    } else if (errorMessage.includes("550") || errorMessage.includes("Cannot send") || errorMessage.includes("suspicious")) {
+      errorMessage = "SMTP server rejected the request.";
+      hint = "The mailbox may be rate-limited. Add more mailboxes in Admin → Mailboxes for load balancing.";
+    } else if (errorMessage.includes("lookup") || errorMessage.includes("DNS") || errorMessage.includes("getaddrinfo") || errorMessage.includes("ENOTFOUND") || errorMessage.includes("not known")) {
       errorMessage = "Could not resolve SMTP hostname.";
-      hint = "Check that the SMTP host is correct and publicly accessible.";
+      hint = "Check that the SMTP host is correct. Configure a mailbox in Admin → Mailboxes.";
     }
 
     console.error(`[send-test-email] Friendly error: ${errorMessage}. Hint: ${hint}. Raw: ${error.message}`);

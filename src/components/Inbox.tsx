@@ -64,12 +64,12 @@ const Inbox = () => {
     // Note: Sound is now played by useRealtimeEmails directly
   }, [refetch]);
 
-  // 6. Real-time hook (must be called unconditionally)
-  const { newEmailCount, resetCount, pushPermission, requestPushPermission, audioUnlocked: realtimeAudioUnlocked, unlockAudio: unlockRealtimeAudio } = useRealtimeEmails({
+  // 6. Real-time hook - pass playSound as callback
+  const { newEmailCount, resetCount, pushPermission, requestPushPermission } = useRealtimeEmails({
     tempEmailId: currentEmail?.id,
     onNewEmail: handleNewEmail,
     showToast: true,
-    playSound: soundEnabled,
+    playSoundCallback: soundEnabled ? playSound : undefined,
     enablePushNotifications: true,
   });
 

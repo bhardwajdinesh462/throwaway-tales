@@ -1,7 +1,6 @@
-import { useEffect, useCallback, useState, useRef } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { useAuth } from "@/hooks/useSupabaseAuth";
 
 interface ReceivedEmail {
   id: string;
@@ -17,20 +16,17 @@ interface UseRealtimeEmailsOptions {
   tempEmailId?: string;
   onNewEmail?: (email: ReceivedEmail) => void;
   showToast?: boolean;
-  playSound?: boolean;
+  playSoundCallback?: () => void; // Accept sound callback from parent
   enablePushNotifications?: boolean;
 }
 
 export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
-  const { tempEmailId, onNewEmail, showToast = true, playSound = true, enablePushNotifications = true } = options;
-  const { user } = useAuth();
+  const { tempEmailId, onNewEmail, showToast = true, playSoundCallback, enablePushNotifications = true } = options;
   const [newEmailCount, setNewEmailCount] = useState(0);
   const [lastEmail, setLastEmail] = useState<ReceivedEmail | null>(null);
   const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
-  const [audioUnlocked, setAudioUnlocked] = useState(false);
-  const audioContextRef = useRef<AudioContext | null>(null);
 
-  // Check and request push notification permission
+  // Check push notification permission
   useEffect(() => {
     if ("Notification" in window) {
       setPushPermission(Notification.permission);
@@ -53,11 +49,10 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
 
     // Browsers commonly block permission prompts inside embedded previews/iframes.
     if (isInIframe()) {
-      toast.error('Notifications can’t be enabled in the embedded preview. Open the app in a new tab, then try again.');
+      toast.error('Push notifications can\'t be enabled in the embedded preview. Open the app in a new tab to enable.');
       return false;
     }
 
-    // If the user previously blocked notifications, we cannot re-prompt programmatically.
     if (Notification.permission === 'denied') {
       setPushPermission('denied');
       toast.error('Notification permission is blocked in your browser settings for this site.');
@@ -69,7 +64,7 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
       setPushPermission(permission);
 
       if (permission === 'granted') {
-        toast.success('Notifications enabled!');
+        toast.success('Push notifications enabled!');
         return true;
       }
 
@@ -91,7 +86,6 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
     if (!enablePushNotifications || pushPermission !== "granted") return;
 
     try {
-      // Try service worker notification first
       if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
         navigator.serviceWorker.ready.then((registration) => {
           registration.showNotification("New Email Received!", {
@@ -104,7 +98,6 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
           });
         });
       } else {
-        // Fallback to regular notification
         new Notification("New Email Received!", {
           body: `From: ${email.from_address}\n${email.subject || "(No Subject)"}`,
           icon: "/favicon.ico",
@@ -116,90 +109,18 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
     }
   }, [enablePushNotifications, pushPermission]);
 
-  // Get or create audio context
-  const getAudioContext = useCallback(() => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    return audioContextRef.current;
-  }, []);
-
-  // Unlock audio - must be called from user interaction
-  const unlockAudio = useCallback(async () => {
-    try {
-      const audioContext = getAudioContext();
-      
-      if (audioContext.state === 'suspended') {
-        await audioContext.resume();
-      }
-      
-      // Play a silent sound to unlock
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-      gainNode.gain.value = 0;
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      oscillator.start();
-      oscillator.stop(audioContext.currentTime + 0.001);
-      
-      setAudioUnlocked(true);
-      console.log('[useRealtimeEmails] Audio unlocked');
-      return true;
-    } catch (error) {
-      console.error('[useRealtimeEmails] Failed to unlock audio:', error);
-      return false;
-    }
-  }, [getAudioContext]);
-
-  const playNotificationSound = useCallback(async () => {
-    if (!playSound) return;
-    
-    try {
-      const audioContext = getAudioContext();
-      
-      // Resume context if suspended
-      if (audioContext.state === 'suspended') {
-        await audioContext.resume();
-      }
-      
-      // Create a simple notification sound
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      
-      oscillator.frequency.value = 800;
-      oscillator.type = 'sine';
-      
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-      
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.3);
-      
-      if (!audioUnlocked) {
-        setAudioUnlocked(true);
-      }
-    } catch (error) {
-      console.log('Could not play notification sound:', error);
-    }
-  }, [playSound, getAudioContext, audioUnlocked]);
-
   useEffect(() => {
-    // Build the filter for the channel
     const filterConfig: any = {
       event: 'INSERT',
       schema: 'public',
       table: 'received_emails'
     };
 
-    // If tempEmailId is provided, filter by it
     if (tempEmailId) {
       filterConfig.filter = `temp_email_id=eq.${tempEmailId}`;
     }
 
-    console.log('Setting up realtime subscription for received_emails', filterConfig);
+    console.log('[useRealtimeEmails] Setting up realtime subscription', filterConfig);
 
     const channelName = tempEmailId ? `received-emails-${tempEmailId}` : 'received-emails-all';
 
@@ -209,7 +130,7 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
         'postgres_changes',
         filterConfig,
         (payload) => {
-          console.log('New email received via realtime:', payload);
+          console.log('[useRealtimeEmails] New email received via realtime:', payload);
           
           const newEmail = payload.new as ReceivedEmail;
           setNewEmailCount(prev => prev + 1);
@@ -228,35 +149,27 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
             });
           }
 
-          // Always play notification sound when new email arrives
-          console.log('[useRealtimeEmails] Playing notification sound for new email');
-          playNotificationSound();
+          // Play sound using the callback from parent
+          if (playSoundCallback) {
+            console.log('[useRealtimeEmails] Playing sound via callback');
+            playSoundCallback();
+          }
 
-          // Show push notification (if page is not visible)
+          // Show push notification if page is hidden
           if (document.hidden) {
             showPushNotification(newEmail);
           }
         }
       )
       .subscribe((status) => {
-        console.log('Realtime subscription status:', status);
+        console.log('[useRealtimeEmails] Subscription status:', status);
       });
 
     return () => {
-      console.log('Cleaning up realtime subscription');
+      console.log('[useRealtimeEmails] Cleaning up subscription');
       supabase.removeChannel(channel);
     };
-  }, [tempEmailId, onNewEmail, showToast, playNotificationSound, showPushNotification]);
-
-  // Cleanup audio context on unmount
-  useEffect(() => {
-    return () => {
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-        audioContextRef.current = null;
-      }
-    };
-  }, []);
+  }, [tempEmailId, onNewEmail, showToast, playSoundCallback, showPushNotification]);
 
   const resetCount = useCallback(() => {
     setNewEmailCount(0);
@@ -268,8 +181,6 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
     resetCount,
     pushPermission,
     requestPushPermission,
-    audioUnlocked,
-    unlockAudio,
   };
 };
 

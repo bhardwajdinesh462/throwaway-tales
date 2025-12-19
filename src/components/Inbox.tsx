@@ -57,12 +57,12 @@ const Inbox = () => {
 
   // 5. All useCallback hooks together
   const handleNewEmail = useCallback(() => {
+    console.log('[Inbox] New email received via realtime, refetching...');
     if (refetch) {
       refetch();
     }
-    // Play notification sound for new emails
-    playSound();
-  }, [refetch, playSound]);
+    // Note: Sound is now played by useRealtimeEmails directly
+  }, [refetch]);
 
   // 6. Real-time hook (must be called unconditionally)
   const { newEmailCount, resetCount, pushPermission, requestPushPermission, audioUnlocked: realtimeAudioUnlocked, unlockAudio: unlockRealtimeAudio } = useRealtimeEmails({

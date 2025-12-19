@@ -40,6 +40,128 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Get all available mailboxes for failover
+async function getAllMailboxes(supabase: any): Promise<MailboxConfig[]> {
+  const { data, error } = await supabase
+    .from('mailboxes')
+    .select('id, smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, last_error, last_error_at')
+    .eq('is_active', true)
+    .not('smtp_host', 'is', null)
+    .order('priority', { ascending: true });
+
+  if (error || !data) {
+    console.log('[send-verification-email] No mailboxes found:', error?.message);
+    return [];
+  }
+
+  // Filter out mailboxes with recent errors (within 30 minutes)
+  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  
+  return data
+    .filter((mb: any) => {
+      // If no recent error, include it
+      if (!mb.last_error_at) return true;
+      // If error was more than 30 mins ago, include it (allow retry)
+      return mb.last_error_at < thirtyMinutesAgo;
+    })
+    .map((mb: any) => ({
+      mailbox_id: mb.id,
+      smtp_host: mb.smtp_host,
+      smtp_port: mb.smtp_port,
+      smtp_user: mb.smtp_user,
+      smtp_password: mb.smtp_password,
+      smtp_from: mb.smtp_from || mb.smtp_user,
+    }));
+}
+
+// Mark a mailbox as unhealthy
+async function markMailboxUnhealthy(supabase: any, mailboxId: string, errorMessage: string) {
+  console.log(`[send-verification-email] Marking mailbox ${mailboxId} as unhealthy: ${errorMessage}`);
+  await supabase.rpc('record_mailbox_error', { 
+    p_mailbox_id: mailboxId, 
+    p_error: errorMessage 
+  });
+}
+
+// Log email attempt
+async function logEmailAttempt(supabase: any, params: {
+  mailboxId: string | null;
+  mailboxName: string | null;
+  recipientEmail: string;
+  subject: string;
+  status: 'sent' | 'failed' | 'bounced';
+  configSource: string;
+  smtpHost?: string;
+  errorMessage?: string;
+  errorCode?: string;
+  attemptCount?: number;
+}) {
+  try {
+    await supabase.rpc('log_email_attempt', {
+      p_mailbox_id: params.mailboxId,
+      p_mailbox_name: params.mailboxName,
+      p_recipient_email: params.recipientEmail,
+      p_subject: params.subject,
+      p_status: params.status,
+      p_config_source: params.configSource,
+      p_smtp_host: params.smtpHost,
+      p_error_message: params.errorMessage,
+      p_error_code: params.errorCode,
+      p_attempt_count: params.attemptCount || 1,
+    });
+  } catch (err) {
+    console.error('[send-verification-email] Failed to log email attempt:', err);
+  }
+}
+
+// Check if error is permanent (don't retry with same mailbox)
+function isPermanentError(errorMessage: string): boolean {
+  const permanentErrors = ['535', '550', '551', '552', '553', '554', 'Authentication', 'auth failed', 'suspicious', 'blocked', 'blacklisted'];
+  return permanentErrors.some(e => errorMessage.includes(e));
+}
+
+// Try to send email with a specific mailbox config
+async function trySendEmail(
+  config: { host: string; port: number; username: string; password: string; fromAddress: string },
+  emailData: { to: string; subject: string; plainText: string; html: string; siteName: string; messageId: string }
+): Promise<{ success: boolean; error?: string }> {
+  const { SMTPClient } = await import("https://deno.land/x/denomailer@1.6.0/mod.ts");
+
+  const client = new SMTPClient({
+    connection: {
+      hostname: config.host,
+      port: config.port,
+      tls: config.port === 465,
+      auth: {
+        username: config.username,
+        password: config.password,
+      },
+    },
+  });
+
+  try {
+    await client.send({
+      from: `${emailData.siteName} <${config.fromAddress}>`,
+      to: emailData.to,
+      replyTo: config.fromAddress,
+      subject: emailData.subject,
+      content: emailData.plainText,
+      html: emailData.html,
+      headers: {
+        "Message-ID": emailData.messageId,
+        "X-Mailer": "Nullsto Mail System",
+        "X-Priority": "3",
+      },
+    });
+
+    await client.close();
+    return { success: true };
+  } catch (error: any) {
+    try { await client.close(); } catch { /* ignore */ }
+    return { success: false, error: error.message };
+  }
+}
+
 serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -70,68 +192,36 @@ serve(async (req: Request): Promise<Response> => {
       .single();
 
     const siteName = settingsData?.value?.siteName || 'Nullsto Temp Mail';
-    const siteUrl = settingsData?.value?.siteUrl || 'https://nullsto.com';
+    const siteUrl = settingsData?.value?.siteUrl || 'https://nullsto.edu.pl';
 
     // Build verification link
     const verifyLink = `${siteUrl}/verify-email?token=${token}`;
+    const subject = `Verify your email address - ${siteName}`;
 
-    // Get SMTP settings from mailbox load balancer
-    let mailboxConfig: MailboxConfig | null = null;
-    let host: string | undefined;
-    let port: number = 587;
-    let username: string | undefined;
-    let password: string | undefined;
-    let fromAddress: string | undefined;
+    // Get all available mailboxes for failover
+    const mailboxes = await getAllMailboxes(supabase);
+    console.log(`[send-verification-email] Found ${mailboxes.length} available mailboxes`);
 
-    // Try to get mailbox from database using load balancer
-    const { data: mailboxData, error: mailboxError } = await supabase.rpc('select_available_mailbox');
-    
-    if (!mailboxError && mailboxData && mailboxData.length > 0) {
-      mailboxConfig = mailboxData[0] as MailboxConfig;
-      host = mailboxConfig.smtp_host;
-      port = mailboxConfig.smtp_port;
-      username = mailboxConfig.smtp_user;
-      password = String(mailboxConfig.smtp_password); // Explicit encoding
-      fromAddress = mailboxConfig.smtp_from || username;
-      console.log(`[send-verification-email] Using mailbox: ${mailboxConfig.mailbox_id}`);
-    } else {
-      // Fallback to environment variables
-      console.log('[send-verification-email] No mailbox available, falling back to env vars');
-      host = Deno.env.get("SMTP_HOST");
-      port = parseInt(Deno.env.get("SMTP_PORT") || "587");
-      username = Deno.env.get("SMTP_USER");
-      password = String(Deno.env.get("SMTP_PASSWORD") || "");
-      fromAddress = Deno.env.get("SMTP_FROM") || username;
-    }
+    // Also check for env fallback
+    const envHost = Deno.env.get("SMTP_HOST");
+    const envPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
+    const envUser = Deno.env.get("SMTP_USER");
+    const envPass = Deno.env.get("SMTP_PASSWORD");
+    const envFrom = Deno.env.get("SMTP_FROM") || envUser;
+    const hasEnvFallback = envHost && envUser && envPass;
 
-    if (!host || !username || !password) {
-      console.error('[send-verification-email] Missing SMTP configuration');
+    if (mailboxes.length === 0 && !hasEnvFallback) {
+      console.error('[send-verification-email] No SMTP configuration available');
       return new Response(
         JSON.stringify({ success: false, error: "SMTP configuration incomplete. Please configure a mailbox in Admin > Mailboxes." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`[send-verification-email] Sending via ${host}:${port}`);
-
-    const { SMTPClient } = await import("https://deno.land/x/denomailer@1.6.0/mod.ts");
-
-    const client = new SMTPClient({
-      connection: {
-        hostname: host,
-        port: port,
-        tls: port === 465,
-        auth: {
-          username: username,
-          password: password,
-        },
-      },
-    });
-
-    const domain = getDomainFromEmail(fromAddress!);
+    // Prepare email content
+    const domain = getDomainFromEmail(mailboxes[0]?.smtp_from || envFrom || 'nullsto.edu.pl');
     const messageId = generateMessageId(domain);
 
-    // Plain text version for better deliverability
     const plainTextBody = `
 ${siteName} - Verify Your Email Address
 
@@ -186,74 +276,142 @@ This email was sent to ${email}
 </html>
     `;
 
-    // Retry logic with exponential backoff
-    const maxRetries = 3;
-    let lastError: Error | null = null;
-    
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`[send-verification-email] Attempt ${attempt}/${maxRetries}`);
-        
-        await client.send({
-          from: `${siteName} <${fromAddress}>`,
+    // Try each mailbox with failover
+    let lastError: string | null = null;
+    let attemptCount = 0;
+
+    for (const mailbox of mailboxes) {
+      attemptCount++;
+      console.log(`[send-verification-email] Attempt ${attemptCount}: Trying mailbox ${mailbox.smtp_from} via ${mailbox.smtp_host}`);
+
+      const result = await trySendEmail(
+        {
+          host: mailbox.smtp_host,
+          port: mailbox.smtp_port,
+          username: mailbox.smtp_user,
+          password: String(mailbox.smtp_password),
+          fromAddress: mailbox.smtp_from,
+        },
+        {
           to: email,
-          replyTo: fromAddress,
-          subject: `Verify your email address - ${siteName}`,
-          content: plainTextBody,
+          subject,
+          plainText: plainTextBody,
           html: htmlBody,
-          headers: {
-            "Message-ID": messageId,
-            "X-Mailer": "Nullsto Mail System",
-            "X-Priority": "3",
-          },
+          siteName,
+          messageId,
+        }
+      );
+
+      if (result.success) {
+        // Increment mailbox usage
+        await supabase.rpc('increment_mailbox_usage', { p_mailbox_id: mailbox.mailbox_id });
+        
+        // Log success
+        await logEmailAttempt(supabase, {
+          mailboxId: mailbox.mailbox_id,
+          mailboxName: mailbox.smtp_from,
+          recipientEmail: email,
+          subject,
+          status: 'sent',
+          configSource: 'database',
+          smtpHost: mailbox.smtp_host,
+          attemptCount,
         });
 
-        await client.close();
-
-        // Increment mailbox usage if using database mailbox
-        if (mailboxConfig) {
-          await supabase.rpc('increment_mailbox_usage', { p_mailbox_id: mailboxConfig.mailbox_id });
-        }
-
-        console.log(`[send-verification-email] Email sent successfully to ${email}`);
+        console.log(`[send-verification-email] Email sent successfully via ${mailbox.smtp_from}`);
 
         return new Response(
           JSON.stringify({ success: true, message: "Verification email sent" }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
-      } catch (sendError: any) {
-        lastError = sendError;
-        console.error(`[send-verification-email] Attempt ${attempt} failed:`, sendError.message);
-        
-        // Record error if using database mailbox
-        if (mailboxConfig) {
-          await supabase.rpc('record_mailbox_error', { 
-            p_mailbox_id: mailboxConfig.mailbox_id, 
-            p_error: sendError.message 
-          });
-        }
-        
-        // Don't retry on authentication or rate limit errors
-        if (sendError.message.includes("535") || sendError.message.includes("550") || 
-            sendError.message.includes("Authentication") || sendError.message.includes("suspicious")) {
-          break;
-        }
-        
-        if (attempt < maxRetries) {
-          const delay = Math.pow(2, attempt) * 1000;
-          console.log(`[send-verification-email] Waiting ${delay}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
       }
-    }
-    
-    try {
-      await client.close();
-    } catch {
-      // Ignore close errors
+
+      // Failed - log and mark unhealthy if permanent error
+      lastError = result.error || 'Unknown error';
+      console.error(`[send-verification-email] Mailbox ${mailbox.smtp_from} failed: ${lastError}`);
+
+      if (isPermanentError(lastError)) {
+        await markMailboxUnhealthy(supabase, mailbox.mailbox_id, lastError);
+      }
+
+      // Log failed attempt
+      await logEmailAttempt(supabase, {
+        mailboxId: mailbox.mailbox_id,
+        mailboxName: mailbox.smtp_from,
+        recipientEmail: email,
+        subject,
+        status: 'failed',
+        configSource: 'database',
+        smtpHost: mailbox.smtp_host,
+        errorMessage: lastError,
+        attemptCount,
+      });
+
+      // Small delay before next attempt
+      await sleep(500);
     }
 
-    throw lastError || new Error("Failed to send email after multiple attempts");
+    // All database mailboxes failed - try env fallback
+    if (hasEnvFallback) {
+      attemptCount++;
+      console.log(`[send-verification-email] Attempt ${attemptCount}: Trying env fallback ${envHost}`);
+
+      const result = await trySendEmail(
+        {
+          host: envHost!,
+          port: envPort,
+          username: envUser!,
+          password: String(envPass),
+          fromAddress: envFrom!,
+        },
+        {
+          to: email,
+          subject,
+          plainText: plainTextBody,
+          html: htmlBody,
+          siteName,
+          messageId,
+        }
+      );
+
+      if (result.success) {
+        await logEmailAttempt(supabase, {
+          mailboxId: null,
+          mailboxName: envFrom || null,
+          recipientEmail: email,
+          subject,
+          status: 'sent',
+          configSource: 'environment',
+          smtpHost: envHost,
+          attemptCount,
+        });
+
+        console.log(`[send-verification-email] Email sent successfully via env fallback`);
+
+        return new Response(
+          JSON.stringify({ success: true, message: "Verification email sent" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      lastError = result.error || 'Unknown error';
+      console.error(`[send-verification-email] Env fallback failed: ${lastError}`);
+
+      await logEmailAttempt(supabase, {
+        mailboxId: null,
+        mailboxName: envFrom || null,
+        recipientEmail: email,
+        subject,
+        status: 'failed',
+        configSource: 'environment',
+        smtpHost: envHost,
+        errorMessage: lastError,
+        attemptCount,
+      });
+    }
+
+    // All attempts failed
+    throw new Error(`All ${attemptCount} SMTP attempts failed. Last error: ${lastError}`);
 
   } catch (error: any) {
     console.error("[send-verification-email] Error:", error);

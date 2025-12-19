@@ -228,10 +228,9 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
             });
           }
 
-          // Play notification sound (only if caller doesn't handle new-email behavior)
-          if (!onNewEmail) {
-            playNotificationSound();
-          }
+          // Always play notification sound when new email arrives
+          console.log('[useRealtimeEmails] Playing notification sound for new email');
+          playNotificationSound();
 
           // Show push notification (if page is not visible)
           if (document.hidden) {

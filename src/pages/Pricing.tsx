@@ -1,7 +1,12 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Check, Crown, Zap, Shield, Mail, Clock, Loader2 } from 'lucide-react';
+import { 
+  Check, Crown, Zap, Shield, Mail, Clock, Loader2, X, 
+  Sparkles, Star, Rocket, Building2, Users, Globe, 
+  Lock, Bell, FileText, Code, Headphones,
+  ArrowRight, MessageSquare
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -34,7 +39,6 @@ const PricingPage = () => {
       return;
     }
 
-    // Check email verification
     if (requiresVerification()) {
       toast.error('Please verify your email before subscribing to a premium plan');
       return;
@@ -52,15 +56,10 @@ const PricingPage = () => {
         },
       });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       if (data.code === 'STRIPE_NOT_CONFIGURED') {
-        toast.info(
-          'Stripe is not configured yet. Please add your Stripe API keys in the admin panel under Settings > Payments.',
-          { duration: 5000 }
-        );
+        toast.info('Stripe is not configured yet. Please add your Stripe API keys in the admin panel.', { duration: 5000 });
         return;
       }
 
@@ -82,179 +81,329 @@ const PricingPage = () => {
     }
   };
 
-  const getFeatureIcon = (feature: string) => {
-    if (feature.toLowerCase().includes('email')) return <Mail className="w-4 h-4" />;
-    if (feature.toLowerCase().includes('hour') || feature.toLowerCase().includes('time')) return <Clock className="w-4 h-4" />;
-    if (feature.toLowerCase().includes('security') || feature.toLowerCase().includes('encrypt')) return <Shield className="w-4 h-4" />;
-    if (feature.toLowerCase().includes('ai') || feature.toLowerCase().includes('summar')) return <Zap className="w-4 h-4" />;
-    return <Check className="w-4 h-4" />;
+  // Static feature lists for beautiful display
+  const planFeatures = {
+    free: {
+      icon: Zap,
+      color: 'from-emerald-500 to-teal-500',
+      bgGlow: 'bg-emerald-500/20',
+      description: 'Perfect for casual users who need basic privacy protection',
+      features: [
+        { text: '3 Temporary Emails', included: true, icon: Mail },
+        { text: '1 Hour Email Expiry', included: true, icon: Clock },
+        { text: '3 AI Summaries/Day', included: true, icon: Sparkles },
+        { text: 'Email Search', included: true, icon: FileText },
+        { text: 'Email Aliases', included: true, icon: Users },
+        { text: 'Browser Notifications', included: true, icon: Bell },
+        { text: 'Export Emails (PDF/EML)', included: true, icon: FileText },
+        { text: 'Email Forwarding', included: false, icon: Mail },
+        { text: 'Custom Domains', included: false, icon: Globe },
+        { text: 'API Access', included: false, icon: Code },
+        { text: 'Webhook Notifications', included: false, icon: Bell },
+        { text: 'Priority Support', included: false, icon: Headphones },
+      ],
+    },
+    pro: {
+      icon: Crown,
+      color: 'from-primary to-accent',
+      bgGlow: 'bg-primary/20',
+      description: 'For power users who need advanced features and more control',
+      features: [
+        { text: '25 Temporary Emails', included: true, icon: Mail },
+        { text: '24 Hour Email Expiry', included: true, icon: Clock },
+        { text: '50 AI Summaries/Day', included: true, icon: Sparkles },
+        { text: 'Email Search', included: true, icon: FileText },
+        { text: 'Custom Email Aliases', included: true, icon: Users },
+        { text: 'Browser Notifications', included: true, icon: Bell },
+        { text: 'Export Emails (PDF/EML)', included: true, icon: FileText },
+        { text: 'Email Forwarding', included: true, icon: Mail },
+        { text: 'Email Scheduling', included: true, icon: Clock },
+        { text: 'Email Templates', included: true, icon: FileText },
+        { text: 'Custom Domains', included: false, icon: Globe },
+        { text: 'API Access', included: false, icon: Code },
+      ],
+    },
+  business: {
+      icon: Building2,
+      color: 'from-violet-500 to-purple-500',
+      bgGlow: 'bg-violet-500/20',
+      description: 'Enterprise-grade features for teams and businesses',
+      features: [
+        { text: 'Unlimited Temporary Emails', included: true, icon: Mail },
+        { text: '72 Hour Email Expiry', included: true, icon: Clock },
+        { text: 'Unlimited AI Summaries', included: true, icon: Sparkles },
+        { text: 'Advanced Email Search', included: true, icon: FileText },
+        { text: 'Unlimited Custom Aliases', included: true, icon: Users },
+        { text: 'All Notification Types', included: true, icon: Bell },
+        { text: 'Email Forwarding', included: true, icon: Mail },
+        { text: 'Custom Domains', included: true, icon: Globe },
+        { text: 'Full API Access', included: true, icon: Code },
+        { text: 'Webhook Notifications', included: true, icon: Bell },
+        { text: 'Priority Support 24/7', included: true, icon: Headphones },
+        { text: 'Advanced Security', included: true, icon: Lock },
+      ],
+    },
+  };
+
+  const getPlanConfig = (tierName: string) => {
+    const name = tierName.toLowerCase();
+    if (name.includes('business') || name.includes('enterprise')) return planFeatures.business;
+    if (name.includes('pro') || name.includes('premium')) return planFeatures.pro;
+    return planFeatures.free;
   };
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+        >
+          <Loader2 className="w-12 h-12 text-primary" />
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-hidden">
       <Header />
-      <main className="pt-24 pb-16">
+      
+      {/* Background Effects */}
+      <div className="fixed inset-0 -z-10">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-[150px]" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-accent/10 rounded-full blur-[150px]" />
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.02)_1px,transparent_1px)] bg-[size:72px_72px] [mask-image:radial-gradient(ellipse_50%_50%_at_50%_50%,black,transparent)]" />
+      </div>
+
+      <main className="pt-28 pb-20">
         <div className="container mx-auto px-4">
-          {/* Email Verification Banner */}
           {user && <EmailVerificationBanner />}
 
-          {/* Header */}
+          {/* Header Section */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-center max-w-3xl mx-auto mb-12"
+            transition={{ duration: 0.6 }}
+            className="text-center max-w-4xl mx-auto mb-16"
           >
-            <Badge className="mb-4" variant="outline">
-              <Crown className="w-3 h-3 mr-1" />
-              Premium Plans
-            </Badge>
-            <h1 className="text-4xl font-bold text-foreground mb-4">
-              Choose Your Plan
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.2 }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20 mb-6 backdrop-blur-sm"
+            >
+              <Sparkles className="w-4 h-4 text-primary animate-pulse" />
+              <span className="text-sm font-medium bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                Simple, Transparent Pricing
+              </span>
+            </motion.div>
+            
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 text-foreground">
+              Choose the Perfect
+              <span className="block mt-2">
+                <span className="gradient-text">Plan for You</span>
+              </span>
             </h1>
-            <p className="text-lg text-muted-foreground">
-              Unlock premium features and get more out of your temporary email experience
+            
+            <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
+              Start free and upgrade anytime. All plans include core features to protect your privacy.
             </p>
           </motion.div>
 
           {/* Billing Toggle */}
-          <div className="flex justify-center mb-8">
-            <div className="bg-secondary/50 p-1 rounded-lg flex gap-1">
-              <Button
-                variant={selectedBilling === 'monthly' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setSelectedBilling('monthly')}
-              >
-                Monthly
-              </Button>
-              <Button
-                variant={selectedBilling === 'yearly' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setSelectedBilling('yearly')}
-              >
-                Yearly
-                <Badge variant="secondary" className="ml-2 text-xs">Save 20%</Badge>
-              </Button>
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="flex justify-center mb-12"
+          >
+            <div className="relative p-1 rounded-2xl bg-secondary/50 border border-border backdrop-blur-sm">
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setSelectedBilling('monthly')}
+                  className={`relative px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 ${
+                    selectedBilling === 'monthly'
+                      ? 'text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {selectedBilling === 'monthly' && (
+                    <motion.div
+                      layoutId="billing-toggle"
+                      className="absolute inset-0 bg-gradient-to-r from-primary to-accent rounded-xl"
+                      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    />
+                  )}
+                  <span className="relative z-10">Monthly</span>
+                </button>
+                <button
+                  onClick={() => setSelectedBilling('yearly')}
+                  className={`relative px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 ${
+                    selectedBilling === 'yearly'
+                      ? 'text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {selectedBilling === 'yearly' && (
+                    <motion.div
+                      layoutId="billing-toggle"
+                      className="absolute inset-0 bg-gradient-to-r from-primary to-accent rounded-xl"
+                      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-2">
+                    Yearly
+                    <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">
+                      Save 20%
+                    </Badge>
+                  </span>
+                </button>
+              </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* Pricing Cards */}
-          <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+          <div className="grid lg:grid-cols-3 gap-6 lg:gap-8 max-w-6xl mx-auto">
             {tiers.map((tier, index) => {
               const price = selectedBilling === 'monthly' 
                 ? Number(tier.price_monthly) 
                 : Number(tier.price_yearly);
               const isCurrentPlan = subscription?.tier_id === tier.id;
               const isPro = tier.name.toLowerCase() === 'pro';
-              const features = Array.isArray(tier.features) ? tier.features : [];
+              const planConfig = getPlanConfig(tier.name);
+              const PlanIcon = planConfig.icon;
 
               return (
                 <motion.div
                   key={tier.id}
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 30 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
+                  transition={{ delay: 0.2 + index * 0.1 }}
+                  className={`relative ${isPro ? 'lg:-mt-4 lg:mb-4' : ''}`}
                 >
-                  <Card className={`relative h-full ${isPro ? 'border-primary shadow-lg shadow-primary/20' : 'border-border'}`}>
-                    {isPro && (
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                        <Badge className="bg-primary text-primary-foreground">
-                          <Crown className="w-3 h-3 mr-1" />
-                          Most Popular
-                        </Badge>
+                  {/* Popular Badge */}
+                  {isPro && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.5 }}
+                      className="absolute -top-4 left-1/2 -translate-x-1/2 z-20"
+                    >
+                      <div className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-sm font-medium shadow-lg shadow-primary/25">
+                        <Star className="w-3.5 h-3.5 fill-current" />
+                        Most Popular
                       </div>
-                    )}
-                    <CardHeader className="text-center pb-2">
-                      <CardTitle className="text-xl">{tier.name}</CardTitle>
-                      <CardDescription>
-                        {tier.name === 'Free' && 'Get started for free'}
-                        {tier.name === 'Pro' && 'For power users'}
-                        {tier.name === 'Business' && 'For teams and enterprises'}
+                    </motion.div>
+                  )}
+
+                  <Card className={`relative h-full overflow-hidden transition-all duration-300 hover:shadow-2xl ${
+                    isPro 
+                      ? 'border-primary/50 shadow-xl shadow-primary/10 bg-gradient-to-b from-primary/5 to-transparent' 
+                      : 'border-border hover:border-primary/30'
+                  }`}>
+                    {/* Glow Effect */}
+                    <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 ${planConfig.bgGlow} blur-3xl opacity-50`} />
+                    
+                    <CardHeader className="relative pb-4 pt-8">
+                      {/* Icon */}
+                      <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${planConfig.color} p-0.5 mb-4`}>
+                        <div className="w-full h-full rounded-[14px] bg-card flex items-center justify-center">
+                          <PlanIcon className="w-6 h-6 text-primary" />
+                        </div>
+                      </div>
+                      
+                      <CardTitle className="text-2xl font-bold">{tier.name}</CardTitle>
+                      <CardDescription className="text-sm min-h-[40px]">
+                        {planConfig.description}
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-6">
+                    
+                    <CardContent className="relative space-y-6">
                       {/* Price */}
-                      <div className="text-center">
-                        <span className="text-4xl font-bold text-foreground">
-                          ${price}
-                        </span>
-                        {price > 0 && (
-                          <span className="text-muted-foreground">
-                            /{selectedBilling === 'monthly' ? 'mo' : 'yr'}
-                          </span>
+                      <div className="pb-6 border-b border-border">
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-5xl font-bold text-foreground">${price}</span>
+                          {price > 0 && (
+                            <span className="text-muted-foreground text-lg">
+                              /{selectedBilling === 'monthly' ? 'mo' : 'yr'}
+                            </span>
+                          )}
+                        </div>
+                        {price === 0 && (
+                          <p className="text-sm text-muted-foreground mt-1">Free forever</p>
+                        )}
+                        {selectedBilling === 'yearly' && price > 0 && (
+                          <p className="text-sm text-emerald-400 mt-1">
+                            Save ${Math.round(Number(tier.price_monthly) * 12 - price)} per year
+                          </p>
                         )}
                       </div>
 
                       {/* Features */}
                       <ul className="space-y-3">
-                        <li className="flex items-center gap-2 text-sm">
-                          <Mail className="w-4 h-4 text-primary" />
-                          <span>{tier.max_temp_emails} temp emails</span>
-                        </li>
-                        <li className="flex items-center gap-2 text-sm">
-                          <Clock className="w-4 h-4 text-primary" />
-                          <span>{tier.email_expiry_hours}h email expiry</span>
-                        </li>
-                        <li className="flex items-center gap-2 text-sm">
-                          <Zap className="w-4 h-4 text-primary" />
-                          <span>{tier.ai_summaries_per_day} AI summaries/day</span>
-                        </li>
-                        {tier.can_forward_emails && (
-                          <li className="flex items-center gap-2 text-sm text-green-500">
-                            <Check className="w-4 h-4" />
-                            <span>Email forwarding</span>
-                          </li>
-                        )}
-                        {tier.can_use_custom_domains && (
-                          <li className="flex items-center gap-2 text-sm text-green-500">
-                            <Check className="w-4 h-4" />
-                            <span>Custom domains</span>
-                          </li>
-                        )}
-                        {tier.can_use_api && (
-                          <li className="flex items-center gap-2 text-sm text-green-500">
-                            <Check className="w-4 h-4" />
-                            <span>API access</span>
-                          </li>
-                        )}
-                        {tier.priority_support && (
-                          <li className="flex items-center gap-2 text-sm text-green-500">
-                            <Check className="w-4 h-4" />
-                            <span>Priority support</span>
-                          </li>
-                        )}
-                        {features.map((feature, i) => (
-                          <li key={i} className="flex items-center gap-2 text-sm text-green-500">
-                            {getFeatureIcon(String(feature))}
-                            <span>{String(feature)}</span>
-                          </li>
+                        {planConfig.features.map((feature, i) => (
+                          <motion.li
+                            key={i}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: 0.4 + i * 0.03 }}
+                            className={`flex items-center gap-3 text-sm ${
+                              feature.included ? 'text-foreground' : 'text-muted-foreground/50'
+                            }`}
+                          >
+                            <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center ${
+                              feature.included 
+                                ? 'bg-emerald-500/20 text-emerald-400' 
+                                : 'bg-muted/50 text-muted-foreground/50'
+                            }`}>
+                              {feature.included ? (
+                                <Check className="w-3 h-3" />
+                              ) : (
+                                <X className="w-3 h-3" />
+                              )}
+                            </div>
+                            <span className={feature.included ? '' : 'line-through'}>{feature.text}</span>
+                          </motion.li>
                         ))}
                       </ul>
 
                       {/* CTA Button */}
-                      <Button
-                        className="w-full"
-                        variant={isPro ? 'default' : 'outline'}
-                        disabled={isCurrentPlan || processingTier === tier.id}
-                        onClick={() => handleSelectPlan(tier.id, tier.name, price)}
+                      <motion.div
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="pt-4"
                       >
-                        {processingTier === tier.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : isCurrentPlan ? (
-                          'Current Plan'
-                        ) : price === 0 ? (
-                          'Get Started'
-                        ) : (
-                          'Subscribe'
-                        )}
-                      </Button>
+                        <Button
+                          className={`w-full h-12 text-base font-medium ${
+                            isPro 
+                              ? 'bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-lg shadow-primary/25' 
+                              : ''
+                          }`}
+                          variant={isPro ? 'default' : 'outline'}
+                          disabled={isCurrentPlan || processingTier === tier.id}
+                          onClick={() => handleSelectPlan(tier.id, tier.name, price)}
+                        >
+                          {processingTier === tier.id ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                          ) : isCurrentPlan ? (
+                            <span className="flex items-center gap-2">
+                              <Check className="w-5 h-5" />
+                              Current Plan
+                            </span>
+                          ) : price === 0 ? (
+                            <span className="flex items-center gap-2">
+                              Get Started Free
+                              <ArrowRight className="w-4 h-4" />
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-2">
+                              Upgrade to {tier.name}
+                              <ArrowRight className="w-4 h-4" />
+                            </span>
+                          )}
+                        </Button>
+                      </motion.div>
                     </CardContent>
                   </Card>
                 </motion.div>
@@ -262,18 +411,56 @@ const PricingPage = () => {
             })}
           </div>
 
-          {/* FAQ or Additional Info */}
+          {/* Bottom Section */}
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            className="text-center mt-12"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.7 }}
+            className="mt-16 text-center"
           >
-            <p className="text-muted-foreground">
-              All plans include basic email features. Cancel anytime.
-            </p>
-            <p className="text-sm text-muted-foreground mt-2">
-              Need help choosing? <a href="/contact" className="text-primary hover:underline">Contact us</a>
+            <div className="glass-card p-8 max-w-3xl mx-auto">
+              <div className="flex flex-col md:flex-row items-center justify-center gap-6 md:gap-12">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-medium text-foreground">Money-back Guarantee</p>
+                    <p className="text-sm text-muted-foreground">30-day refund policy</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
+                    <Lock className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-medium text-foreground">Secure Payments</p>
+                    <p className="text-sm text-muted-foreground">Powered by Stripe</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
+                    <Headphones className="w-5 h-5 text-accent" />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-medium text-foreground">24/7 Support</p>
+                    <p className="text-sm text-muted-foreground">Always here to help</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-muted-foreground mt-8">
+              Have questions? <Link to="/contact" className="text-primary hover:underline">Contact us</Link> or join our{' '}
+              <a 
+                href="https://t.me/nullstoemail" 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="text-primary hover:underline inline-flex items-center gap-1"
+              >
+                <MessageSquare className="w-4 h-4" />
+                Telegram community
+              </a>
             </p>
           </motion.div>
         </div>

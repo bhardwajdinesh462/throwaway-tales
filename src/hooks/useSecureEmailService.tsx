@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useSupabaseAuth';
 import { toast } from 'sonner';
 import { storage } from '@/lib/storage';
+import { getErrorMessage } from '@/lib/errorHandler';
 
 export interface Domain {
   id: string;

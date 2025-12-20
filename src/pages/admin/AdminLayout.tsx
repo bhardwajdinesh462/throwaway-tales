@@ -6,21 +6,14 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import AdminSidebar from "@/components/admin/AdminSidebar";
-import { Loader2 } from "lucide-react";
 
 const AdminLayout = () => {
-  const { user, isLoading } = useAuth();
+  const { user } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
 
-  // ProtectedRoute handles the redirect, just show loading here
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  // Skip loading state for faster admin panel - ProtectedRoute handles auth
+  // Just render the layout immediately
 
   // Safety check - shouldn't reach here if ProtectedRoute works correctly
   if (!user) return null;

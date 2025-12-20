@@ -81,7 +81,9 @@ const Auth = () => {
     // Determine if captcha is needed for this action
     const needsCaptcha = captchaEnabled && (
       (action === 'login' && captchaSettings.enableOnLogin) ||
-      (action === 'signup' && captchaSettings.enableOnRegister)
+      (action === 'signup' && captchaSettings.enableOnRegister) ||
+      (action === 'forgot_password' && captchaSettings.enableOnLogin) ||
+      (action === 'reset_password' && captchaSettings.enableOnLogin)
     );
 
     if (!needsCaptcha) {
@@ -197,6 +199,13 @@ const Auth = () => {
           setIsSubmitting(false);
           return;
         }
+        
+        // Verify captcha for password reset request
+        if (!await verifyCaptcha('forgot_password')) {
+          setIsSubmitting(false);
+          return;
+        }
+        
         const { error } = await resetPassword(sanitizedEmail);
         if (error) {
           toast.error(error.message);
@@ -219,6 +228,13 @@ const Auth = () => {
           setIsSubmitting(false);
           return;
         }
+        
+        // Verify captcha for password update
+        if (!await verifyCaptcha('reset_password')) {
+          setIsSubmitting(false);
+          return;
+        }
+        
         const { error } = await updatePassword(password);
         if (error) {
           toast.error(error.message);
@@ -298,7 +314,7 @@ const Auth = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <main className="pt-24 pb-12">
+      <main className="pt-32 md:pt-36 pb-12">
         <div className="container mx-auto px-4">
           <motion.div
             initial={{ opacity: 0, y: 20 }}

@@ -87,6 +87,12 @@ const AdminMailboxHealth = lazy(() => import("./pages/admin/AdminMailboxHealth")
 const AdminAnnouncement = lazy(() => import("./pages/admin/AdminAnnouncement"));
 const AdminStatusSettings = lazy(() => import("./pages/admin/AdminStatusSettings"));
 
+// Redirect www to non-www
+if (typeof window !== 'undefined' && window.location.hostname.startsWith('www.')) {
+  const nonWwwUrl = window.location.href.replace('://www.', '://');
+  window.location.replace(nonWwwUrl);
+}
+
 // Defer initialization to idle time
 if (typeof requestIdleCallback !== 'undefined') {
   requestIdleCallback(() => initializeDefaultData());

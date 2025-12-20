@@ -77,21 +77,28 @@ const EmailPreview = ({ email, attachments, loadingAttachments, onClose }: Email
   const { name: senderName, email: senderEmail } = parseEmailAddress(email.from_address);
   const initials = getInitials(senderName, senderEmail);
   const avatarColor = getAvatarColor(senderEmail);
-  // Sanitize HTML for safe rendering
+  // Sanitize HTML for safe rendering with more allowed tags for proper email display
   const sanitizedHtml = email.html_body 
     ? DOMPurify.sanitize(email.html_body, {
-        ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'span', 'div', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'img'],
-        ALLOWED_ATTR: ['href', 'target', 'style', 'class', 'src', 'alt', 'width', 'height'],
+        ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'span', 'div', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'tfoot', 'img', 'center', 'font', 'hr', 'sub', 'sup', 'small', 'big', 'address', 'article', 'section', 'header', 'footer', 'nav', 'aside', 'figure', 'figcaption', 'caption', 'colgroup', 'col', 'details', 'summary', 'mark', 'time', 'abbr', 'cite', 'dfn', 'kbd', 'samp', 'var', 'ins', 'del', 'q', 'dl', 'dt', 'dd', 'ruby', 'rt', 'rp', 'bdi', 'bdo', 'wbr'],
+        ALLOWED_ATTR: ['href', 'target', 'style', 'class', 'src', 'alt', 'width', 'height', 'align', 'valign', 'bgcolor', 'color', 'border', 'cellpadding', 'cellspacing', 'colspan', 'rowspan', 'title', 'rel', 'id', 'name', 'size', 'face', 'dir', 'lang', 'datetime', 'cite', 'start', 'reversed', 'type', 'value'],
+        ALLOW_DATA_ATTR: false,
+        ADD_ATTR: ['target'],
+        FORCE_BODY: true,
       })
     : null;
 
-  const hasHtml = !!sanitizedHtml;
-  const hasText = !!email.body;
+  const hasHtml = !!sanitizedHtml && sanitizedHtml.trim().length > 0;
+  const hasText = !!email.body && email.body.trim().length > 0;
 
-  // Format the body text nicely
+  // Format the body text nicely - clean up any remaining MIME artifacts
   const formattedBody = email.body
     ?.replace(/\r\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
+    .replace(/--b\d+=_[^\n]+\n?/g, '') // Remove boundary markers
+    .replace(/Content-Type:\s*[^\n]+\n?/gi, '') // Remove Content-Type headers
+    .replace(/Content-Transfer-Encoding:\s*[^\n]+\n?/gi, '') // Remove encoding headers
+    .replace(/boundary="?[^"\n]+"?\n?/gi, '') // Remove boundary declarations
     .trim();
 
   return (

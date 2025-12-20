@@ -24,11 +24,25 @@ function decodeQuotedPrintable(str: string): string {
     .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
-// Decode base64 encoding
+// Decode base64 encoding with UTF-8 support
 function decodeBase64(str: string): string {
   try {
-    const cleaned = str.replace(/\r?\n/g, '');
-    return atob(cleaned);
+    const cleaned = str.replace(/[\r\n\s]/g, '');
+    // Handle potential padding issues
+    const padded = cleaned + '='.repeat((4 - cleaned.length % 4) % 4);
+    const binaryStr = atob(padded);
+    
+    // Try to decode as UTF-8
+    try {
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      return new TextDecoder('utf-8').decode(bytes);
+    } catch {
+      // Fallback to raw decoded string
+      return binaryStr;
+    }
   } catch {
     return str;
   }
@@ -65,10 +79,28 @@ function parseMimeContent(rawContent: string): { text: string; html: string } {
     };
   };
 
-  const decodePart = (headersLower: string, body: string) => {
-    if (headersLower.includes('quoted-printable')) return decodeQuotedPrintable(body);
-    if (headersLower.includes('base64')) return decodeBase64(body);
-    return body;
+  const decodePart = (headersLower: string, body: string): string => {
+    let decoded = body;
+    
+    // Detect and decode base64 content
+    if (headersLower.includes('base64')) {
+      // Clean base64: remove line breaks and whitespace
+      const cleanBase64 = body.replace(/[\r\n\s]/g, '');
+      decoded = decodeBase64(cleanBase64);
+    } else if (headersLower.includes('quoted-printable')) {
+      decoded = decodeQuotedPrintable(body);
+    }
+    
+    // Clean up any remaining MIME boundary artifacts from decoded content
+    decoded = decoded
+      .replace(/--b\d+=_[^\r\n]+/g, '') // Remove boundary markers like --b1=_xxx
+      .replace(/Content-Type:\s*[^\r\n]+/gi, '') // Remove Content-Type headers that leaked
+      .replace(/Content-Transfer-Encoding:\s*[^\r\n]+/gi, '') // Remove encoding headers
+      .replace(/boundary="?[^"\r\n]+"?/gi, '') // Remove boundary declarations
+      .replace(/^\s*[\r\n]+/, '') // Remove leading empty lines
+      .trim();
+    
+    return decoded;
   };
 
   if (!boundary) {
@@ -92,6 +124,15 @@ function parseMimeContent(rawContent: string): { text: string; html: string } {
     const normalizedPart = part.replace(/^\r?\n/, '');
     const { headers, body } = parseSinglePart(normalizedPart);
     const headersLower = headers.toLowerCase();
+
+    // Recursively handle nested multipart content
+    const nestedBoundary = headers.match(/boundary[=\s]*"?([^"\r\n;]+)"?/i)?.[1];
+    if (nestedBoundary) {
+      const nestedResult = parseMimeContent(body);
+      if (nestedResult.text && !text) text = nestedResult.text;
+      if (nestedResult.html && !html) html = nestedResult.html;
+      continue;
+    }
 
     const decoded = decodePart(headersLower, body).trim();
 

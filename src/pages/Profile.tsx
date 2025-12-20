@@ -16,7 +16,11 @@ import {
   Volume2,
   VolumeX,
   Palette,
-  Globe
+  Globe,
+  CheckCircle,
+  XCircle,
+  RefreshCw,
+  MailCheck
 } from "lucide-react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -32,6 +36,7 @@ import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useEmailService, ReceivedEmail } from "@/hooks/useLocalEmailService";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useEmailVerification } from "@/hooks/useEmailVerification";
 import { storage, STORAGE_KEYS } from "@/lib/storage";
 import { formatDistanceToNow } from "date-fns";
 import TwoFactorSetup from "@/components/TwoFactorSetup";
@@ -69,6 +74,7 @@ const Profile = () => {
   const { emailHistory } = useEmailService();
   const { theme, themes, setTheme } = useTheme();
   const { language, setLanguage, languages } = useLanguage();
+  const { emailVerified, loading: verificationLoading, resendVerificationEmail, isResending, refreshVerificationStatus } = useEmailVerification();
   
   const [isEditing, setIsEditing] = useState(false);
   const [displayName, setDisplayName] = useState("");
@@ -206,6 +212,43 @@ const Profile = () => {
                   </div>
                 )}
                 <p className="text-muted-foreground">{user.email}</p>
+                
+                {/* Email Verification Status */}
+                <div className="flex items-center gap-2 mt-2 justify-center md:justify-start">
+                  {verificationLoading ? (
+                    <Badge variant="secondary" className="gap-1">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      Checking...
+                    </Badge>
+                  ) : emailVerified ? (
+                    <Badge variant="secondary" className="gap-1 bg-green-500/20 text-green-500 border-green-500/30">
+                      <CheckCircle className="w-3 h-3" />
+                      Email Verified
+                    </Badge>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="gap-1 bg-amber-500/20 text-amber-500 border-amber-500/30">
+                        <XCircle className="w-3 h-3" />
+                        Email Not Verified
+                      </Badge>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={resendVerificationEmail}
+                        disabled={isResending}
+                        className="text-xs h-6"
+                      >
+                        {isResending ? (
+                          <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                        ) : (
+                          <MailCheck className="w-3 h-3 mr-1" />
+                        )}
+                        {isResending ? "Sending..." : "Verify Now"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex items-center gap-2 mt-2 justify-center md:justify-start">
                   <Badge variant={isAdmin ? 'default' : 'secondary'}>
                     {isAdmin ? 'admin' : 'user'}

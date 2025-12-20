@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { User, Trash2, Search, ChevronLeft, ChevronRight, Ban, CheckCircle, Loader2 } from "lucide-react";
+import { User, Trash2, Search, ChevronLeft, ChevronRight, Ban, CheckCircle, Loader2, MailCheck, Mail, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,11 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface UserProfile {
   id: string;
@@ -44,6 +49,7 @@ interface UserProfile {
   created_at: string;
   role: string;
   is_suspended?: boolean;
+  email_verified?: boolean;
 }
 
 const AdminUsers = () => {
@@ -56,6 +62,8 @@ const AdminUsers = () => {
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [verifyingUserId, setVerifyingUserId] = useState<string | null>(null);
+  const [resendingEmailUserId, setResendingEmailUserId] = useState<string | null>(null);
   
   // Suspension dialog state
   const [suspendDialogOpen, setSuspendDialogOpen] = useState(false);
@@ -86,7 +94,14 @@ const AdminUsers = () => {
           .in('user_id', userIds)
           .eq('is_active', true);
         
+        // Fetch email verification status for all users
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('user_id, email_verified')
+          .in('user_id', userIds);
+        
         const suspendedUserIds = new Set(suspensions?.map(s => s.user_id) || []);
+        const emailVerifiedMap = new Map(profiles?.map(p => [p.user_id, p.email_verified]) || []);
         
         const usersData = data.map((row: any) => ({
           id: row.id,
@@ -95,7 +110,8 @@ const AdminUsers = () => {
           display_name: row.display_name,
           created_at: row.created_at,
           role: row.role || 'user',
-          is_suspended: suspendedUserIds.has(row.user_id)
+          is_suspended: suspendedUserIds.has(row.user_id),
+          email_verified: emailVerifiedMap.get(row.user_id) ?? false
         }));
         setUsers(usersData);
         setTotalCount(Number(data[0]?.total_count) || 0);
@@ -241,6 +257,56 @@ const AdminUsers = () => {
     }
   };
 
+  const manuallyVerifyEmail = async (userId: string) => {
+    setVerifyingUserId(userId);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ email_verified: true })
+        .eq('user_id', userId);
+
+      if (error) throw error;
+
+      toast.success("Email marked as verified");
+      setUsers(users.map(u => 
+        u.user_id === userId ? { ...u, email_verified: true } : u
+      ));
+    } catch (error: any) {
+      console.error("Error verifying email:", error);
+      toast.error(error.message || "Failed to verify email");
+    } finally {
+      setVerifyingUserId(null);
+    }
+  };
+
+  const resendVerificationEmail = async (user: UserProfile) => {
+    if (!user.email) {
+      toast.error("User has no email address");
+      return;
+    }
+    
+    setResendingEmailUserId(user.user_id);
+    try {
+      const { data, error } = await supabase.functions.invoke('create-verification-and-send', {
+        body: {
+          userId: user.user_id,
+          email: user.email,
+          name: user.display_name || user.email.split('@')[0]
+        }
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      toast.success(`Verification email sent to ${user.email}`);
+    } catch (error: any) {
+      console.error("Error sending verification email:", error);
+      toast.error(error.message || "Failed to send verification email");
+    } finally {
+      setResendingEmailUserId(null);
+    }
+  };
+
   const toggleSelectUser = (userId: string) => {
     setSelectedUsers(prev => {
       const next = new Set(prev);
@@ -316,6 +382,7 @@ const AdminUsers = () => {
                 <th className="text-left p-4 text-sm font-medium text-muted-foreground">Email</th>
                 <th className="text-left p-4 text-sm font-medium text-muted-foreground">Role</th>
                 <th className="text-left p-4 text-sm font-medium text-muted-foreground">Status</th>
+                <th className="text-left p-4 text-sm font-medium text-muted-foreground">Email Verified</th>
                 <th className="text-left p-4 text-sm font-medium text-muted-foreground">Joined</th>
                 <th className="text-right p-4 text-sm font-medium text-muted-foreground">Actions</th>
               </tr>
@@ -323,13 +390,13 @@ const AdminUsers = () => {
             <tbody className="divide-y divide-border">
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                  <td colSpan={8} className="p-8 text-center text-muted-foreground">
                     <Loader2 className="w-6 h-6 animate-spin mx-auto" />
                   </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                  <td colSpan={8} className="p-8 text-center text-muted-foreground">
                     No users found
                   </td>
                 </tr>
@@ -381,6 +448,57 @@ const AdminUsers = () => {
                           <CheckCircle className="w-3 h-3" /> Active
                         </Badge>
                       )}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2">
+                        {user.email_verified ? (
+                          <Badge variant="secondary" className="gap-1 bg-green-500/20 text-green-500">
+                            <MailCheck className="w-3 h-3" /> Verified
+                          </Badge>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <Badge variant="secondary" className="gap-1 bg-amber-500/20 text-amber-500">
+                              <Mail className="w-3 h-3" /> Pending
+                            </Badge>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-green-500"
+                                  onClick={() => manuallyVerifyEmail(user.user_id)}
+                                  disabled={verifyingUserId === user.user_id}
+                                >
+                                  {verifyingUserId === user.user_id ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <CheckCircle className="w-3 h-3" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Mark as verified</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-primary"
+                                  onClick={() => resendVerificationEmail(user)}
+                                  disabled={resendingEmailUserId === user.user_id}
+                                >
+                                  {resendingEmailUserId === user.user_id ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <RefreshCw className="w-3 h-3" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Resend verification email</TooltipContent>
+                            </Tooltip>
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="p-4 text-muted-foreground">
                       {new Date(user.created_at).toLocaleDateString()}

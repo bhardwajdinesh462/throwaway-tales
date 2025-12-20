@@ -33,7 +33,6 @@ export const useAppearanceSettings = () => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        // Try to load from backend first (use latest row, tolerate 0 rows)
         const { data, error } = await supabase
           .from('app_settings')
           .select('value, updated_at')
@@ -46,10 +45,8 @@ export const useAppearanceSettings = () => {
           const dbSettings = data.value as unknown as AppearanceSettings;
           const merged = { ...defaultSettings, ...dbSettings };
           setSettings(merged);
-          // Also update localStorage for quick access
           storage.set(APPEARANCE_SETTINGS_KEY, merged);
         } else {
-          // Fallback to localStorage
           const localSettings = storage.get<AppearanceSettings>(APPEARANCE_SETTINGS_KEY, defaultSettings);
           setSettings(localSettings);
         }
@@ -63,6 +60,33 @@ export const useAppearanceSettings = () => {
     };
 
     loadSettings();
+
+    // Real-time subscription for instant updates across all tabs
+    const channel = supabase
+      .channel('appearance-settings-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'app_settings',
+          filter: 'key=eq.appearance'
+        },
+        (payload) => {
+          console.log('Appearance settings updated:', payload);
+          if (payload.new && (payload.new as any).value) {
+            const newSettings = (payload.new as any).value as AppearanceSettings;
+            const merged = { ...defaultSettings, ...newSettings };
+            setSettings(merged);
+            storage.set(APPEARANCE_SETTINGS_KEY, merged);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   // Apply favicon dynamically

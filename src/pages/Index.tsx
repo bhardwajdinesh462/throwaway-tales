@@ -19,8 +19,11 @@ const Index = () => {
       <JsonLd />
       <Header />
       
+      {/* Spacer for fixed header + announcement bar */}
+      <div className="h-[104px] md:h-[104px]" />
+      
       {/* Header Banner */}
-      <div className="container mx-auto px-4 pt-20">
+      <div className="container mx-auto px-4">
         <BannerDisplay position="header" />
       </div>
       

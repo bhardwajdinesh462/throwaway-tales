@@ -50,6 +50,31 @@ export const useAnnouncementSettings = () => {
 
   useEffect(() => {
     fetchSettings();
+
+    // Real-time subscription for instant updates across all tabs
+    const channel = supabase
+      .channel('announcement-admin-settings-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'app_settings',
+          filter: 'key=eq.announcement_settings'
+        },
+        (payload) => {
+          console.log('Announcement settings updated (admin hook):', payload);
+          if (payload.new && (payload.new as any).value) {
+            const newSettings = (payload.new as any).value as AnnouncementSettings;
+            setSettings({ ...defaultSettings, ...newSettings });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const updateSettings = async (newSettings: Partial<AnnouncementSettings>) => {

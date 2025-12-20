@@ -35,7 +35,6 @@ export const useGeneralSettings = () => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        // Try to load from backend first
         const { data, error } = await supabase
           .from('app_settings')
           .select('value, updated_at')
@@ -50,7 +49,6 @@ export const useGeneralSettings = () => {
           setSettings(merged);
           storage.set(GENERAL_SETTINGS_KEY, merged);
         } else {
-          // Fallback to localStorage
           const localSettings = storage.get<GeneralSettings>(GENERAL_SETTINGS_KEY, defaultSettings);
           setSettings(localSettings);
         }
@@ -64,6 +62,33 @@ export const useGeneralSettings = () => {
     };
 
     loadSettings();
+
+    // Real-time subscription for instant updates across all tabs
+    const channel = supabase
+      .channel('general-settings-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'app_settings',
+          filter: 'key=eq.general'
+        },
+        (payload) => {
+          console.log('General settings updated:', payload);
+          if (payload.new && (payload.new as any).value) {
+            const newSettings = (payload.new as any).value as GeneralSettings;
+            const merged = { ...defaultSettings, ...newSettings };
+            setSettings(merged);
+            storage.set(GENERAL_SETTINGS_KEY, merged);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   return { settings, isLoading };

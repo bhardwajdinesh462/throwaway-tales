@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { Gauge, Save, RefreshCw, Trash2, RotateCcw } from "lucide-react";
+import { Gauge, Save, RefreshCw, Trash2, RotateCcw, AlertTriangle, Users } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
@@ -16,6 +16,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatDistanceToNow } from "date-fns";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface RateLimitSettings {
   max_requests: number;
@@ -39,6 +50,7 @@ const AdminRateLimits = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [resetOnSave, setResetOnSave] = useState(true);
+  const [isResettingAll, setIsResettingAll] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -127,17 +139,21 @@ const AdminRateLimits = () => {
   };
 
   const clearAllRateLimits = async () => {
-    const { error } = await supabase
+    setIsResettingAll(true);
+    const { data, error } = await supabase
       .from("rate_limits")
       .delete()
-      .neq("id", "00000000-0000-0000-0000-000000000000"); // Delete all
+      .neq("id", "00000000-0000-0000-0000-000000000000")
+      .select();
 
     if (error) {
       toast.error("Failed to clear rate limits: " + error.message);
     } else {
-      toast.success("All rate limits cleared!");
+      const count = data?.length || 0;
+      toast.success(`All rate limits cleared! ${count} record(s) removed. All users can now create emails again.`);
       loadRateLimits();
     }
+    setIsResettingAll(false);
   };
 
   const clearOldRateLimits = async () => {
@@ -174,6 +190,74 @@ const AdminRateLimits = () => {
           {isSaving ? "Saving..." : "Save Settings"}
         </Button>
       </div>
+
+      {/* Prominent Reset All Rate Limits Card */}
+      <Card className="border-destructive/50 bg-destructive/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <Users className="w-5 h-5" />
+            Reset All User Rate Limits
+          </CardTitle>
+          <CardDescription>
+            Instantly clear all rate limit restrictions for all users, moderators, and admins
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex-1">
+              <p className="text-sm text-muted-foreground">
+                This will immediately allow all users who have been rate-limited to create emails again. 
+                Use this if users are reporting they cannot create new emails due to rate limits.
+              </p>
+              <p className="text-sm font-medium mt-2">
+                Currently tracking: <span className="text-primary">{rateLimits.length} active rate limit record(s)</span>
+              </p>
+            </div>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button 
+                  variant="destructive" 
+                  size="lg" 
+                  className="shrink-0"
+                  disabled={isResettingAll || rateLimits.length === 0}
+                >
+                  {isResettingAll ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Resetting...
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="w-4 h-4 mr-2" />
+                      Reset All Rate Limits
+                    </>
+                  )}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-destructive" />
+                    Reset All Rate Limits?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will immediately clear all {rateLimits.length} rate limit record(s). 
+                    All users, moderators, and admins will be able to create emails again without restriction.
+                    <br /><br />
+                    This action cannot be undone, but rate limits will naturally rebuild as users create new emails.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={clearAllRateLimits} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    Yes, Reset All Limits
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>

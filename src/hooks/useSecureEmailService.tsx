@@ -293,7 +293,7 @@ export const useSecureEmailService = () => {
     return generateEmail(domainId, username, true);
   }, [generateEmail]);
 
-  // Initial email generation - check for existing first
+  // Initial email generation - check for existing first using edge function
   useEffect(() => {
     const initializeEmail = async () => {
       // Guard: prevent duplicate initialization
@@ -306,6 +306,7 @@ export const useSecureEmailService = () => {
 
       // Mark initialization as started immediately
       initStartedRef.current = true;
+      console.log('[email-service] Starting initialization...');
 
       // Check localStorage for existing session email
       const storedTokensRaw = localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -315,63 +316,86 @@ export const useSecureEmailService = () => {
         try {
           tokens = JSON.parse(storedTokensRaw) || {};
         } catch (e) {
-          console.error('Error parsing stored tokens:', e);
+          console.error('[email-service] Error parsing stored tokens:', e);
           tokens = {};
         }
       }
 
-      // 1) Prefer the explicitly-stored current email id (prevents generator/inbox divergence)
-      const preferredId = localStorage.getItem(CURRENT_EMAIL_ID_KEY);
-      if (preferredId && tokens[preferredId]) {
-        const { data: preferredEmail, error: preferredError } = await supabase
-          .from('temp_emails')
-          .select('id, address, domain_id, user_id, expires_at, is_active, created_at')
-          .eq('id', preferredId)
-          .eq('is_active', true)
-          .gt('expires_at', new Date().toISOString())
-          .single();
-
-        if (!preferredError && preferredEmail) {
-          setCurrentEmail({ ...preferredEmail, secret_token: tokens[preferredEmail.id] });
-          setIsLoading(false);
-          return;
-        }
-
-        // If the preferred email is no longer valid, clear the pointer.
-        try {
-          localStorage.removeItem(CURRENT_EMAIL_ID_KEY);
-        } catch {
-          // ignore
-        }
-      }
-
-      // 2) Fallback: pick the most recent valid email from all stored tokens
       const emailIds = Object.keys(tokens);
-      if (emailIds.length > 0) {
-        const { data: existingEmail, error } = await supabase
-          .from('temp_emails')
-          .select('id, address, domain_id, user_id, expires_at, is_active, created_at')
-          .in('id', emailIds)
-          .eq('is_active', true)
-          .gt('expires_at', new Date().toISOString())
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
+      const preferredId = localStorage.getItem(CURRENT_EMAIL_ID_KEY);
 
-        if (!error && existingEmail) {
-          try {
-            localStorage.setItem(CURRENT_EMAIL_ID_KEY, existingEmail.id);
-          } catch {
-            // ignore
+      console.log(`[email-service] Found ${emailIds.length} stored tokens, preferredId: ${preferredId || 'none'}`);
+
+      // Use edge function to validate emails (bypasses RLS issues)
+      if (emailIds.length > 0) {
+        try {
+          // First try preferred email with token validation
+          if (preferredId && tokens[preferredId]) {
+            console.log(`[email-service] Validating preferred email: ${preferredId}`);
+            const { data: preferredResult, error: preferredError } = await supabase.functions.invoke('validate-temp-email', {
+              body: { tempEmailId: preferredId, token: tokens[preferredId] },
+            });
+
+            if (!preferredError && preferredResult?.valid && preferredResult?.email) {
+              console.log(`[email-service] Preferred email is valid: ${preferredResult.email.address}`);
+              setCurrentEmail({ ...preferredResult.email, secret_token: tokens[preferredId] });
+              setIsLoading(false);
+              return;
+            }
+
+            console.log(`[email-service] Preferred email invalid or expired, clearing...`);
+            // Clear invalid preferred email pointer
+            try {
+              localStorage.removeItem(CURRENT_EMAIL_ID_KEY);
+              delete tokens[preferredId];
+              localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(tokens));
+            } catch {
+              // ignore
+            }
           }
 
-          setCurrentEmail({ ...existingEmail, secret_token: tokens[existingEmail.id] });
-          setIsLoading(false);
-          return;
+          // Fallback: validate all stored email IDs to find most recent valid one
+          const remainingEmailIds = Object.keys(tokens);
+          if (remainingEmailIds.length > 0) {
+            console.log(`[email-service] Checking ${remainingEmailIds.length} remaining stored emails...`);
+            const { data: bulkResult, error: bulkError } = await supabase.functions.invoke('validate-temp-email', {
+              body: { emailIds: remainingEmailIds },
+            });
+
+            if (!bulkError && bulkResult?.valid && bulkResult?.email) {
+              console.log(`[email-service] Found valid email: ${bulkResult.email.address}`);
+              
+              // Clean up stale tokens (only keep valid ones)
+              if (bulkResult.validEmailIds) {
+                const validSet = new Set(bulkResult.validEmailIds);
+                const cleanedTokens: Record<string, string> = {};
+                for (const id of remainingEmailIds) {
+                  if (validSet.has(id)) {
+                    cleanedTokens[id] = tokens[id];
+                  }
+                }
+                try {
+                  localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(cleanedTokens));
+                  localStorage.setItem(CURRENT_EMAIL_ID_KEY, bulkResult.email.id);
+                } catch {
+                  // ignore
+                }
+              }
+
+              setCurrentEmail({ ...bulkResult.email, secret_token: tokens[bulkResult.email.id] });
+              setIsLoading(false);
+              return;
+            }
+
+            console.log('[email-service] No valid emails found from stored tokens');
+          }
+        } catch (error) {
+          console.error('[email-service] Error validating emails via edge function:', error);
         }
       }
 
       // No valid existing email, generate new one
+      console.log('[email-service] No valid email found, generating new one...');
       await generateEmail();
     };
 

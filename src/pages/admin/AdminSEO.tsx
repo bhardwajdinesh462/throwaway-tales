@@ -254,15 +254,13 @@ const AdminSEO = () => {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      storage.set(SEO_SETTINGS_KEY, settings);
-      
+      const settingsJson = JSON.parse(JSON.stringify(settings));
+
       const { data: existing } = await supabase
         .from('app_settings')
         .select('id')
         .eq('key', 'seo')
         .maybeSingle();
-
-      const settingsJson = JSON.parse(JSON.stringify(settings));
 
       let error;
       if (existing) {
@@ -288,7 +286,11 @@ const AdminSEO = () => {
         console.error('Error saving to database:', error);
         toast.error('Settings saved locally but failed to sync to database');
       } else {
-        toast.success("SEO settings saved!");
+        // Clear SEO cache from localStorage to force fresh fetch on next load
+        localStorage.removeItem('trashmails_seo_settings');
+        // Also update local storage with new settings for immediate use
+        storage.set(SEO_SETTINGS_KEY, settings);
+        toast.success("SEO settings saved and cache cleared!");
       }
     } catch (e) {
       console.error('Error saving settings:', e);

@@ -77,6 +77,7 @@ export const useSEOSettings = () => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
+        // Always fetch fresh from database to ensure admin changes are reflected
         const { data, error } = await supabase
           .from('app_settings')
           .select('value, updated_at')
@@ -89,8 +90,10 @@ export const useSEOSettings = () => {
           const dbSettings = data.value as unknown as SEOSettings;
           const merged = { ...defaultSettings, ...dbSettings, pages: { ...defaultSettings.pages, ...dbSettings.pages } };
           setSettings(merged);
+          // Update local storage cache with latest
           storage.set(SEO_SETTINGS_KEY, merged);
         } else {
+          // Fallback to local storage only if database fails
           const localSettings = storage.get<SEOSettings>(SEO_SETTINGS_KEY, defaultSettings);
           setSettings(localSettings);
         }

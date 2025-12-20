@@ -4,6 +4,17 @@ import { storage } from '@/lib/storage';
 
 const SEO_SETTINGS_KEY = 'trashmails_seo_settings';
 
+export interface PageSEO {
+  title: string;
+  description: string;
+  keywords: string;
+  ogImage: string;
+  noIndex: boolean;
+  noFollow: boolean;
+  canonicalUrl: string;
+  schemaType: string;
+}
+
 export interface SEOSettings {
   siteTitle: string;
   metaDescription: string;
@@ -23,7 +34,19 @@ export interface SEOSettings {
   facebookPixelId: string;
   googleSiteVerification: string;
   bingSiteVerification: string;
+  pages: Record<string, PageSEO>;
 }
+
+const defaultPageSEO: PageSEO = {
+  title: '',
+  description: '',
+  keywords: '',
+  ogImage: '',
+  noIndex: false,
+  noFollow: false,
+  canonicalUrl: '',
+  schemaType: 'WebPage',
+};
 
 const defaultSettings: SEOSettings = {
   siteTitle: 'Nullsto - Free Disposable Email Service',
@@ -44,6 +67,7 @@ const defaultSettings: SEOSettings = {
   facebookPixelId: '',
   googleSiteVerification: '',
   bingSiteVerification: '',
+  pages: {},
 };
 
 export const useSEOSettings = () => {
@@ -53,7 +77,6 @@ export const useSEOSettings = () => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        // Try to load from backend first
         const { data, error } = await supabase
           .from('app_settings')
           .select('value, updated_at')
@@ -64,11 +87,10 @@ export const useSEOSettings = () => {
 
         if (!error && data?.value) {
           const dbSettings = data.value as unknown as SEOSettings;
-          const merged = { ...defaultSettings, ...dbSettings };
+          const merged = { ...defaultSettings, ...dbSettings, pages: { ...defaultSettings.pages, ...dbSettings.pages } };
           setSettings(merged);
           storage.set(SEO_SETTINGS_KEY, merged);
         } else {
-          // Fallback to localStorage
           const localSettings = storage.get<SEOSettings>(SEO_SETTINGS_KEY, defaultSettings);
           setSettings(localSettings);
         }
@@ -84,7 +106,11 @@ export const useSEOSettings = () => {
     loadSettings();
   }, []);
 
-  return { settings, isLoading };
+  const getPageSEO = (path: string): PageSEO => {
+    return settings.pages[path] || { ...defaultPageSEO };
+  };
+
+  return { settings, isLoading, getPageSEO, defaultPageSEO };
 };
 
 export default useSEOSettings;

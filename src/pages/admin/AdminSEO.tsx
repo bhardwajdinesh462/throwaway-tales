@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,10 +8,26 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
 import { supabase } from "@/integrations/supabase/client";
-import { Search, Save, Code, FileCode } from "lucide-react";
+import { Search, Save, Code, FileCode, FileText, TrendingUp, AlertTriangle, CheckCircle, XCircle, Lightbulb, Globe } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const SEO_SETTINGS_KEY = 'trashmails_seo_settings';
+
+interface PageSEO {
+  title: string;
+  description: string;
+  keywords: string;
+  ogImage: string;
+  noIndex: boolean;
+  noFollow: boolean;
+  canonicalUrl: string;
+  schemaType: string;
+}
 
 interface SEOSettings {
   siteTitle: string;
@@ -32,7 +48,37 @@ interface SEOSettings {
   facebookPixelId: string;
   googleSiteVerification: string;
   bingSiteVerification: string;
+  pages: Record<string, PageSEO>;
 }
+
+const sitePages = [
+  { path: '/', name: 'Home', description: 'Main landing page' },
+  { path: '/about', name: 'About', description: 'About us page' },
+  { path: '/pricing', name: 'Pricing', description: 'Pricing plans' },
+  { path: '/blog', name: 'Blog', description: 'Blog listing page' },
+  { path: '/contact', name: 'Contact', description: 'Contact form page' },
+  { path: '/privacy-policy', name: 'Privacy Policy', description: 'Privacy policy page' },
+  { path: '/terms-of-service', name: 'Terms of Service', description: 'Terms and conditions' },
+  { path: '/cookie-policy', name: 'Cookie Policy', description: 'Cookie policy page' },
+  { path: '/status', name: 'Status', description: 'Service status page' },
+  { path: '/dashboard', name: 'Dashboard', description: 'User dashboard' },
+  { path: '/auth', name: 'Auth', description: 'Login/Register page' },
+  { path: '/profile', name: 'Profile', description: 'User profile page' },
+  { path: '/history', name: 'History', description: 'Email history page' },
+  { path: '/premium-features', name: 'Premium Features', description: 'Premium features showcase' },
+  { path: '/changelog', name: 'Changelog', description: 'Version history' },
+];
+
+const defaultPageSEO: PageSEO = {
+  title: '',
+  description: '',
+  keywords: '',
+  ogImage: '',
+  noIndex: false,
+  noFollow: false,
+  canonicalUrl: '',
+  schemaType: 'WebPage',
+};
 
 const defaultSettings: SEOSettings = {
   siteTitle: 'Nullsto - Free Disposable Email Service',
@@ -53,12 +99,20 @@ const defaultSettings: SEOSettings = {
   facebookPixelId: '',
   googleSiteVerification: '',
   bingSiteVerification: '',
+  pages: {},
 };
+
+interface SEOIssue {
+  type: 'error' | 'warning' | 'success';
+  message: string;
+  fix?: string;
+}
 
 const AdminSEO = () => {
   const [settings, setSettings] = useState<SEOSettings>(defaultSettings);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedPage, setSelectedPage] = useState<string>('/');
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -73,7 +127,7 @@ const AdminSEO = () => {
 
         if (!error && data?.value) {
           const dbSettings = data.value as unknown as SEOSettings;
-          setSettings({ ...defaultSettings, ...dbSettings });
+          setSettings({ ...defaultSettings, ...dbSettings, pages: { ...defaultSettings.pages, ...dbSettings.pages } });
         } else {
           const localSettings = storage.get<SEOSettings>(SEO_SETTINGS_KEY, defaultSettings);
           setSettings(localSettings);
@@ -89,13 +143,119 @@ const AdminSEO = () => {
     loadSettings();
   }, []);
 
+  const calculateSEOScore = useMemo(() => {
+    let score = 0;
+    const issues: SEOIssue[] = [];
+
+    // Global SEO checks
+    if (settings.siteTitle.length > 0 && settings.siteTitle.length <= 60) {
+      score += 10;
+      issues.push({ type: 'success', message: 'Site title is optimal length' });
+    } else if (settings.siteTitle.length > 60) {
+      score += 5;
+      issues.push({ type: 'warning', message: 'Site title is too long (>60 chars)', fix: 'Shorten to 60 characters or less' });
+    } else {
+      issues.push({ type: 'error', message: 'Site title is missing', fix: 'Add a descriptive site title' });
+    }
+
+    if (settings.metaDescription.length >= 120 && settings.metaDescription.length <= 160) {
+      score += 10;
+      issues.push({ type: 'success', message: 'Meta description is optimal length' });
+    } else if (settings.metaDescription.length > 0) {
+      score += 5;
+      issues.push({ type: 'warning', message: 'Meta description should be 120-160 chars', fix: 'Adjust description length' });
+    } else {
+      issues.push({ type: 'error', message: 'Meta description is missing', fix: 'Add a compelling meta description' });
+    }
+
+    if (settings.metaKeywords.length > 0) {
+      score += 5;
+      issues.push({ type: 'success', message: 'Meta keywords are set' });
+    } else {
+      issues.push({ type: 'warning', message: 'Meta keywords are empty', fix: 'Add relevant keywords' });
+    }
+
+    if (settings.ogImage) {
+      score += 10;
+      issues.push({ type: 'success', message: 'Open Graph image is set' });
+    } else {
+      issues.push({ type: 'warning', message: 'OG image is missing', fix: 'Add an Open Graph image for social sharing' });
+    }
+
+    if (settings.twitterHandle) {
+      score += 5;
+      issues.push({ type: 'success', message: 'Twitter handle is configured' });
+    }
+
+    if (settings.googleAnalyticsId || settings.googleTagManagerId) {
+      score += 10;
+      issues.push({ type: 'success', message: 'Analytics tracking is configured' });
+    } else {
+      issues.push({ type: 'warning', message: 'No analytics configured', fix: 'Add Google Analytics or Tag Manager' });
+    }
+
+    if (settings.googleSiteVerification) {
+      score += 10;
+      issues.push({ type: 'success', message: 'Google Search Console verified' });
+    } else {
+      issues.push({ type: 'warning', message: 'Google Search Console not verified', fix: 'Verify with Google Search Console' });
+    }
+
+    if (settings.enableSitemap) {
+      score += 10;
+      issues.push({ type: 'success', message: 'Sitemap is enabled' });
+    } else {
+      issues.push({ type: 'error', message: 'Sitemap is disabled', fix: 'Enable sitemap generation' });
+    }
+
+    if (settings.enableCanonicalUrls) {
+      score += 10;
+      issues.push({ type: 'success', message: 'Canonical URLs are enabled' });
+    } else {
+      issues.push({ type: 'warning', message: 'Canonical URLs disabled', fix: 'Enable canonical URLs to prevent duplicate content' });
+    }
+
+    if (settings.schemaMarkup) {
+      score += 10;
+      issues.push({ type: 'success', message: 'Schema markup is configured' });
+    } else {
+      issues.push({ type: 'warning', message: 'No schema markup', fix: 'Add JSON-LD structured data' });
+    }
+
+    // Check page-specific SEO
+    const pagesWithSEO = Object.keys(settings.pages).filter(p => settings.pages[p]?.title || settings.pages[p]?.description);
+    if (pagesWithSEO.length >= sitePages.length * 0.5) {
+      score += 10;
+      issues.push({ type: 'success', message: `${pagesWithSEO.length}/${sitePages.length} pages have custom SEO` });
+    } else {
+      issues.push({ type: 'warning', message: `Only ${pagesWithSEO.length}/${sitePages.length} pages have custom SEO`, fix: 'Add SEO settings to more pages' });
+    }
+
+    return { score: Math.min(score, 100), issues };
+  }, [settings]);
+
+  const getPageSEO = (path: string): PageSEO => {
+    return settings.pages[path] || { ...defaultPageSEO };
+  };
+
+  const updatePageSEO = (path: string, field: keyof PageSEO, value: string | boolean) => {
+    setSettings(prev => ({
+      ...prev,
+      pages: {
+        ...prev.pages,
+        [path]: {
+          ...getPageSEO(path),
+          [field]: value,
+        },
+      },
+    }));
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      // Save to localStorage for immediate access
       storage.set(SEO_SETTINGS_KEY, settings);
       
-      // Also save to Supabase app_settings for persistence
       const { data: existing } = await supabase
         .from('app_settings')
         .select('id')
@@ -142,6 +302,22 @@ const AdminSEO = () => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return 'text-green-500';
+    if (score >= 60) return 'text-yellow-500';
+    if (score >= 40) return 'text-orange-500';
+    return 'text-red-500';
+  };
+
+  const getScoreBg = (score: number) => {
+    if (score >= 80) return 'bg-green-500';
+    if (score >= 60) return 'bg-yellow-500';
+    if (score >= 40) return 'bg-orange-500';
+    return 'bg-red-500';
+  };
+
+  const currentPageSEO = getPageSEO(selectedPage);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -158,19 +334,249 @@ const AdminSEO = () => {
         </Button>
       </div>
 
-      <Tabs defaultValue="meta" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+      {/* SEO Score Card */}
+      <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`text-5xl font-bold ${getScoreColor(calculateSEOScore.score)}`}>
+                {calculateSEOScore.score}
+              </div>
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5" />
+                  SEO Score
+                </CardTitle>
+                <CardDescription>
+                  {calculateSEOScore.score >= 80 ? 'Excellent! Your SEO is well optimized.' :
+                   calculateSEOScore.score >= 60 ? 'Good, but there\'s room for improvement.' :
+                   calculateSEOScore.score >= 40 ? 'Fair. Consider fixing the issues below.' :
+                   'Needs attention. Many SEO improvements needed.'}
+                </CardDescription>
+              </div>
+            </div>
+            <div className="w-32">
+              <Progress value={calculateSEOScore.score} className={`h-3 ${getScoreBg(calculateSEOScore.score)}`} />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Accordion type="single" collapsible className="w-full">
+            <AccordionItem value="issues" className="border-none">
+              <AccordionTrigger className="hover:no-underline py-2">
+                <div className="flex items-center gap-2">
+                  <Lightbulb className="w-4 h-4 text-yellow-500" />
+                  <span className="text-sm font-medium">View SEO Suggestions & Issues</span>
+                  <Badge variant="secondary" className="ml-2">
+                    {calculateSEOScore.issues.filter(i => i.type !== 'success').length} items
+                  </Badge>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <ScrollArea className="h-48 pr-4">
+                  <div className="space-y-2">
+                    {calculateSEOScore.issues.map((issue, idx) => (
+                      <div key={idx} className={`flex items-start gap-2 p-2 rounded-lg ${
+                        issue.type === 'error' ? 'bg-red-500/10' :
+                        issue.type === 'warning' ? 'bg-yellow-500/10' : 'bg-green-500/10'
+                      }`}>
+                        {issue.type === 'error' ? <XCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" /> :
+                         issue.type === 'warning' ? <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" /> :
+                         <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{issue.message}</p>
+                          {issue.fix && <p className="text-xs text-muted-foreground">Fix: {issue.fix}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </CardContent>
+      </Card>
+
+      <Tabs defaultValue="pages" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="pages" className="flex items-center gap-1">
+            <FileText className="w-4 h-4" />
+            Pages
+          </TabsTrigger>
           <TabsTrigger value="meta">Meta Tags</TabsTrigger>
           <TabsTrigger value="social">Social & Analytics</TabsTrigger>
           <TabsTrigger value="codes">Custom Codes</TabsTrigger>
           <TabsTrigger value="technical">Technical</TabsTrigger>
         </TabsList>
 
+        {/* Per-Page SEO Settings */}
+        <TabsContent value="pages" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Globe className="w-5 h-5" />
+                Page-Specific SEO Settings
+              </CardTitle>
+              <CardDescription>Configure unique SEO settings for each page on your site</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                {/* Page Selector */}
+                <div className="lg:col-span-1">
+                  <Label className="mb-2 block">Select Page</Label>
+                  <ScrollArea className="h-[500px] border rounded-lg">
+                    <div className="p-2 space-y-1">
+                      {sitePages.map((page) => {
+                        const pageSeo = getPageSEO(page.path);
+                        const hasCustomSeo = pageSeo.title || pageSeo.description;
+                        return (
+                          <button
+                            key={page.path}
+                            onClick={() => setSelectedPage(page.path)}
+                            className={`w-full text-left p-3 rounded-lg transition-all ${
+                              selectedPage === page.path 
+                                ? 'bg-primary text-primary-foreground' 
+                                : 'hover:bg-muted'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-sm">{page.name}</span>
+                              {hasCustomSeo && (
+                                <CheckCircle className={`w-4 h-4 ${selectedPage === page.path ? 'text-primary-foreground' : 'text-green-500'}`} />
+                              )}
+                            </div>
+                            <span className={`text-xs ${selectedPage === page.path ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                              {page.path}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                </div>
+
+                {/* Page SEO Editor */}
+                <div className="lg:col-span-3 space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                    <div>
+                      <h3 className="font-semibold">{sitePages.find(p => p.path === selectedPage)?.name}</h3>
+                      <p className="text-sm text-muted-foreground">{selectedPage}</p>
+                    </div>
+                    <Badge variant={currentPageSEO.title || currentPageSEO.description ? 'default' : 'secondary'}>
+                      {currentPageSEO.title || currentPageSEO.description ? 'Custom SEO' : 'Using Defaults'}
+                    </Badge>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2">
+                      <Label>Page Title</Label>
+                      <Input
+                        value={currentPageSEO.title}
+                        onChange={(e) => updatePageSEO(selectedPage, 'title', e.target.value)}
+                        placeholder={`${sitePages.find(p => p.path === selectedPage)?.name} | ${settings.siteTitle}`}
+                      />
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Leave empty to use default</span>
+                        <span className={currentPageSEO.title.length > 60 ? 'text-red-500' : 'text-muted-foreground'}>
+                          {currentPageSEO.title.length}/60
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Meta Description</Label>
+                      <Textarea
+                        value={currentPageSEO.description}
+                        onChange={(e) => updatePageSEO(selectedPage, 'description', e.target.value)}
+                        placeholder="Enter a unique description for this page..."
+                        rows={3}
+                      />
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Recommended: 120-160 characters</span>
+                        <span className={currentPageSEO.description.length > 160 ? 'text-red-500' : 'text-muted-foreground'}>
+                          {currentPageSEO.description.length}/160
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Keywords</Label>
+                      <Input
+                        value={currentPageSEO.keywords}
+                        onChange={(e) => updatePageSEO(selectedPage, 'keywords', e.target.value)}
+                        placeholder="keyword1, keyword2, keyword3"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>OG Image URL</Label>
+                        <Input
+                          value={currentPageSEO.ogImage}
+                          onChange={(e) => updatePageSEO(selectedPage, 'ogImage', e.target.value)}
+                          placeholder="/images/page-og.png"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Canonical URL</Label>
+                        <Input
+                          value={currentPageSEO.canonicalUrl}
+                          onChange={(e) => updatePageSEO(selectedPage, 'canonicalUrl', e.target.value)}
+                          placeholder="https://example.com/page"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Schema Type</Label>
+                      <Select
+                        value={currentPageSEO.schemaType}
+                        onValueChange={(value) => updatePageSEO(selectedPage, 'schemaType', value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="WebPage">WebPage</SelectItem>
+                          <SelectItem value="Article">Article</SelectItem>
+                          <SelectItem value="FAQPage">FAQ Page</SelectItem>
+                          <SelectItem value="ContactPage">Contact Page</SelectItem>
+                          <SelectItem value="AboutPage">About Page</SelectItem>
+                          <SelectItem value="Product">Product</SelectItem>
+                          <SelectItem value="Service">Service</SelectItem>
+                          <SelectItem value="Organization">Organization</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex items-center gap-6 pt-2">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={currentPageSEO.noIndex}
+                          onCheckedChange={(checked) => updatePageSEO(selectedPage, 'noIndex', checked)}
+                        />
+                        <Label className="cursor-pointer">No Index</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={currentPageSEO.noFollow}
+                          onCheckedChange={(checked) => updatePageSEO(selectedPage, 'noFollow', checked)}
+                        />
+                        <Label className="cursor-pointer">No Follow</Label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="meta" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Basic Meta Tags</CardTitle>
-              <CardDescription>Core SEO meta information for search engines</CardDescription>
+              <CardTitle>Global Meta Tags</CardTitle>
+              <CardDescription>Default SEO meta information (used when pages don't have custom settings)</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
@@ -180,7 +586,9 @@ const AdminSEO = () => {
                   value={settings.siteTitle}
                   onChange={(e) => updateSetting('siteTitle', e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">{settings.siteTitle.length}/60 characters recommended</p>
+                <p className={`text-xs ${settings.siteTitle.length > 60 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                  {settings.siteTitle.length}/60 characters recommended
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="metaDescription">Meta Description</Label>
@@ -190,7 +598,9 @@ const AdminSEO = () => {
                   onChange={(e) => updateSetting('metaDescription', e.target.value)}
                   rows={3}
                 />
-                <p className="text-xs text-muted-foreground">{settings.metaDescription.length}/160 characters recommended</p>
+                <p className={`text-xs ${settings.metaDescription.length > 160 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                  {settings.metaDescription.length}/160 characters recommended
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="metaKeywords">Meta Keywords</Label>
@@ -306,7 +716,7 @@ const AdminSEO = () => {
                 <Code className="w-5 h-5" />
                 Header Code
               </CardTitle>
-              <CardDescription>Custom code injected into the &lt;head&gt; section (scripts, styles, meta tags)</CardDescription>
+              <CardDescription>Custom code injected into the &lt;head&gt; section</CardDescription>
             </CardHeader>
             <CardContent>
               <Textarea
@@ -314,10 +724,7 @@ const AdminSEO = () => {
                 onChange={(e) => updateSetting('headerCode', e.target.value)}
                 rows={8}
                 className="font-mono text-sm"
-                placeholder="<!-- Add custom scripts, styles, or meta tags here -->
-<script>
-  // Your custom script
-</script>"
+                placeholder="<!-- Add custom scripts, styles, or meta tags here -->"
               />
             </CardContent>
           </Card>
@@ -336,49 +743,44 @@ const AdminSEO = () => {
                 onChange={(e) => updateSetting('footerCode', e.target.value)}
                 rows={8}
                 className="font-mono text-sm"
-                placeholder="<!-- Add tracking scripts, chat widgets, or other code here -->
-<script>
-  // Your custom script
-</script>"
+                placeholder="<!-- Add tracking scripts or chat widgets here -->"
               />
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Custom CSS</CardTitle>
-              <CardDescription>Add custom CSS styles to your site</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Textarea
-                value={settings.customCss}
-                onChange={(e) => updateSetting('customCss', e.target.value)}
-                rows={8}
-                className="font-mono text-sm"
-                placeholder="/* Add custom CSS styles here */
-.my-class {
-  color: red;
-}"
-              />
-            </CardContent>
-          </Card>
+          <div className="grid grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Custom CSS</CardTitle>
+                <CardDescription>Add custom styles</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Textarea
+                  value={settings.customCss}
+                  onChange={(e) => updateSetting('customCss', e.target.value)}
+                  rows={8}
+                  className="font-mono text-sm"
+                  placeholder="/* Custom CSS */"
+                />
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Custom JavaScript</CardTitle>
-              <CardDescription>Add custom JavaScript code (runs after page load)</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Textarea
-                value={settings.customJs}
-                onChange={(e) => updateSetting('customJs', e.target.value)}
-                rows={8}
-                className="font-mono text-sm"
-                placeholder="// Add custom JavaScript here
-console.log('Custom script loaded');"
-              />
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Custom JavaScript</CardTitle>
+                <CardDescription>Add custom scripts</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Textarea
+                  value={settings.customJs}
+                  onChange={(e) => updateSetting('customJs', e.target.value)}
+                  rows={8}
+                  className="font-mono text-sm"
+                  placeholder="// Custom JavaScript"
+                />
+              </CardContent>
+            </Card>
+          </div>
 
           <Card>
             <CardHeader>
@@ -391,12 +793,7 @@ console.log('Custom script loaded');"
                 onChange={(e) => updateSetting('schemaMarkup', e.target.value)}
                 rows={10}
                 className="font-mono text-sm"
-                placeholder='{
-  "@context": "https://schema.org",
-  "@type": "WebSite",
-  "name": "Nullsto",
-  "url": "https://nullsto.com"
-}'
+                placeholder='{"@context": "https://schema.org", "@type": "WebSite"}'
               />
             </CardContent>
           </Card>

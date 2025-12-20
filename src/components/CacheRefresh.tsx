@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 const CACHE_REFRESH_KEY = "nullsto_cache_refresh_version";
-const CACHE_REFRESH_VERSION = "2025-12-20-01";
+const CACHE_REFRESH_VERSION = "2025-12-20-02"; // Bumped to clear all caches
 
 // Settings keys that should be cleared to force fresh load
 const STALE_SETTINGS_KEYS = [

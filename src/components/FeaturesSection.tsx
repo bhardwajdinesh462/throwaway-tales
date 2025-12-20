@@ -67,7 +67,7 @@ const features = [
 
 const FeaturesSection = () => {
   return (
-    <section id="features" className="py-24 relative">
+    <section id="features" className="py-12 relative">
       <div className="absolute inset-0 -z-10">
         <div className="absolute top-1/2 left-0 w-72 h-72 bg-accent/5 rounded-full blur-[100px]" />
         <div className="absolute bottom-0 right-0 w-72 h-72 bg-primary/5 rounded-full blur-[100px]" />
@@ -78,7 +78,7 @@ const FeaturesSection = () => {
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="text-center mb-16"
+          className="text-center mb-8"
         >
           <span className="text-primary text-sm font-medium tracking-wider uppercase">Features</span>
           <h2 className="text-3xl md:text-4xl font-bold mt-4 mb-4 text-foreground">

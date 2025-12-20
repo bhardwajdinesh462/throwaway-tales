@@ -30,13 +30,13 @@ const steps = [
 
 const HowItWorks = () => {
   return (
-    <section id="how-it-works" className="py-24 relative">
+    <section id="how-it-works" className="py-12 relative">
       <div className="container mx-auto px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="text-center mb-16"
+          className="text-center mb-8"
         >
           <span className="text-primary text-sm font-medium tracking-wider uppercase">How It Works</span>
           <h2 className="text-3xl md:text-4xl font-bold mt-4 mb-4 text-foreground">

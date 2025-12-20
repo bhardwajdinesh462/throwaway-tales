@@ -31,7 +31,7 @@ const Index = () => {
         <HeroSection />
         
         {/* Real-time Inbox Header - Below Email Generator */}
-        <section className="py-8 sm:py-12 relative">
+        <section className="py-4 sm:py-6 relative">
           <div className="absolute inset-0 -z-10">
             <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
           </div>
@@ -42,7 +42,7 @@ const Index = () => {
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              className="text-center mb-8"
+              className="text-center mb-4"
             >
               <span className="text-primary text-xs sm:text-sm font-medium tracking-wider uppercase">Your Messages</span>
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mt-2 sm:mt-3 text-foreground">
@@ -54,10 +54,10 @@ const Index = () => {
             </motion.div>
 
             {/* Content Banner - Top */}
-            <BannerDisplay position="content" className="mb-8" />
+            <BannerDisplay position="content" className="mb-4" />
 
             {/* Inbox + Quick Tips - Side by side on large, stacked on small */}
-            <div className="flex flex-col xl:flex-row gap-6 xl:gap-8 items-start">
+            <div className="flex flex-col xl:flex-row gap-4 xl:gap-6 items-start">
               {/* Inbox - Main Content (Left on large screens) */}
               <motion.div
                 className="flex-1 w-full order-1"
@@ -166,7 +166,7 @@ const Index = () => {
         </section>
 
         {/* Live Stats Section - After Inbox */}
-        <section className="py-8 border-y border-border/30">
+        <section className="py-4 border-y border-border/30">
           <div className="container mx-auto px-4">
             <LiveStatsWidget />
           </div>
@@ -176,7 +176,7 @@ const Index = () => {
         <HowItWorks />
 
         {/* Content Banner - Between sections */}
-        <div className="container mx-auto px-4 py-8">
+        <div className="container mx-auto px-4 py-4">
           <BannerDisplay position="content" />
         </div>
 

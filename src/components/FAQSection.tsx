@@ -43,7 +43,7 @@ const faqs = [
 
 const FAQSection = () => {
   return (
-    <section id="faq" className="py-24 relative">
+    <section id="faq" className="py-12 relative">
       <div className="absolute inset-0 -z-10">
         <div className="absolute top-0 right-1/4 w-72 h-72 bg-primary/5 rounded-full blur-[100px]" />
       </div>
@@ -53,7 +53,7 @@ const FAQSection = () => {
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="text-center mb-16"
+          className="text-center mb-8"
         >
           <span className="text-primary text-sm font-medium tracking-wider uppercase">FAQ</span>
           <h2 className="text-3xl md:text-4xl font-bold mt-4 mb-4 text-foreground">

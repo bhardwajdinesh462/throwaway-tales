@@ -8,7 +8,7 @@ const CTASection = () => {
   const { general } = useSettings();
 
   return (
-    <section className="py-24 relative overflow-hidden">
+    <section className="py-12 relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0 -z-10">
         <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent" />

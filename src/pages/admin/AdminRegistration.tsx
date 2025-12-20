@@ -27,24 +27,27 @@ const AdminRegistration = () => {
     const result = await updateSettings(localSettings);
     
     if (result.success) {
-      // Sync email confirmation setting with Supabase Auth
+      // Sync email confirmation setting with backend
       setIsSyncingAuth(true);
       try {
-        const { error } = await supabase.functions.invoke('configure-auth', {
+        const { data, error } = await supabase.functions.invoke('configure-auth', {
           body: {
             autoConfirmEmail: !localSettings.requireEmailConfirmation
           }
         });
         
         if (error) {
-          console.warn('Auth config sync warning:', error);
-          toast.warning("Settings saved, but auth sync may require manual configuration");
+          console.error('Auth config sync error:', error);
+          toast.error("Failed to sync auth settings: " + error.message);
+        } else if (data?.error) {
+          console.error('Auth config sync error:', data.error);
+          toast.error("Failed to sync auth settings: " + data.error);
         } else {
-          toast.success("Registration settings saved!");
+          toast.success("Registration settings saved and synced successfully!");
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error('Auth config error:', e);
-        toast.success("Registration settings saved! Auth configuration may need manual update.");
+        toast.error("Error syncing auth settings: " + (e.message || "Unknown error"));
       } finally {
         setIsSyncingAuth(false);
       }
@@ -226,11 +229,17 @@ const AdminRegistration = () => {
             <CardTitle>Current Status</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="p-4 rounded-lg bg-secondary/30 border border-border">
                 <p className="text-sm text-muted-foreground">Registration</p>
                 <p className={`font-semibold ${localSettings.allowRegistration ? 'text-green-500' : 'text-red-500'}`}>
                   {localSettings.allowRegistration ? 'Open' : 'Closed'}
+                </p>
+              </div>
+              <div className="p-4 rounded-lg bg-secondary/30 border border-border">
+                <p className="text-sm text-muted-foreground">Email Verification</p>
+                <p className={`font-semibold ${localSettings.requireEmailConfirmation ? 'text-primary' : 'text-amber-500'}`}>
+                  {localSettings.requireEmailConfirmation ? 'Required' : 'Optional'}
                 </p>
               </div>
               <div className="p-4 rounded-lg bg-secondary/30 border border-border">

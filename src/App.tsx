@@ -85,6 +85,7 @@ const AdminMailboxes = lazy(() => import("./pages/admin/AdminMailboxes"));
 const AdminEmailLogs = lazy(() => import("./pages/admin/AdminEmailLogs"));
 const AdminMailboxHealth = lazy(() => import("./pages/admin/AdminMailboxHealth"));
 const AdminAnnouncement = lazy(() => import("./pages/admin/AdminAnnouncement"));
+const AdminStatusSettings = lazy(() => import("./pages/admin/AdminStatusSettings"));
 
 // Defer initialization to idle time
 if (typeof requestIdleCallback !== 'undefined') {
@@ -282,6 +283,7 @@ const App = () => (
                             <Route path="email-logs" element={<AdminEmailLogs />} />
                             <Route path="mailbox-health" element={<AdminMailboxHealth />} />
                             <Route path="announcement" element={<AdminAnnouncement />} />
+                            <Route path="status-settings" element={<AdminStatusSettings />} />
                           </Route>
 
                           <Route path="*" element={<NotFound />} />

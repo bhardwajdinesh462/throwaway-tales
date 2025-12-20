@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useSEOSettings } from '@/hooks/useSEOSettings';
 import { useGeneralSettings } from '@/hooks/useGeneralSettings';
 
@@ -27,21 +28,28 @@ const SEOHead = ({
   twitterCard = 'summary_large_image',
   author,
   publishedTime,
-  noIndex = false,
+  noIndex: propNoIndex,
 }: SEOHeadProps) => {
-  const { settings: seoSettings, isLoading: seoLoading } = useSEOSettings();
+  const { settings: seoSettings, isLoading: seoLoading, getPageSEO } = useSEOSettings();
   const { settings: generalSettings, isLoading: generalLoading } = useGeneralSettings();
+  const location = useLocation();
 
   useEffect(() => {
     if (seoLoading || generalLoading) return;
 
-    // Use props if provided, otherwise fall back to settings
-    const title = propTitle || seoSettings.siteTitle;
-    const description = propDescription || seoSettings.metaDescription;
-    const keywords = propKeywords || seoSettings.metaKeywords;
-    const image = propImage || seoSettings.ogImage;
+    // Get page-specific SEO settings
+    const pageSEO = getPageSEO(location.pathname);
+
+    // Priority: prop > page-specific > global settings
+    const title = propTitle || pageSEO.title || seoSettings.siteTitle;
+    const description = propDescription || pageSEO.description || seoSettings.metaDescription;
+    const keywords = propKeywords || pageSEO.keywords || seoSettings.metaKeywords;
+    const image = propImage || pageSEO.ogImage || seoSettings.ogImage;
     const siteName = propSiteName || generalSettings.siteName;
     const authorName = author || `${generalSettings.siteName} Team`;
+    const noIndex = propNoIndex ?? pageSEO.noIndex ?? false;
+    const noFollow = pageSEO.noFollow ?? false;
+    const canonicalUrl = pageSEO.canonicalUrl || url;
 
     // Update document title
     document.title = title;
@@ -64,11 +72,12 @@ const SEOHead = ({
     setMetaTag('author', authorName);
     
     // Robots
-    if (noIndex) {
-      setMetaTag('robots', 'noindex, nofollow');
-    } else {
-      setMetaTag('robots', 'index, follow');
-    }
+    const robotsDirectives: string[] = [];
+    if (noIndex) robotsDirectives.push('noindex');
+    else robotsDirectives.push('index');
+    if (noFollow) robotsDirectives.push('nofollow');
+    else robotsDirectives.push('follow');
+    setMetaTag('robots', robotsDirectives.join(', '));
 
     // Open Graph tags
     setMetaTag('og:title', title, true);
@@ -108,7 +117,7 @@ const SEOHead = ({
       canonical.rel = 'canonical';
       document.head.appendChild(canonical);
     }
-    canonical.href = url;
+    canonical.href = canonicalUrl;
 
     // Inject custom CSS
     if (seoSettings.customCss) {
@@ -133,9 +142,9 @@ const SEOHead = ({
     }
 
   }, [
-    propTitle, propDescription, propKeywords, propImage, propSiteName,
-    url, type, twitterCard, author, publishedTime, noIndex,
-    seoSettings, generalSettings, seoLoading, generalLoading
+    propTitle, propDescription, propKeywords, propImage, propSiteName, propNoIndex,
+    url, type, twitterCard, author, publishedTime,
+    seoSettings, generalSettings, seoLoading, generalLoading, location.pathname, getPageSEO
   ]);
 
   return null;

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 const CACHE_REFRESH_KEY = "nullsto_cache_refresh_version";
-const CACHE_REFRESH_VERSION = "2025-12-19-03";
+const CACHE_REFRESH_VERSION = "2025-12-20-01";
 
 // Settings keys that should be cleared to force fresh load
 const STALE_SETTINGS_KEYS = [
@@ -10,6 +10,7 @@ const STALE_SETTINGS_KEYS = [
   'trashmails_user_settings',
   'trashmails_settings',
   'trashmails_email_templates',
+  'trashmails_seo_settings',
 ];
 
 export default function CacheRefresh() {

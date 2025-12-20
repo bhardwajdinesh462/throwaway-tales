@@ -60,18 +60,20 @@ const Index = () => {
             <div className="flex flex-col xl:flex-row gap-4 xl:gap-6 xl:items-stretch">
               {/* Inbox - Main Content (Left on large screens) */}
               <motion.div
-                className="flex-1 w-full order-1 xl:min-h-full"
+                className="flex-1 w-full order-1 flex flex-col"
                 initial={{ opacity: 0, x: -20 }}
                 whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true }}
                 transition={{ duration: 0.5 }}
               >
-                <Inbox />
+                <div className="h-full flex flex-col">
+                  <Inbox />
+                </div>
               </motion.div>
 
               {/* Quick Tips Card - Right on large screens, below inbox on small */}
               <motion.div 
-                className="w-full xl:w-80 order-2 relative overflow-hidden rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/10 via-background to-accent/10 p-4 sm:p-6 shadow-lg shadow-primary/5 xl:flex xl:flex-col"
+                className="w-full xl:w-80 order-2 relative overflow-hidden rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/10 via-background to-accent/10 p-4 sm:p-6 shadow-lg shadow-primary/5 flex flex-col"
                 initial={{ opacity: 0, scale: 0.95 }}
                 whileInView={{ opacity: 1, scale: 1 }}
                 viewport={{ once: true }}

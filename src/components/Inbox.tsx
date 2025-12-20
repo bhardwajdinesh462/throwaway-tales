@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, RefreshCw, Star, Clock, User, ChevronRight, Inbox as InboxIcon, Loader2, Bell, Shield, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ReceivedEmail } from "@/hooks/useSecureEmailService";
 import { useEmailService } from "@/contexts/EmailServiceContext";
 import { useAuth } from "@/hooks/useSupabaseAuth";
@@ -426,9 +427,9 @@ const Inbox = () => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, delay: 0.4 }}
-      className="w-full"
+      className="w-full h-full flex flex-col"
     >
-      <div className="glass-card overflow-hidden">
+      <div className="glass-card overflow-hidden flex-1 flex flex-col">
         {/* Inbox Header */}
         <div className="flex flex-col gap-3 p-4 border-b border-border sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-1 min-w-0">
@@ -545,7 +546,7 @@ const Inbox = () => {
         </AnimatePresence>
 
         {/* Email List */}
-        <div className="divide-y divide-border">
+        <div className="divide-y divide-border flex-1 overflow-auto">
           <AnimatePresence>
             {isLoading ? (
               <div className="p-12 text-center">
@@ -574,57 +575,93 @@ const Inbox = () => {
                 )}
               </motion.div>
             ) : (
-              receivedEmails.map((email, index) => (
-                <motion.div
-                  key={email.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  transition={{ delay: index * 0.05 }}
-                  onClick={() => handleSelectEmail(email)}
-                  className={`group p-4 cursor-pointer transition-colors hover:bg-secondary/30 ${
-                    !email.is_read ? 'bg-primary/5' : ''
-                  } ${selectedEmail?.id === email.id ? 'bg-secondary/50' : ''}`}
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center">
-                      <User className="w-5 h-5 text-primary" />
-                    </div>
+              receivedEmails.map((email, index) => {
+                // Clean preview snippet - remove MIME artifacts and HTML
+                const getCleanPreview = (body: string | null | undefined) => {
+                  if (!body) return 'No content';
+                  let clean = body
+                    .replace(/<[^>]*>/g, ' ') // Remove HTML tags
+                    .replace(/--[A-Za-z0-9_-]+/g, '') // Remove MIME boundaries
+                    .replace(/Content-Type:[^\n]+/gi, '')
+                    .replace(/Content-Transfer-Encoding:[^\n]+/gi, '')
+                    .replace(/charset=[^\s;]+/gi, '')
+                    .replace(/boundary=[^\s;]+/gi, '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                  return clean.slice(0, 200) || 'No content';
+                };
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={`text-sm truncate ${!email.is_read ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
-                          {email.from_address}
-                        </span>
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Clock className="w-3 h-3" />
-                          <span className="text-xs">{formatTime(email.received_at)}</span>
-                        </div>
-                      </div>
-                      <p className={`text-sm truncate ${!email.is_read ? 'font-medium text-foreground' : 'text-foreground/80'}`}>
-                        {email.subject || t('noSubject')}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate mt-1">
-                        {email.body?.slice(0, 100) || t('noContent')}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {user && (
-                        <button
-                          onClick={(e) => handleSave(email.id, e)}
-                          className={`p-1.5 rounded hover:bg-secondary transition-colors ${
-                            savedEmails.has(email.id) ? 'text-yellow-400' : 'text-muted-foreground'
-                          }`}
+                return (
+                  <TooltipProvider key={email.id} delayDuration={400}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <motion.div
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: 20 }}
+                          transition={{ delay: index * 0.05 }}
+                          onClick={() => handleSelectEmail(email)}
+                          className={`group p-4 cursor-pointer transition-colors hover:bg-secondary/30 ${
+                            !email.is_read ? 'bg-primary/5' : ''
+                          } ${selectedEmail?.id === email.id ? 'bg-secondary/50' : ''}`}
                         >
-                          <Star className="w-4 h-4" fill={savedEmails.has(email.id) ? "currentColor" : "none"} />
-                        </button>
-                      )}
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                    </div>
-                  </div>
-                </motion.div>
-              ))
+                          <div className="flex items-start gap-4">
+                            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center">
+                              <User className="w-5 h-5 text-primary" />
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className={`text-sm truncate ${!email.is_read ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
+                                  {email.from_address}
+                                </span>
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                  <Clock className="w-3 h-3" />
+                                  <span className="text-xs">{formatTime(email.received_at)}</span>
+                                </div>
+                              </div>
+                              <p className={`text-sm truncate ${!email.is_read ? 'font-medium text-foreground' : 'text-foreground/80'}`}>
+                                {email.subject || t('noSubject')}
+                              </p>
+                              <p className="text-xs text-muted-foreground truncate mt-1">
+                                {email.body?.slice(0, 100) || t('noContent')}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {user && (
+                                <button
+                                  onClick={(e) => handleSave(email.id, e)}
+                                  className={`p-1.5 rounded hover:bg-secondary transition-colors ${
+                                    savedEmails.has(email.id) ? 'text-yellow-400' : 'text-muted-foreground'
+                                  }`}
+                                >
+                                  <Star className="w-4 h-4" fill={savedEmails.has(email.id) ? "currentColor" : "none"} />
+                                </button>
+                              )}
+                              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                            </div>
+                          </div>
+                        </motion.div>
+                      </TooltipTrigger>
+                      <TooltipContent 
+                        side="right" 
+                        className="max-w-xs p-3 bg-popover border border-border shadow-lg"
+                        sideOffset={8}
+                      >
+                        <div className="space-y-2">
+                          <p className="font-medium text-sm text-foreground line-clamp-1">
+                            {email.subject || 'No Subject'}
+                          </p>
+                          <p className="text-xs text-muted-foreground line-clamp-4">
+                            {getCleanPreview(email.body)}
+                          </p>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                );
+              })
             )}
           </AnimatePresence>
         </div>

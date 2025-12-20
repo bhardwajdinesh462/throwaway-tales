@@ -25,6 +25,15 @@
   to { transform: scaleX(1); }
 }
 
+@keyframes gradient-x {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
 .animate-pulse-slow {
   animation: pulse-slow 8s ease-in-out infinite;
 }
@@ -36,6 +45,10 @@
 .animate-scale-x {
   animation: scale-x 0.6s ease-out forwards;
   transform-origin: left;
+}
+
+.animate-gradient-x {
+  animation: gradient-x 4s ease infinite;
 }
 
 @layer base {

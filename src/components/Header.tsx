@@ -8,6 +8,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAppearanceSettings } from "@/hooks/useAppearanceSettings";
 import { useGeneralSettings } from "@/hooks/useGeneralSettings";
+import AnnouncementBar from "./AnnouncementBar";
 
 import {
   DropdownMenu,
@@ -74,6 +75,9 @@ const Header = () => {
 
   return (
     <>
+      {/* Announcement Bar */}
+      <AnnouncementBar />
+
       {/* Mobile Menu Overlay */}
       <AnimatePresence>
         {mobileMenuOpen && (

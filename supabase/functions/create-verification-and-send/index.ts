@@ -22,12 +22,96 @@ interface CreateVerificationRequest {
 }
 
 interface MailboxConfig {
-  mailbox_id: string | null;
+  mailbox_id: string;
   smtp_host: string;
   smtp_port: number;
   smtp_user: string;
   smtp_password: string;
   smtp_from: string;
+}
+
+// Sleep helper for retry logic
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Get all available mailboxes for failover
+async function getAllMailboxes(supabase: any): Promise<MailboxConfig[]> {
+  const { data, error } = await supabase
+    .from('mailboxes')
+    .select('id, smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, last_error, last_error_at, emails_sent_this_hour, hourly_limit, emails_sent_today, daily_limit')
+    .eq('is_active', true)
+    .not('smtp_host', 'is', null)
+    .not('smtp_user', 'is', null)
+    .not('smtp_password', 'is', null)
+    .order('priority', { ascending: true });
+
+  if (error || !data) {
+    console.log('[create-verification-and-send] No mailboxes found:', error?.message);
+    return [];
+  }
+
+  // Filter out mailboxes with recent errors or at limit
+  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  
+  return data
+    .filter((mb: any) => {
+      // Check if at hourly/daily limit
+      if (mb.emails_sent_this_hour >= (mb.hourly_limit || 50)) return false;
+      if (mb.emails_sent_today >= (mb.daily_limit || 500)) return false;
+      // If no recent error, include it
+      if (!mb.last_error_at) return true;
+      // If error was more than 30 mins ago, include it (allow retry)
+      return mb.last_error_at < thirtyMinutesAgo;
+    })
+    .map((mb: any) => ({
+      mailbox_id: mb.id,
+      smtp_host: mb.smtp_host,
+      smtp_port: mb.smtp_port || 587,
+      smtp_user: mb.smtp_user,
+      smtp_password: mb.smtp_password,
+      smtp_from: mb.smtp_from || mb.smtp_user,
+    }));
+}
+
+// Check if error is permanent (don't retry with same mailbox)
+function isPermanentError(errorMessage: string): boolean {
+  const permanentErrors = ['535', '550', '551', '552', '553', '554', 'Authentication', 'auth failed', 'suspicious', 'blocked', 'blacklisted'];
+  return permanentErrors.some(e => errorMessage.toLowerCase().includes(e.toLowerCase()));
+}
+
+// Try to send email with a specific mailbox config
+async function trySendEmail(
+  config: { host: string; port: number; username: string; password: string; fromAddress: string },
+  emailData: { to: string; subject: string; plainText: string; html: string }
+): Promise<{ success: boolean; error?: string }> {
+  const client = new SMTPClient({
+    connection: {
+      hostname: config.host,
+      port: config.port,
+      tls: config.port === 465,
+      auth: {
+        username: config.username,
+        password: config.password,
+      },
+    },
+  });
+
+  try {
+    await client.send({
+      from: config.fromAddress,
+      to: emailData.to,
+      subject: emailData.subject,
+      content: emailData.plainText,
+      html: emailData.html,
+    });
+
+    await client.close();
+    return { success: true };
+  } catch (error: any) {
+    try { await client.close(); } catch { /* ignore */ }
+    return { success: false, error: error.message };
+  }
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -39,7 +123,7 @@ serve(async (req: Request): Promise<Response> => {
   try {
     const { userId, email, name }: CreateVerificationRequest = await req.json();
 
-    console.log("Creating verification for:", { userId, email, name });
+    console.log("[create-verification-and-send] Creating verification for:", { userId, email, name });
 
     if (!userId || !email) {
       return new Response(
@@ -53,7 +137,7 @@ serve(async (req: Request): Promise<Response> => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!supabaseUrl || !serviceRoleKey) {
-      console.error("Missing Supabase environment variables");
+      console.error("[create-verification-and-send] Missing Supabase environment variables");
       return new Response(
         JSON.stringify({ error: "Server configuration error" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -88,79 +172,40 @@ serve(async (req: Request): Promise<Response> => {
       });
 
     if (insertError) {
-      console.error("Failed to insert verification record:", insertError);
+      console.error("[create-verification-and-send] Failed to insert verification record:", insertError);
       return new Response(
         JSON.stringify({ error: "Failed to create verification record: " + insertError.message }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log("Verification record created successfully");
+    console.log("[create-verification-and-send] Verification record created successfully");
 
-    // Get site settings for email
+    // Get site settings for email - check both 'general' and 'general_settings' keys
+    let siteName = "Nullsto";
+    let siteUrl = "https://nullsto.edu.pl"; // Default to correct domain
+
     const { data: appSettings } = await supabase
       .from('app_settings')
-      .select('value')
-      .eq('key', 'general_settings')
-      .single();
+      .select('key, value')
+      .in('key', ['general', 'general_settings']);
 
-    const siteName = appSettings?.value?.siteName || "Nullsto";
-    const siteUrl = appSettings?.value?.siteUrl || Deno.env.get("SITE_URL") || "https://nullsto.com";
-
-    // Construct verification link
-    // Use raw token in the link (will be hashed for comparison when verifying)
-    const verifyLink = `${siteUrl}/verify-email?token=${rawToken}`;
-
-    // Try to get mailbox from load balancer (database) first
-    let mailboxConfig: MailboxConfig | null = null;
-    
-    const { data: mailboxData } = await supabase.rpc('select_available_mailbox');
-    
-    if (mailboxData && mailboxData.length > 0) {
-      const mb = mailboxData[0];
-      mailboxConfig = {
-        mailbox_id: mb.mailbox_id,
-        smtp_host: mb.smtp_host,
-        smtp_port: mb.smtp_port,
-        smtp_user: mb.smtp_user,
-        smtp_password: mb.smtp_password,
-        smtp_from: mb.smtp_from || mb.smtp_user
-      };
-      console.log(`Using mailbox from database: ${mailboxConfig.mailbox_id}`);
-    } else {
-      // Fall back to environment variables
-      const smtpHost = Deno.env.get("SMTP_HOST");
-      const smtpPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
-      const smtpUser = Deno.env.get("SMTP_USER");
-      const smtpPass = Deno.env.get("SMTP_PASSWORD");
-      const smtpFrom = Deno.env.get("SMTP_FROM") || smtpUser;
-
-      if (smtpHost && smtpUser && smtpPass) {
-        mailboxConfig = {
-          mailbox_id: null,
-          smtp_host: smtpHost,
-          smtp_port: smtpPort,
-          smtp_user: smtpUser,
-          smtp_password: smtpPass,
-          smtp_from: smtpFrom || `noreply@${siteName.toLowerCase()}.com`
-        };
-        console.log("Using SMTP from environment variables");
+    if (appSettings && appSettings.length > 0) {
+      for (const setting of appSettings) {
+        if (setting.value?.siteName) siteName = setting.value.siteName;
+        if (setting.value?.siteUrl) siteUrl = setting.value.siteUrl;
       }
     }
 
-    if (!mailboxConfig) {
-      console.error("SMTP not configured - skipping email send");
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          warning: "Verification created but email not sent (SMTP not configured)",
-          token: rawToken
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // Ensure siteUrl doesn't have trailing slash
+    siteUrl = siteUrl.replace(/\/$/, '');
 
+    console.log(`[create-verification-and-send] Using site URL: ${siteUrl}`);
+
+    // Construct verification link with raw token
+    const verifyLink = `${siteUrl}/verify-email?token=${rawToken}`;
     const userName = name || email.split('@')[0];
+    const subject = `Verify your email for ${siteName}`;
 
     // Create HTML email body
     const htmlBody = `<!DOCTYPE html>
@@ -201,67 +246,129 @@ This link will expire in 24 hours.
 
 If you didn't create an account with ${siteName}, you can safely ignore this email.`;
 
-    try {
-      // Create SMTP client using denomailer
-      const client = new SMTPClient({
-        connection: {
-          hostname: mailboxConfig.smtp_host,
-          port: mailboxConfig.smtp_port,
-          tls: mailboxConfig.smtp_port === 465,
-          auth: {
-            username: mailboxConfig.smtp_user,
-            password: mailboxConfig.smtp_password,
-          },
-        },
-      });
+    // Get all available mailboxes for failover
+    const mailboxes = await getAllMailboxes(supabase);
+    console.log(`[create-verification-and-send] Found ${mailboxes.length} available mailboxes`);
 
-      // Send the email with proper multipart content
-      await client.send({
-        from: mailboxConfig.smtp_from,
-        to: email,
-        subject: `Verify your email for ${siteName}`,
-        content: textBody,
-        html: htmlBody,
-      });
+    // Also check for env fallback
+    const envHost = Deno.env.get("SMTP_HOST");
+    const envPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
+    const envUser = Deno.env.get("SMTP_USER");
+    const envPass = Deno.env.get("SMTP_PASSWORD");
+    const envFrom = Deno.env.get("SMTP_FROM") || envUser;
+    const hasEnvFallback = envHost && envUser && envPass;
 
-      await client.close();
-
-      // Increment mailbox usage if using database mailbox
-      if (mailboxConfig.mailbox_id) {
-        await supabase.rpc('increment_mailbox_usage', { p_mailbox_id: mailboxConfig.mailbox_id });
-        console.log(`Incremented usage for mailbox ${mailboxConfig.mailbox_id}`);
-      }
-
-      console.log("Verification email sent successfully to:", email);
-
-      return new Response(
-        JSON.stringify({ success: true, message: "Verification email sent" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    } catch (smtpError: any) {
-      console.error("SMTP error:", smtpError);
-      
-      // Record error for database mailbox
-      if (mailboxConfig.mailbox_id) {
-        await supabase.rpc('record_mailbox_error', { 
-          p_mailbox_id: mailboxConfig.mailbox_id, 
-          p_error: smtpError.message || 'SMTP send failed'
-        });
-      }
-
+    if (mailboxes.length === 0 && !hasEnvFallback) {
+      console.error("[create-verification-and-send] SMTP not configured - skipping email send");
       return new Response(
         JSON.stringify({ 
           success: true, 
-          warning: "Verification created but email failed to send",
-          error: smtpError.message,
+          warning: "Verification created but email not sent (SMTP not configured)",
           token: rawToken
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
+    // Try each mailbox with failover
+    let lastError: string | null = null;
+    let attemptCount = 0;
+
+    for (const mailbox of mailboxes) {
+      attemptCount++;
+      console.log(`[create-verification-and-send] Attempt ${attemptCount}: Trying mailbox ${mailbox.smtp_from} via ${mailbox.smtp_host}`);
+
+      const result = await trySendEmail(
+        {
+          host: mailbox.smtp_host,
+          port: mailbox.smtp_port,
+          username: mailbox.smtp_user,
+          password: String(mailbox.smtp_password),
+          fromAddress: mailbox.smtp_from,
+        },
+        {
+          to: email,
+          subject,
+          plainText: textBody,
+          html: htmlBody,
+        }
+      );
+
+      if (result.success) {
+        // Increment mailbox usage
+        await supabase.rpc('increment_mailbox_usage', { p_mailbox_id: mailbox.mailbox_id });
+        console.log(`[create-verification-and-send] Email sent successfully via ${mailbox.smtp_from}`);
+
+        return new Response(
+          JSON.stringify({ success: true, message: "Verification email sent" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Failed - log and mark unhealthy if permanent error
+      lastError = result.error || 'Unknown error';
+      console.error(`[create-verification-and-send] Mailbox ${mailbox.smtp_from} failed: ${lastError}`);
+
+      if (isPermanentError(lastError)) {
+        await supabase.rpc('record_mailbox_error', { 
+          p_mailbox_id: mailbox.mailbox_id, 
+          p_error: lastError 
+        });
+      }
+
+      // Small delay before next attempt
+      await sleep(500);
+    }
+
+    // All database mailboxes failed - try env fallback
+    if (hasEnvFallback) {
+      attemptCount++;
+      console.log(`[create-verification-and-send] Attempt ${attemptCount}: Trying env fallback ${envHost}`);
+
+      const result = await trySendEmail(
+        {
+          host: envHost!,
+          port: envPort,
+          username: envUser!,
+          password: String(envPass),
+          fromAddress: envFrom!,
+        },
+        {
+          to: email,
+          subject,
+          plainText: textBody,
+          html: htmlBody,
+        }
+      );
+
+      if (result.success) {
+        console.log(`[create-verification-and-send] Email sent successfully via env fallback`);
+
+        return new Response(
+          JSON.stringify({ success: true, message: "Verification email sent" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      lastError = result.error || 'Unknown error';
+      console.error(`[create-verification-and-send] Env fallback failed: ${lastError}`);
+    }
+
+    // All attempts failed - return with warning but success (verification was created)
+    console.error(`[create-verification-and-send] All ${attemptCount} SMTP attempts failed`);
+    
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        warning: `Verification created but email failed to send after ${attemptCount} attempts`,
+        error: lastError,
+        token: rawToken
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+
   } catch (error: any) {
-    console.error("Error in create-verification-and-send:", error);
+    console.error("[create-verification-and-send] Error:", error);
     return new Response(
       JSON.stringify({ error: error.message || "Internal server error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

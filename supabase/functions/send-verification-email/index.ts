@@ -184,15 +184,26 @@ serve(async (req: Request): Promise<Response> => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch general settings for site name
-    const { data: settingsData } = await supabase
-      .from('app_settings')
-      .select('value')
-      .eq('key', 'general_settings')
-      .single();
+    // Fetch general settings for site name - check both 'general' and 'general_settings' keys
+    let siteName = "Nullsto Temp Mail";
+    let siteUrl = "https://nullsto.edu.pl"; // Default to correct domain
 
-    const siteName = settingsData?.value?.siteName || 'Nullsto Temp Mail';
-    const siteUrl = settingsData?.value?.siteUrl || 'https://nullsto.edu.pl';
+    const { data: appSettings } = await supabase
+      .from('app_settings')
+      .select('key, value')
+      .in('key', ['general', 'general_settings']);
+
+    if (appSettings && appSettings.length > 0) {
+      for (const setting of appSettings) {
+        if (setting.value?.siteName) siteName = setting.value.siteName;
+        if (setting.value?.siteUrl) siteUrl = setting.value.siteUrl;
+      }
+    }
+
+    // Ensure siteUrl doesn't have trailing slash
+    siteUrl = siteUrl.replace(/\/$/, '');
+
+    console.log(`[send-verification-email] Using site URL: ${siteUrl}`);
 
     // Build verification link
     const verifyLink = `${siteUrl}/verify-email?token=${token}`;

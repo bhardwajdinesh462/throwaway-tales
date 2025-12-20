@@ -24,6 +24,11 @@ interface MailboxConfig {
   smtp_from: string;
 }
 
+// Sleep helper for retry logic
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // Helper to format date
 const formatDate = (): string => {
   return new Date().toLocaleDateString("en-US", {
@@ -47,6 +52,86 @@ const parseUserAgent = (ua: string): string => {
   if (ua.includes("Opera")) return "Opera";
   return "Unknown Browser";
 };
+
+// Get all available mailboxes for failover
+async function getAllMailboxes(supabase: any): Promise<MailboxConfig[]> {
+  const { data, error } = await supabase
+    .from('mailboxes')
+    .select('id, smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, last_error, last_error_at, emails_sent_this_hour, hourly_limit, emails_sent_today, daily_limit')
+    .eq('is_active', true)
+    .not('smtp_host', 'is', null)
+    .not('smtp_user', 'is', null)
+    .not('smtp_password', 'is', null)
+    .order('priority', { ascending: true });
+
+  if (error || !data) {
+    console.log('[auth-email-hook] No mailboxes found:', error?.message);
+    return [];
+  }
+
+  // Filter out mailboxes with recent errors or at limit
+  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  
+  return data
+    .filter((mb: any) => {
+      // Check if at hourly/daily limit
+      if (mb.emails_sent_this_hour >= (mb.hourly_limit || 50)) return false;
+      if (mb.emails_sent_today >= (mb.daily_limit || 500)) return false;
+      // If no recent error, include it
+      if (!mb.last_error_at) return true;
+      // If error was more than 30 mins ago, include it (allow retry)
+      return mb.last_error_at < thirtyMinutesAgo;
+    })
+    .map((mb: any) => ({
+      mailbox_id: mb.id,
+      smtp_host: mb.smtp_host,
+      smtp_port: mb.smtp_port || 587,
+      smtp_user: mb.smtp_user,
+      smtp_password: mb.smtp_password,
+      smtp_from: mb.smtp_from || mb.smtp_user,
+    }));
+}
+
+// Check if error is permanent (don't retry with same mailbox)
+function isPermanentError(errorMessage: string): boolean {
+  const permanentErrors = ['535', '550', '551', '552', '553', '554', 'Authentication', 'auth failed', 'suspicious', 'blocked', 'blacklisted'];
+  return permanentErrors.some(e => errorMessage.toLowerCase().includes(e.toLowerCase()));
+}
+
+// Try to send email with a specific mailbox config
+async function trySendEmail(
+  config: { host: string; port: number; username: string; password: string; fromAddress: string; siteName: string },
+  emailData: { to: string; subject: string; html: string }
+): Promise<{ success: boolean; error?: string }> {
+  const { SMTPClient } = await import("https://deno.land/x/denomailer@1.6.0/mod.ts");
+
+  const client = new SMTPClient({
+    connection: {
+      hostname: config.host,
+      port: config.port,
+      tls: config.port === 465,
+      auth: {
+        username: config.username,
+        password: config.password,
+      },
+    },
+  });
+
+  try {
+    await client.send({
+      from: `${config.siteName} <${config.fromAddress}>`,
+      to: emailData.to,
+      subject: emailData.subject,
+      html: emailData.html,
+    });
+
+    await client.close();
+    return { success: true };
+  } catch (error: any) {
+    try { await client.close(); } catch { /* ignore */ }
+    return { success: false, error: error.message };
+  }
+}
 
 serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
@@ -95,11 +180,26 @@ serve(async (req: Request): Promise<Response> => {
       console.error("[auth-email-hook] Template fetch error:", templateError);
     }
 
-    // Fetch general settings
-    const { data: settingsData } = await supabase.from("app_settings").select("value").eq("key", "general_settings").single();
+    // Fetch general settings - check both 'general' and 'general_settings' keys
+    let siteName = "Nullsto";
+    let siteUrl = "https://nullsto.edu.pl"; // Default to correct domain
 
-    const siteName = settingsData?.value?.siteName || "Nullsto";
-    const siteUrl = settingsData?.value?.siteUrl || "https://nullsto.com";
+    const { data: appSettings } = await supabase
+      .from("app_settings")
+      .select("key, value")
+      .in("key", ["general", "general_settings"]);
+
+    if (appSettings && appSettings.length > 0) {
+      for (const setting of appSettings) {
+        if (setting.value?.siteName) siteName = setting.value.siteName;
+        if (setting.value?.siteUrl) siteUrl = setting.value.siteUrl;
+      }
+    }
+
+    // Ensure siteUrl doesn't have trailing slash
+    siteUrl = siteUrl.replace(/\/$/, '');
+
+    console.log(`[auth-email-hook] Using site URL: ${siteUrl}`);
 
     // Build action URL
     let actionUrl = redirectUrl || siteUrl;
@@ -154,60 +254,6 @@ serve(async (req: Request): Promise<Response> => {
     subject = replaceVariables(subject);
     body = replaceVariables(body);
 
-    // Get SMTP settings from mailbox load balancer
-    let mailboxConfig: MailboxConfig | null = null;
-    let host: string | undefined;
-    let port: number = 587;
-    let username: string | undefined;
-    let password: string | undefined;
-    let fromAddress: string | undefined;
-
-    // Try to get mailbox from database using load balancer
-    const { data: mailboxData, error: mailboxError } = await supabase.rpc('select_available_mailbox');
-    
-    if (!mailboxError && mailboxData && mailboxData.length > 0) {
-      mailboxConfig = mailboxData[0] as MailboxConfig;
-      host = mailboxConfig.smtp_host;
-      port = mailboxConfig.smtp_port;
-      username = mailboxConfig.smtp_user;
-      password = mailboxConfig.smtp_password;
-      fromAddress = mailboxConfig.smtp_from || username;
-      console.log(`[auth-email-hook] Using mailbox: ${mailboxConfig.mailbox_id}`);
-    } else {
-      // Fallback to environment variables
-      console.log('[auth-email-hook] No mailbox available, falling back to env vars');
-      host = Deno.env.get("SMTP_HOST");
-      port = parseInt(Deno.env.get("SMTP_PORT") || "587");
-      username = Deno.env.get("SMTP_USER");
-      password = Deno.env.get("SMTP_PASSWORD");
-      fromAddress = Deno.env.get("SMTP_FROM") || username;
-    }
-
-    if (!host || !username || !password) {
-      console.error("[auth-email-hook] Missing SMTP configuration");
-      return new Response(JSON.stringify({ success: false, error: "SMTP configuration incomplete. Please configure a mailbox in Admin > Mailboxes." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    console.log(`[auth-email-hook] Sending ${type} email to ${email} via ${host}:${port}`);
-
-    // Send email
-    const { SMTPClient } = await import("https://deno.land/x/denomailer@1.6.0/mod.ts");
-
-    const client = new SMTPClient({
-      connection: {
-        hostname: host,
-        port: port,
-        tls: port === 465,
-        auth: {
-          username: username,
-          password: password,
-        },
-      },
-    });
-
     // Create HTML email
     const htmlBody = `
       <!DOCTYPE html>
@@ -256,37 +302,113 @@ serve(async (req: Request): Promise<Response> => {
       </html>
     `;
 
-    try {
-      await client.send({
-        from: `${siteName} <${fromAddress}>`,
-        to: email,
-        subject: subject,
-        html: htmlBody,
-      });
+    // Get all available mailboxes for failover
+    const mailboxes = await getAllMailboxes(supabase);
+    console.log(`[auth-email-hook] Found ${mailboxes.length} available mailboxes`);
 
-      await client.close();
+    // Also check for env fallback
+    const envHost = Deno.env.get("SMTP_HOST");
+    const envPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
+    const envUser = Deno.env.get("SMTP_USER");
+    const envPass = Deno.env.get("SMTP_PASSWORD");
+    const envFrom = Deno.env.get("SMTP_FROM") || envUser;
+    const hasEnvFallback = envHost && envUser && envPass;
 
-      // Increment mailbox usage if using database mailbox
-      if (mailboxConfig) {
-        await supabase.rpc('increment_mailbox_usage', { p_mailbox_id: mailboxConfig.mailbox_id });
-      }
-
-      console.log(`[auth-email-hook] ${type} email sent successfully to ${email}`);
-
-      return new Response(JSON.stringify({ success: true, message: `${type} email sent to ${email}` }), {
-        status: 200,
+    if (mailboxes.length === 0 && !hasEnvFallback) {
+      console.error("[auth-email-hook] Missing SMTP configuration");
+      return new Response(JSON.stringify({ success: false, error: "SMTP configuration incomplete. Please configure a mailbox in Admin > Mailboxes." }), {
+        status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-    } catch (sendError: any) {
-      // Record error if using database mailbox
-      if (mailboxConfig) {
-        await supabase.rpc('record_mailbox_error', { 
-          p_mailbox_id: mailboxConfig.mailbox_id, 
-          p_error: sendError.message 
+    }
+
+    // Try each mailbox with failover
+    let lastError: string | null = null;
+    let attemptCount = 0;
+
+    for (const mailbox of mailboxes) {
+      attemptCount++;
+      console.log(`[auth-email-hook] Attempt ${attemptCount}: Trying mailbox ${mailbox.smtp_from} via ${mailbox.smtp_host}`);
+
+      const result = await trySendEmail(
+        {
+          host: mailbox.smtp_host,
+          port: mailbox.smtp_port,
+          username: mailbox.smtp_user,
+          password: String(mailbox.smtp_password),
+          fromAddress: mailbox.smtp_from,
+          siteName,
+        },
+        {
+          to: email,
+          subject,
+          html: htmlBody,
+        }
+      );
+
+      if (result.success) {
+        // Increment mailbox usage
+        await supabase.rpc('increment_mailbox_usage', { p_mailbox_id: mailbox.mailbox_id });
+        console.log(`[auth-email-hook] ${type} email sent successfully to ${email} via ${mailbox.smtp_from}`);
+
+        return new Response(JSON.stringify({ success: true, message: `${type} email sent to ${email}` }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      throw sendError;
+
+      // Failed - log and mark unhealthy if permanent error
+      lastError = result.error || 'Unknown error';
+      console.error(`[auth-email-hook] Mailbox ${mailbox.smtp_from} failed: ${lastError}`);
+
+      if (isPermanentError(lastError)) {
+        await supabase.rpc('record_mailbox_error', { 
+          p_mailbox_id: mailbox.mailbox_id, 
+          p_error: lastError 
+        });
+      }
+
+      // Small delay before next attempt
+      await sleep(500);
     }
+
+    // All database mailboxes failed - try env fallback
+    if (hasEnvFallback) {
+      attemptCount++;
+      console.log(`[auth-email-hook] Attempt ${attemptCount}: Trying env fallback ${envHost}`);
+
+      const result = await trySendEmail(
+        {
+          host: envHost!,
+          port: envPort,
+          username: envUser!,
+          password: String(envPass),
+          fromAddress: envFrom!,
+          siteName,
+        },
+        {
+          to: email,
+          subject,
+          html: htmlBody,
+        }
+      );
+
+      if (result.success) {
+        console.log(`[auth-email-hook] ${type} email sent successfully via env fallback`);
+
+        return new Response(JSON.stringify({ success: true, message: `${type} email sent to ${email}` }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      lastError = result.error || 'Unknown error';
+      console.error(`[auth-email-hook] Env fallback failed: ${lastError}`);
+    }
+
+    // All attempts failed
+    throw new Error(`All ${attemptCount} SMTP attempts failed. Last error: ${lastError}`);
+
   } catch (error: any) {
     console.error("[auth-email-hook] Error:", error);
     return new Response(JSON.stringify({ success: false, error: error.message }), {

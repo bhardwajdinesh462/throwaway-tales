@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { storage } from '@/lib/storage';
 
@@ -74,46 +74,70 @@ export const useSEOSettings = () => {
   const [settings, setSettings] = useState<SEOSettings>(defaultSettings);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        // Always fetch fresh from database to ensure admin changes are reflected
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value, updated_at')
-          .eq('key', 'seo')
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+  const fetchSettings = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('value, updated_at')
+        .eq('key', 'seo')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-        if (!error && data?.value) {
-          const dbSettings = data.value as unknown as SEOSettings;
-          const merged = { ...defaultSettings, ...dbSettings, pages: { ...defaultSettings.pages, ...dbSettings.pages } };
-          setSettings(merged);
-          // Update local storage cache with latest
-          storage.set(SEO_SETTINGS_KEY, merged);
-        } else {
-          // Fallback to local storage only if database fails
-          const localSettings = storage.get<SEOSettings>(SEO_SETTINGS_KEY, defaultSettings);
-          setSettings(localSettings);
-        }
-      } catch (e) {
-        console.error('Error loading SEO settings:', e);
+      if (!error && data?.value) {
+        const dbSettings = data.value as unknown as SEOSettings;
+        const merged = { ...defaultSettings, ...dbSettings, pages: { ...defaultSettings.pages, ...dbSettings.pages } };
+        setSettings(merged);
+        // Update local storage cache with latest
+        storage.set(SEO_SETTINGS_KEY, merged);
+      } else {
+        // Fallback to local storage only if database fails
         const localSettings = storage.get<SEOSettings>(SEO_SETTINGS_KEY, defaultSettings);
         setSettings(localSettings);
-      } finally {
-        setIsLoading(false);
       }
-    };
-
-    loadSettings();
+    } catch (e) {
+      console.error('Error loading SEO settings:', e);
+      const localSettings = storage.get<SEOSettings>(SEO_SETTINGS_KEY, defaultSettings);
+      setSettings(localSettings);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  const getPageSEO = (path: string): PageSEO => {
-    return settings.pages[path] || { ...defaultPageSEO };
-  };
+  useEffect(() => {
+    fetchSettings();
 
-  return { settings, isLoading, getPageSEO, defaultPageSEO };
+    // Subscribe to real-time updates on app_settings for SEO changes
+    const channel = supabase
+      .channel('seo-settings-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'app_settings',
+        },
+        (payload) => {
+          // Check if the change is for 'seo' key
+          const newRecord = payload.new as { key?: string; value?: unknown } | undefined;
+          if (newRecord?.key === 'seo') {
+            console.log('[useSEOSettings] SEO settings changed in database, refetching...');
+            fetchSettings();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchSettings]);
+
+  const getPageSEO = useCallback((path: string): PageSEO => {
+    return settings.pages[path] || { ...defaultPageSEO };
+  }, [settings.pages]);
+
+  return { settings, isLoading, getPageSEO, defaultPageSEO, refetch: fetchSettings };
 };
 
 export default useSEOSettings;

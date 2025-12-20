@@ -180,11 +180,36 @@ function normalizeEmailBodies(body: string | null, htmlBody: string | null): { b
   };
 }
 
-// Retry helper for transient network errors
+// Check if error looks like a retryable gateway/network error
+function isRetryableError(error: unknown): boolean {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorStr = errorMessage.toLowerCase();
+  
+  return (
+    errorStr.includes('connection reset') || 
+    errorStr.includes('connection error') ||
+    errorStr.includes('sendrequest') ||
+    errorStr.includes('502') ||
+    errorStr.includes('503') ||
+    errorStr.includes('504') ||
+    errorStr.includes('bad gateway') ||
+    errorStr.includes('service unavailable') ||
+    errorStr.includes('gateway timeout') ||
+    errorStr.includes('timeout') ||
+    errorStr.includes('econnreset') ||
+    errorStr.includes('network') ||
+    errorStr.includes('pgrst') ||
+    // Check for HTML error responses (Cloudflare etc)
+    errorStr.includes('<html') ||
+    errorStr.includes('cloudflare')
+  );
+}
+
+// Retry helper for transient network errors with exponential backoff
 async function withRetry<T>(
   fn: () => Promise<T>,
-  maxRetries = 3,
-  delay = 500
+  maxRetries = 5,
+  initialDelay = 1000
 ): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -192,16 +217,14 @@ async function withRetry<T>(
       return await fn();
     } catch (error) {
       lastError = error;
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const isRetryable = errorMessage.includes('connection reset') || 
-                          errorMessage.includes('connection error') ||
-                          errorMessage.includes('SendRequest');
       
-      if (!isRetryable || attempt === maxRetries) {
+      if (!isRetryableError(error) || attempt === maxRetries) {
         throw error;
       }
-      console.log(`[secure-email-access] Retry ${attempt}/${maxRetries} after error: ${errorMessage}`);
-      await new Promise(r => setTimeout(r, delay * attempt));
+      
+      const delay = initialDelay * Math.pow(2, attempt - 1); // Exponential backoff
+      console.log(`[secure-email-access] Retry ${attempt}/${maxRetries} after error, waiting ${delay}ms`);
+      await new Promise(r => setTimeout(r, delay));
     }
   }
   throw lastError;
@@ -230,40 +253,44 @@ serve(async (req: Request) => {
       );
     }
 
-    // Verify the token matches - use maybeSingle to avoid error when not found, with retry
+    // Verify the token matches - use maybeSingle to avoid error when not found, with improved retry
     let tempEmail: { id: string; secret_token: string; address: string; domain_id: string; expires_at: string; is_active: boolean } | null = null;
     let verifyError: Error | null = null;
     
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const result = await supabase
-        .from('temp_emails')
-        .select('id, secret_token, address, domain_id, expires_at, is_active')
-        .eq('id', tempEmailId)
-        .maybeSingle();
-      
-      if (result.error) {
-        const errorMessage = result.error.message || result.error.code || JSON.stringify(result.error) || 'Unknown database error';
-        const isRetryable = errorMessage.includes('connection reset') || 
-                            errorMessage.includes('connection error') ||
-                            errorMessage.includes('SendRequest') ||
-                            errorMessage.includes('PGRST') ||
-                            errorMessage.includes('timeout');
+    try {
+      tempEmail = await withRetry(async () => {
+        const result = await supabase
+          .from('temp_emails')
+          .select('id, secret_token, address, domain_id, expires_at, is_active')
+          .eq('id', tempEmailId)
+          .maybeSingle();
         
-        if (isRetryable && attempt < 3) {
-          console.log(`[secure-email-access] Retry ${attempt}/3 after error: ${errorMessage}`);
-          await new Promise(r => setTimeout(r, 500 * attempt));
-          continue;
+        if (result.error) {
+          const errorMessage = result.error.message || result.error.code || JSON.stringify(result.error) || 'Unknown database error';
+          throw new Error(errorMessage);
         }
-        verifyError = new Error(errorMessage);
-        break;
-      }
-      
-      tempEmail = result.data;
-      break;
+        
+        return result.data;
+      }, 5, 1000);
+    } catch (err) {
+      verifyError = err instanceof Error ? err : new Error(String(err));
     }
 
     if (verifyError) {
       console.error('[secure-email-access] Error fetching temp email:', verifyError.message);
+      
+      // Check if it's a gateway error and provide user-friendly message
+      if (isRetryableError(verifyError)) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Temporary connection issue', 
+            details: 'The server is experiencing temporary connectivity issues. Please try again in a few seconds.',
+            retryable: true
+          }),
+          { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
       return new Response(
         JSON.stringify({ error: 'Database error', details: verifyError.message || 'Connection failed' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -291,16 +318,20 @@ serve(async (req: Request) => {
       case 'get_emails': {
         console.log('[secure-email-access] Fetching emails for temp email:', tempEmailId);
         
-        const { data: emails, error: emailsError } = await supabase
-          .from('received_emails')
-          .select('*')
-          .eq('temp_email_id', tempEmailId)
-          .order('received_at', { ascending: false });
+        const emails = await withRetry(async () => {
+          const { data, error } = await supabase
+            .from('received_emails')
+            .select('*')
+            .eq('temp_email_id', tempEmailId)
+            .order('received_at', { ascending: false });
 
-        if (emailsError) {
-          console.error('[secure-email-access] Error fetching emails:', emailsError);
-          throw emailsError;
-        }
+          if (error) {
+            console.error('[secure-email-access] Error fetching emails:', error);
+            throw error;
+          }
+          
+          return data;
+        });
 
         // Decrypt emails if encrypted
         const decryptedEmails = await Promise.all(
@@ -338,19 +369,20 @@ serve(async (req: Request) => {
           );
         }
 
-        const { data: email, error: emailError } = await supabase
-          .from('received_emails')
-          .select('*')
-          .eq('id', emailId)
-          .eq('temp_email_id', tempEmailId)
-          .single();
+        const email = await withRetry(async () => {
+          const { data, error } = await supabase
+            .from('received_emails')
+            .select('*')
+            .eq('id', emailId)
+            .eq('temp_email_id', tempEmailId)
+            .single();
 
-        if (emailError || !email) {
-          return new Response(
-            JSON.stringify({ error: 'Email not found' }),
-            { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
+          if (error || !data) {
+            throw new Error('Email not found');
+          }
+          
+          return data;
+        });
 
         // Decrypt if encrypted
         let decryptedEmail = email;
@@ -378,13 +410,15 @@ serve(async (req: Request) => {
           );
         }
 
-        const { error: updateError } = await supabase
-          .from('received_emails')
-          .update({ is_read: true })
-          .eq('id', emailId)
-          .eq('temp_email_id', tempEmailId);
+        await withRetry(async () => {
+          const { error } = await supabase
+            .from('received_emails')
+            .update({ is_read: true })
+            .eq('id', emailId)
+            .eq('temp_email_id', tempEmailId);
 
-        if (updateError) throw updateError;
+          if (error) throw error;
+        });
 
         return new Response(
           JSON.stringify({ success: true }),
@@ -401,6 +435,19 @@ serve(async (req: Request) => {
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('[secure-email-access] Error:', error);
+    
+    // Check if it's a retryable error for the final catch
+    if (isRetryableError(error)) {
+      return new Response(
+        JSON.stringify({ 
+          error: 'Temporary connection issue', 
+          details: 'Please try again in a few seconds.',
+          retryable: true
+        }),
+        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
     return new Response(
       JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

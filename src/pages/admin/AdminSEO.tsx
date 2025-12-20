@@ -286,11 +286,14 @@ const AdminSEO = () => {
         console.error('Error saving to database:', error);
         toast.error('Settings saved locally but failed to sync to database');
       } else {
-        // Clear SEO cache from localStorage to force fresh fetch on next load
+        // Clear ALL SEO-related caches from localStorage
         localStorage.removeItem('trashmails_seo_settings');
-        // Also update local storage with new settings for immediate use
-        storage.set(SEO_SETTINGS_KEY, settings);
-        toast.success("SEO settings saved and cache cleared!");
+        localStorage.removeItem(SEO_SETTINGS_KEY);
+        
+        // Dispatch a global event to notify all components to refetch
+        window.dispatchEvent(new CustomEvent('seo-settings-updated', { detail: settings }));
+        
+        toast.success("SEO settings saved successfully!");
       }
     } catch (e) {
       console.error('Error saving settings:', e);

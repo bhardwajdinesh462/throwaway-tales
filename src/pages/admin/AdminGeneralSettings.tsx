@@ -18,6 +18,7 @@ interface GeneralSettings {
   siteName: string;
   siteTagline: string;
   siteDescription: string;
+  siteUrl: string;
   contactEmail: string;
   supportEmail: string;
   timezone: string;
@@ -28,6 +29,7 @@ const defaultSettings: GeneralSettings = {
   siteName: 'Nullsto',
   siteTagline: 'Protect Your Privacy with Disposable Emails',
   siteDescription: 'Generate instant, anonymous email addresses. Perfect for sign-ups, testing, and keeping your real inbox spam-free.',
+  siteUrl: 'https://nullsto.edu.pl',
   contactEmail: 'contact@nullsto.com',
   supportEmail: 'support@nullsto.com',
   timezone: 'UTC',
@@ -173,6 +175,19 @@ const AdminGeneralSettings = () => {
                 onChange={(e) => updateSetting('siteDescription', e.target.value)}
                 rows={3}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="siteUrl">Site URL</Label>
+              <Input
+                id="siteUrl"
+                type="url"
+                placeholder="https://nullsto.edu.pl"
+                value={settings.siteUrl}
+                onChange={(e) => updateSetting('siteUrl', e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Used for verification email links and other system URLs
+              </p>
             </div>
           </CardContent>
         </Card>

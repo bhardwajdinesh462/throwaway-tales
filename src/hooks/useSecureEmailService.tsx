@@ -219,6 +219,10 @@ export const useSecureEmailService = () => {
       }
       const address = username + selectedDomain.name;
 
+      // Calculate expiry time: 2 hours for guests, 10 hours for registered users
+      const expiryHours = user ? 10 : 2;
+      const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000).toISOString();
+
       // Create temp email in database (token is auto-generated and returned only on INSERT)
       const { data: newEmail, error } = await supabase
         .from('temp_emails')
@@ -227,6 +231,7 @@ export const useSecureEmailService = () => {
           domain_id: selectedDomain.id,
           user_id: user?.id || null,
           is_active: true,
+          expires_at: expiresAt,
         })
         .select('id, address, domain_id, user_id, expires_at, is_active, created_at, secret_token')
         .single();

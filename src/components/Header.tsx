@@ -150,20 +150,31 @@ const Header = () => {
 
               {/* Right Side */}
               <div className={`hidden md:flex items-center gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
-                {/* Language Selector */}
-                <Select value={language} onValueChange={(value: any) => setLanguage(value)}>
-                  <SelectTrigger className="w-[90px] h-9 bg-secondary/50 border-border/50 hover:bg-secondary transition-colors">
-                    <Globe className="w-3.5 h-3.5 mr-1 text-muted-foreground" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
+                {/* Language Selector - Enhanced */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-9 px-3 gap-2 bg-secondary/50 hover:bg-secondary border border-border/50"
+                    >
+                      <Globe className="w-4 h-4 text-primary" />
+                      <span className="font-medium">{languages.find(l => l.code === language)?.name || 'EN'}</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-40">
                     {languages.map((lang) => (
-                      <SelectItem key={lang.code} value={lang.code}>
+                      <DropdownMenuItem
+                        key={lang.code}
+                        onClick={() => setLanguage(lang.code as any)}
+                        className={`cursor-pointer ${language === lang.code ? 'bg-primary/10 text-primary' : ''}`}
+                      >
+                        <span className="mr-2">{lang.code === 'en' ? '🇺🇸' : lang.code === 'ar' ? '🇸🇦' : lang.code === 'es' ? '🇪🇸' : lang.code === 'fr' ? '🇫🇷' : lang.code === 'de' ? '🇩🇪' : lang.code === 'zh' ? '🇨🇳' : lang.code === 'ja' ? '🇯🇵' : lang.code === 'ko' ? '🇰🇷' : lang.code === 'pt' ? '🇧🇷' : lang.code === 'ru' ? '🇷🇺' : lang.code === 'hi' ? '🇮🇳' : '🌐'}</span>
                         {lang.name}
-                      </SelectItem>
+                      </DropdownMenuItem>
                     ))}
-                  </SelectContent>
-                </Select>
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
                 {/* Telegram Join Button */}
                 <motion.a
@@ -335,19 +346,26 @@ const Header = () => {
                     </>
                   )}
                 </Button>
-                <Select value={language} onValueChange={(value: any) => setLanguage(value)}>
-                  <SelectTrigger className="flex-1 h-11 bg-secondary/50">
-                    <Globe className="w-4 h-4 mr-2" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="flex-1 h-11">
+                      <Globe className="w-4 h-4 mr-2 text-primary" />
+                      {languages.find(l => l.code === language)?.name || 'EN'}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-40">
                     {languages.map((lang) => (
-                      <SelectItem key={lang.code} value={lang.code}>
+                      <DropdownMenuItem
+                        key={lang.code}
+                        onClick={() => setLanguage(lang.code as any)}
+                        className={`cursor-pointer ${language === lang.code ? 'bg-primary/10 text-primary' : ''}`}
+                      >
+                        <span className="mr-2">{lang.code === 'en' ? '🇺🇸' : lang.code === 'ar' ? '🇸🇦' : lang.code === 'es' ? '🇪🇸' : lang.code === 'fr' ? '🇫🇷' : lang.code === 'de' ? '🇩🇪' : lang.code === 'zh' ? '🇨🇳' : lang.code === 'ja' ? '🇯🇵' : lang.code === 'ko' ? '🇰🇷' : lang.code === 'pt' ? '🇧🇷' : lang.code === 'ru' ? '🇷🇺' : lang.code === 'hi' ? '🇮🇳' : '🌐'}</span>
                         {lang.name}
-                      </SelectItem>
+                      </DropdownMenuItem>
                     ))}
-                  </SelectContent>
-                </Select>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
 
               {/* Telegram - Mobile */}

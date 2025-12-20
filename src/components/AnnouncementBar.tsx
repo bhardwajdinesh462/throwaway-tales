@@ -123,73 +123,67 @@ const AnnouncementBar = () => {
         }}
       />
 
-      <div className="relative container mx-auto px-4">
-        <div className="flex items-center justify-center gap-2 py-2.5 text-primary-foreground">
-          {/* Left sparkle */}
+      <div className="relative container mx-auto px-2 sm:px-4">
+        <div className="flex items-center justify-center gap-1 sm:gap-2 py-2 sm:py-2.5 text-primary-foreground">
+          {/* Left sparkle - hidden on very small screens */}
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+            className="hidden xs:block flex-shrink-0"
           >
-            <Sparkles className="w-4 h-4 text-yellow-300" />
+            <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 text-yellow-300" />
           </motion.div>
 
-          {/* Announcement text with marquee on mobile */}
-          <div className="flex items-center gap-3 text-sm font-medium overflow-hidden">
-            <motion.div
-              className="flex items-center gap-3 whitespace-nowrap md:whitespace-normal"
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              transition={{ duration: 0.5, ease: "easeOut" }}
-            >
+          {/* Announcement text - responsive layout */}
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-3 text-xs sm:text-sm font-medium">
               {/* Main message */}
-              <span className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1 sm:gap-1.5 truncate max-w-full">
                 {settings.badgeText && (
-                  <span className="px-2 py-0.5 bg-white/20 rounded-full text-xs font-bold uppercase tracking-wider">
+                  <span className="flex-shrink-0 px-1.5 sm:px-2 py-0.5 bg-white/20 rounded-full text-[10px] sm:text-xs font-bold uppercase tracking-wider">
                     {settings.badgeText}
                   </span>
                 )}
-                <span>{settings.mainMessage}</span>
-              </span>
+                <span className="truncate">{settings.mainMessage}</span>
+              </div>
 
               {/* CTA section */}
               {settings.ctaText && (
-                <>
-                  {/* Separator */}
+                <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+                  {/* Separator - hidden on mobile */}
                   <span className="hidden sm:inline-block w-px h-4 bg-white/30" />
 
-                  {/* CTA */}
-                  <span className="flex items-center gap-1.5">
-                    <Crown className="w-4 h-4 text-yellow-300" />
-                    {settings.ctaLink ? (
-                      <a href={settings.ctaLink} className="hover:underline">
-                        {settings.ctaText}
-                      </a>
-                    ) : (
-                      <span>{settings.ctaText}</span>
-                    )}
-                    {settings.showTelegramButton && (
-                      <a
-                        href={settings.telegramLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        <span className="font-semibold">{settings.telegramText}</span>
-                      </a>
-                    )}
-                  </span>
-                </>
+                  <Crown className="w-3 h-3 sm:w-4 sm:h-4 text-yellow-300 flex-shrink-0" />
+                  {settings.ctaLink ? (
+                    <a href={settings.ctaLink} className="hover:underline whitespace-nowrap text-xs sm:text-sm">
+                      {settings.ctaText}
+                    </a>
+                  ) : (
+                    <span className="whitespace-nowrap text-xs sm:text-sm">{settings.ctaText}</span>
+                  )}
+                  {settings.showTelegramButton && (
+                    <a
+                      href={settings.telegramLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
+                    >
+                      <MessageCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                      <span className="font-semibold text-xs sm:text-sm">{settings.telegramText}</span>
+                    </a>
+                  )}
+                </div>
               )}
-            </motion.div>
+            </div>
           </div>
 
-          {/* Right sparkle */}
+          {/* Right sparkle - hidden on very small screens */}
           <motion.div
             animate={{ rotate: -360 }}
             transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+            className="hidden xs:block flex-shrink-0"
           >
-            <Sparkles className="w-4 h-4 text-yellow-300" />
+            <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 text-yellow-300" />
           </motion.div>
         </div>
       </div>

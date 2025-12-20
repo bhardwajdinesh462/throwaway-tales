@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, RefreshCw, Star, Clock, User, ChevronRight, Inbox as InboxIcon, TestTube, Loader2, Bell, Paperclip, Shield, Keyboard } from "lucide-react";
+import { Mail, RefreshCw, Star, Clock, User, ChevronRight, Inbox as InboxIcon, Loader2, Bell, Shield, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ReceivedEmail } from "@/hooks/useSecureEmailService";
 import { useEmailService } from "@/contexts/EmailServiceContext";
@@ -13,10 +13,13 @@ import { Attachment } from "@/components/EmailAttachments";
 import EmailPreview from "@/components/EmailPreview";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import InboxDiagnostics, { saveImapFetchStats } from "@/components/InboxDiagnostics";
+import { saveImapFetchStats } from "@/components/InboxDiagnostics";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
 import { useNotificationSounds } from "@/hooks/useNotificationSounds";
+import { getErrorMessage } from "@/lib/errorHandler";
+import { useAdminRole } from "@/hooks/useAdminRole";
+import InboxDiagnostics from "@/components/InboxDiagnostics";
 interface NotificationPreferences {
   soundEnabled: boolean;
   pushEnabled: boolean;
@@ -30,6 +33,7 @@ const Inbox = () => {
   // 1. Context hooks
   const { user } = useAuth();
   const { t } = useLanguage();
+  const { isAdmin } = useAdminRole();
   
   // 2. Custom hooks - Using secure email service with token-based access
   const { receivedEmails, isLoading, markAsRead, saveEmail, currentEmail, refetch, triggerImapFetch } = useEmailService();
@@ -191,6 +195,7 @@ const Inbox = () => {
       }
     } catch (error: any) {
       console.error('Error checking mail:', error);
+      const errorMsg = getErrorMessage(error);
       saveImapFetchStats({
         scanned: 0,
         matched: 0,
@@ -198,9 +203,9 @@ const Inbox = () => {
         noMatch: 0,
         failed: 1,
         duration: Date.now() - startTime,
-        error: error?.message || 'Failed to check for new emails',
+        error: errorMsg,
       });
-      toast.error('Failed to check for new emails');
+      toast.error(errorMsg);
     } finally {
       setIsCheckingMail(false);
     }
@@ -291,8 +296,7 @@ const Inbox = () => {
       }
     } catch (error: any) {
       console.error('Error sending test email:', error);
-      const msg = error?.message || 'Failed to send test email';
-      toast.error(msg);
+      toast.error(getErrorMessage(error));
     } finally {
       setIsSendingTest(false);
     }
@@ -446,11 +450,6 @@ const Inbox = () => {
               )}
             </div>
 
-            {/* Synced Active Address — always matches the Generator via shared EmailServiceContext */}
-            <div className="flex items-center gap-2 text-xs min-w-0 bg-secondary/40 px-2.5 py-1 rounded-md border border-border/50">
-              <span className="text-muted-foreground shrink-0">Inbox for:</span>
-              <span className="font-mono text-primary font-medium truncate">{currentEmail?.address || "..."}</span>
-            </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -564,10 +563,6 @@ const Inbox = () => {
                 <p className="text-sm text-muted-foreground">
                   {t('waitingForMessages')}
                 </p>
-                <div className="inline-flex items-center gap-2 mt-3 px-4 py-2 rounded-lg bg-secondary/60 border border-primary/20">
-                  <span className="text-xs text-muted-foreground">Inbox for:</span>
-                  <span className="font-mono text-primary font-medium">{currentEmail?.address || "..."}</span>
-                </div>
                 <div className="flex items-center justify-center gap-2 mt-3 text-xs text-green-500">
                   <Shield className="w-3 h-3" />
                   <span>Token-secured access</span>
@@ -646,8 +641,8 @@ const Inbox = () => {
           )}
         </AnimatePresence>
 
-        {/* Diagnostics Panel */}
-        <InboxDiagnostics />
+        {/* Diagnostics Panel - Only for admins */}
+        {isAdmin && <InboxDiagnostics />}
       </div>
 
       {/* Keyboard Shortcuts Help Modal */}

@@ -69,12 +69,14 @@ const ProtectedRoute = ({
     };
   }, [requireAdmin, user, isLoading, navigate]);
 
-  if (isLoading || (requireAdmin && adminCheckLoading)) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
+  // Only show loader for initial auth check, not admin check (admin pages load faster)
+  if (isLoading) {
+    return null; // Return null for instant rendering
+  }
+
+  // For admin routes, render immediately while checking in background
+  if (requireAdmin && adminCheckLoading) {
+    return <>{children}</>; // Show content while verifying admin status
   }
 
   if (requireAuth && !user) return null;

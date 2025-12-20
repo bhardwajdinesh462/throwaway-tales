@@ -365,7 +365,7 @@ export type Database = {
             foreignKeyName: "email_forwarding_temp_email_id_fkey"
             columns: ["temp_email_id"]
             isOneToOne: true
-            referencedRelation: "temp_emails_public"
+            referencedRelation: "temp_emails_safe"
             referencedColumns: ["id"]
           },
         ]
@@ -697,7 +697,7 @@ export type Database = {
             foreignKeyName: "push_subscriptions_temp_email_id_fkey"
             columns: ["temp_email_id"]
             isOneToOne: false
-            referencedRelation: "temp_emails_public"
+            referencedRelation: "temp_emails_safe"
             referencedColumns: ["id"]
           },
         ]
@@ -775,7 +775,7 @@ export type Database = {
             foreignKeyName: "received_emails_temp_email_id_fkey"
             columns: ["temp_email_id"]
             isOneToOne: false
-            referencedRelation: "temp_emails_public"
+            referencedRelation: "temp_emails_safe"
             referencedColumns: ["id"]
           },
         ]
@@ -1133,7 +1133,7 @@ export type Database = {
       }
     }
     Views: {
-      temp_emails_public: {
+      temp_emails_safe: {
         Row: {
           address: string | null
           created_at: string | null

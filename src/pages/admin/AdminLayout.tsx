@@ -12,11 +12,8 @@ const AdminLayout = () => {
   const { t } = useLanguage();
   const location = useLocation();
 
-  // Skip loading state for faster admin panel - ProtectedRoute handles auth
-  // Just render the layout immediately
-
-  // Safety check - shouldn't reach here if ProtectedRoute works correctly
-  if (!user) return null;
+  // Render immediately - ProtectedRoute handles auth gating
+  // Don't block render on user check for faster admin panel
 
   const getPageTitle = () => {
     const path = location.pathname;

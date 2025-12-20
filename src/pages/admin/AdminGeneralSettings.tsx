@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { storage } from "@/lib/storage";
 import { supabase } from "@/integrations/supabase/client";
 import { Settings, Save } from "lucide-react";
+import { useSettings } from "@/contexts/SettingsContext";
 
 const GENERAL_SETTINGS_KEY = 'trashmails_general_settings';
 
@@ -34,6 +35,7 @@ const defaultSettings: GeneralSettings = {
 };
 
 const AdminGeneralSettings = () => {
+  const { refetch: refetchGlobalSettings } = useSettings();
   const [settings, setSettings] = useState<GeneralSettings>(defaultSettings);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -106,6 +108,8 @@ const AdminGeneralSettings = () => {
         console.error('Error saving to database:', error);
         toast.error('Settings saved locally but failed to sync to database');
       } else {
+        // Immediately refetch global settings so changes apply everywhere
+        await refetchGlobalSettings();
         toast.success("General settings saved successfully!");
       }
     } catch (e) {

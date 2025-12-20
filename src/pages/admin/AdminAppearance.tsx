@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { storage } from "@/lib/storage";
 import { Paintbrush, Save, Upload, Image, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-
+import { useSettings } from "@/contexts/SettingsContext";
 const APPEARANCE_SETTINGS_KEY = 'trashmails_appearance_settings';
 
 interface AppearanceSettings {
@@ -34,6 +34,7 @@ const defaultSettings: AppearanceSettings = {
 };
 
 const AdminAppearance = () => {
+  const { refetch: refetchGlobalSettings } = useSettings();
   const [settings, setSettings] = useState<AppearanceSettings>(defaultSettings);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -114,6 +115,8 @@ const AdminAppearance = () => {
         console.error('Error saving to database:', error);
         toast.error('Settings saved locally but failed to sync to database');
       } else {
+        // Immediately refetch global settings so changes apply everywhere
+        await refetchGlobalSettings();
         toast.success("Appearance settings saved!");
       }
     } catch (e) {

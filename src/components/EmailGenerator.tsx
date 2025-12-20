@@ -24,6 +24,8 @@ import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { EmailQRCode } from "@/components/EmailQRCode";
 import EmailExpiryTimer from "@/components/EmailExpiryTimer";
+import { useRecaptcha } from "@/hooks/useRecaptcha";
+import { supabase } from "@/integrations/supabase/client";
 
 const EmailGenerator = () => {
   const { user } = useAuth();
@@ -37,6 +39,7 @@ const EmailGenerator = () => {
     changeDomain,
     addCustomDomain,
   } = useEmailService();
+  const { executeRecaptcha, isEnabled: captchaEnabled, settings: captchaSettings } = useRecaptcha();
   const [copied, setCopied] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [customDomainDialog, setCustomDomainDialog] = useState(false);
@@ -44,6 +47,38 @@ const EmailGenerator = () => {
   const [newDomain, setNewDomain] = useState("");
   const [customUsername, setCustomUsername] = useState("");
   const [selectedCustomDomain, setSelectedCustomDomain] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  const verifyCaptcha = async (action: string): Promise<boolean> => {
+    if (!captchaEnabled || !captchaSettings.enableOnEmailGen) {
+      return true;
+    }
+
+    setIsVerifying(true);
+    try {
+      const token = await executeRecaptcha(action);
+      if (!token) {
+        toast.error("Please complete the captcha verification");
+        return false;
+      }
+
+      const { data, error } = await supabase.functions.invoke('verify-recaptcha', {
+        body: { token, action }
+      });
+
+      if (error || !data?.success) {
+        toast.error(data?.error || "Captcha verification failed");
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error('Captcha verification error:', error);
+      toast.error("Captcha verification failed");
+      return false;
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   const copyToClipboard = async () => {
     if (!currentEmail) return;
@@ -53,7 +88,11 @@ const EmailGenerator = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const refreshEmail = () => {
+  const refreshEmail = async () => {
+    // Verify captcha before generating new email
+    if (!await verifyCaptcha('generate_email')) {
+      return;
+    }
     const currentDomainId = currentEmail?.domain_id || domains[0]?.id;
     generateEmail(currentDomainId);
     toast.success("New email generated!");
@@ -103,6 +142,11 @@ const EmailGenerator = () => {
     const domainId = selectedCustomDomain || domains[0]?.id;
     if (!domainId) {
       toast.error("Please select a domain");
+      return;
+    }
+
+    // Verify captcha before creating custom email
+    if (!await verifyCaptcha('custom_email')) {
       return;
     }
 
@@ -244,11 +288,11 @@ const EmailGenerator = () => {
                   variant="outline"
                   size="lg"
                   onClick={refreshEmail}
-                  disabled={isGenerating}
+                  disabled={isGenerating || isVerifying}
                   className="border-primary/30 hover:bg-primary/10"
                 >
-                  <RefreshCw className={`w-4 h-4 mr-2 ${isGenerating ? 'animate-spin' : ''}`} />
-                  {t('newEmail')}
+                  <RefreshCw className={`w-4 h-4 mr-2 ${isGenerating || isVerifying ? 'animate-spin' : ''}`} />
+                  {isVerifying ? 'Verifying...' : t('newEmail')}
                 </Button>
               </motion.div>
 

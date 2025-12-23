@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Crown, Users, TrendingUp, Clock, CreditCard, ArrowUpRight } from "lucide-react";
+import { Crown, Users, TrendingUp, Clock, CreditCard, ArrowUpRight, BarChart3 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
+import { format, subDays, startOfDay } from "date-fns";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface SubscriptionStats {
   totalSubscriptions: number;
@@ -19,6 +21,14 @@ interface SubscriptionStats {
   }[];
 }
 
+interface TrendData {
+  date: string;
+  label: string;
+  total: number;
+  pro: number;
+  business: number;
+}
+
 const SubscriptionStatsWidget = () => {
   const [stats, setStats] = useState<SubscriptionStats>({
     totalSubscriptions: 0,
@@ -27,7 +37,9 @@ const SubscriptionStatsWidget = () => {
     businessSubscribers: 0,
     recentAssignments: [],
   });
+  const [trendData, setTrendData] = useState<TrendData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [trendPeriod, setTrendPeriod] = useState<'7' | '30' | '90'>('30');
 
   const fetchStats = async () => {
     try {
@@ -96,6 +108,29 @@ const SubscriptionStatsWidget = () => {
         businessSubscribers: businessCount,
         recentAssignments,
       });
+
+      // Calculate trend data
+      const days = parseInt(trendPeriod);
+      const trendMap: Record<string, TrendData> = {};
+      
+      for (let i = days - 1; i >= 0; i--) {
+        const date = startOfDay(subDays(new Date(), i));
+        const dateStr = format(date, 'yyyy-MM-dd');
+        const label = days <= 7 ? format(date, 'EEE') : format(date, 'MMM d');
+        trendMap[dateStr] = { date: dateStr, label, total: 0, pro: 0, business: 0 };
+      }
+
+      subscriptions.forEach(sub => {
+        const createdDate = format(new Date(sub.created_at), 'yyyy-MM-dd');
+        if (trendMap[createdDate]) {
+          trendMap[createdDate].total++;
+          const tierName = (sub.subscription_tiers as any)?.name?.toLowerCase() || '';
+          if (tierName === 'pro') trendMap[createdDate].pro++;
+          if (tierName === 'business') trendMap[createdDate].business++;
+        }
+      });
+
+      setTrendData(Object.values(trendMap));
     } catch (error) {
       console.error('Error fetching subscription stats:', error);
     } finally {
@@ -125,7 +160,7 @@ const SubscriptionStatsWidget = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [trendPeriod]);
 
   const getTierColor = (tierName: string) => {
     switch (tierName.toLowerCase()) {
@@ -200,6 +235,91 @@ const SubscriptionStatsWidget = () => {
             {isLoading ? '...' : stats.businessSubscribers}
           </p>
         </div>
+      </div>
+
+      {/* Trends Chart */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+            <BarChart3 className="w-4 h-4" />
+            Subscription Trends
+          </h3>
+          <Tabs value={trendPeriod} onValueChange={(v) => setTrendPeriod(v as '7' | '30' | '90')}>
+            <TabsList className="h-8">
+              <TabsTrigger value="7" className="text-xs px-2 h-6">7D</TabsTrigger>
+              <TabsTrigger value="30" className="text-xs px-2 h-6">30D</TabsTrigger>
+              <TabsTrigger value="90" className="text-xs px-2 h-6">90D</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+        
+        {isLoading ? (
+          <div className="h-48 bg-secondary/30 rounded-lg animate-pulse" />
+        ) : (
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={trendData}>
+                <defs>
+                  <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorPro" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis 
+                  dataKey="label" 
+                  tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                  axisLine={{ stroke: 'hsl(var(--border))' }}
+                  tickLine={false}
+                />
+                <YAxis 
+                  tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                  axisLine={{ stroke: 'hsl(var(--border))' }}
+                  tickLine={false}
+                  allowDecimals={false}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px',
+                    fontSize: '12px'
+                  }}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="total" 
+                  stroke="hsl(var(--primary))" 
+                  fillOpacity={1} 
+                  fill="url(#colorTotal)"
+                  strokeWidth={2}
+                  name="Total"
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="pro" 
+                  stroke="#a855f7" 
+                  fillOpacity={1} 
+                  fill="url(#colorPro)"
+                  strokeWidth={2}
+                  name="Pro"
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="business" 
+                  stroke="#f59e0b" 
+                  strokeWidth={2}
+                  dot={false}
+                  name="Business"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
       {/* Recent Assignments */}

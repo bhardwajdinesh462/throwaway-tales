@@ -9,7 +9,8 @@ import {
   Database,
   Trash2,
   RefreshCw,
-  Info
+  Info,
+  FileArchive
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,7 +49,6 @@ const AdminBackup = () => {
         .limit(10);
 
       if (error) throw error;
-      // Map database response to BackupHistory interface
       const mappedData: BackupHistory[] = (data || []).map((item) => ({
         id: item.id,
         backup_type: item.backup_type,
@@ -79,8 +79,8 @@ const AdminBackup = () => {
     try {
       // Simulate progress updates
       const progressInterval = setInterval(() => {
-        setProgress(prev => Math.min(prev + 10, 90));
-      }, 500);
+        setProgress(prev => Math.min(prev + 5, 90));
+      }, 300);
 
       const { data, error } = await supabase.functions.invoke('generate-backup');
 
@@ -90,18 +90,40 @@ const AdminBackup = () => {
 
       setProgress(100);
 
-      // Create downloadable file
-      const blob = new Blob([JSON.stringify(data.backup, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `backup-${format(new Date(), 'yyyy-MM-dd-HHmmss')}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      if (data.zipData) {
+        // Convert base64 to blob and download as ZIP
+        const binaryString = atob(data.zipData);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'application/zip' });
+        
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = data.fileName || `backup-${format(new Date(), 'yyyy-MM-dd-HHmmss')}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
 
-      toast.success('Backup downloaded successfully!');
+        toast.success(`Backup downloaded! ${data.totalRows} rows across ${data.rowCounts ? Object.keys(data.rowCounts).length : 0} tables.`);
+      } else if (data.backup) {
+        // Fallback to JSON if ZIP not available
+        const blob = new Blob([JSON.stringify(data.backup, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `backup-${format(new Date(), 'yyyy-MM-dd-HHmmss')}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        toast.success('Backup downloaded successfully!');
+      }
+
       fetchHistory();
     } catch (error) {
       console.error('Error generating backup:', error);
@@ -137,7 +159,8 @@ const AdminBackup = () => {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  const isExpired = (expiresAt: string) => {
+  const isExpired = (expiresAt: string | null) => {
+    if (!expiresAt) return false;
     return new Date(expiresAt) < new Date();
   };
 
@@ -146,7 +169,7 @@ const AdminBackup = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Backup & Recovery</h1>
-          <p className="text-muted-foreground">Download complete database backups to your device</p>
+          <p className="text-muted-foreground">Download complete database backups as ZIP files</p>
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -165,8 +188,8 @@ const AdminBackup = () => {
         <AlertTriangle className="h-4 w-4 text-amber-500" />
         <AlertTitle className="text-amber-600">Important Notice</AlertTitle>
         <AlertDescription className="text-amber-600/80">
-          Backups are generated on-demand and downloaded directly to your device. 
-          Backup records are automatically deleted after 24 hours. Store your backups safely.
+          Backups include all database tables in a compressed ZIP format. 
+          Store your backups safely - records auto-delete after 24 hours.
         </AlertDescription>
       </Alert>
 
@@ -174,11 +197,11 @@ const AdminBackup = () => {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Database className="w-5 h-5" />
-            Generate New Backup
+            <FileArchive className="w-5 h-5" />
+            Generate Full Backup (ZIP)
           </CardTitle>
           <CardDescription>
-            Download a complete backup of all database tables
+            Download a complete backup of all database tables as a compressed ZIP file
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -187,22 +210,22 @@ const AdminBackup = () => {
               <TooltipTrigger asChild>
                 <div className="p-3 bg-secondary/50 rounded-lg text-center">
                   <p className="text-muted-foreground">Tables</p>
-                  <p className="font-semibold text-foreground">15+</p>
+                  <p className="font-semibold text-foreground">30+</p>
                 </div>
               </TooltipTrigger>
               <TooltipContent>
-                <p>All user and system tables are included</p>
+                <p>All database tables included</p>
               </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="p-3 bg-secondary/50 rounded-lg text-center">
                   <p className="text-muted-foreground">Format</p>
-                  <p className="font-semibold text-foreground">JSON</p>
+                  <p className="font-semibold text-foreground">ZIP</p>
                 </div>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Backup is exported as JSON file</p>
+                <p>Compressed ZIP with JSON files</p>
               </TooltipContent>
             </Tooltip>
             <Tooltip>
@@ -219,12 +242,12 @@ const AdminBackup = () => {
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="p-3 bg-secondary/50 rounded-lg text-center">
-                  <p className="text-muted-foreground">Expiry</p>
-                  <p className="font-semibold text-foreground">24 hours</p>
+                  <p className="text-muted-foreground">Includes</p>
+                  <p className="font-semibold text-foreground">Everything</p>
                 </div>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Backup records auto-delete after 24 hours</p>
+                <p>All data, settings, and configs</p>
               </TooltipContent>
             </Tooltip>
           </div>
@@ -232,7 +255,7 @@ const AdminBackup = () => {
           {isGenerating && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span>Generating backup...</span>
+                <span>Generating ZIP backup...</span>
                 <span>{progress}%</span>
               </div>
               <Progress value={progress} className="h-2" />
@@ -250,18 +273,18 @@ const AdminBackup = () => {
                 {isGenerating ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Generating Backup...
+                    Generating ZIP Backup...
                   </>
                 ) : (
                   <>
                     <Download className="w-4 h-4 mr-2" />
-                    Download Backup Now
+                    Download Full Backup (ZIP)
                   </>
                 )}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Generate and download complete database backup</p>
+              <p>Generate and download complete database backup as ZIP</p>
             </TooltipContent>
           </Tooltip>
         </CardContent>
@@ -295,7 +318,7 @@ const AdminBackup = () => {
                 <div 
                   key={backup.id}
                   className={`flex items-center justify-between p-4 border rounded-lg ${
-                    isExpired(backup.expires_at) ? 'opacity-50 bg-secondary/30' : ''
+                    backup.expires_at && isExpired(backup.expires_at) ? 'opacity-50 bg-secondary/30' : ''
                   }`}
                 >
                   <div className="flex items-center gap-4">
@@ -311,12 +334,15 @@ const AdminBackup = () => {
                     <div>
                       <div className="flex items-center gap-2">
                         <p className="font-medium text-foreground">
-                          Backup - {format(new Date(backup.created_at), 'MMM d, yyyy HH:mm')}
+                          Backup - {backup.created_at && format(new Date(backup.created_at), 'MMM d, yyyy HH:mm')}
                         </p>
                         <Badge variant={backup.backup_type === 'manual' ? 'default' : 'secondary'}>
                           {backup.backup_type}
                         </Badge>
-                        {isExpired(backup.expires_at) && (
+                        <Badge variant="outline" className="text-xs">
+                          ZIP
+                        </Badge>
+                        {backup.expires_at && isExpired(backup.expires_at) && (
                           <Badge variant="destructive">Expired</Badge>
                         )}
                       </div>
@@ -324,10 +350,10 @@ const AdminBackup = () => {
                         <span>{formatBytes(backup.file_size_bytes)}</span>
                         <span>•</span>
                         <span>
-                          {isExpired(backup.expires_at) 
+                          {backup.expires_at ? (isExpired(backup.expires_at) 
                             ? 'Expired' 
                             : `Expires ${formatDistanceToNow(new Date(backup.expires_at), { addSuffix: true })}`
-                          }
+                          ) : 'No expiry'}
                         </span>
                         {backup.row_counts && (
                           <>
@@ -339,7 +365,7 @@ const AdminBackup = () => {
                                   {Object.values(backup.row_counts).reduce((a, b) => a + b, 0)} rows
                                 </span>
                               </TooltipTrigger>
-                              <TooltipContent>
+                              <TooltipContent className="max-h-48 overflow-auto">
                                 <div className="text-xs">
                                   {Object.entries(backup.row_counts).map(([table, count]) => (
                                     <div key={table}>{table}: {count}</div>
@@ -378,16 +404,16 @@ const AdminBackup = () => {
       <div className="grid md:grid-cols-2 gap-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">What's Included</CardTitle>
+            <CardTitle className="text-base">What's Included in ZIP</CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="text-sm text-muted-foreground space-y-1">
-              <li>• User profiles and settings</li>
-              <li>• Temporary emails and history</li>
-              <li>• Domains and configuration</li>
-              <li>• Blog posts and pages</li>
-              <li>• Subscriptions and payments</li>
-              <li>• All app settings</li>
+              <li>• <code className="text-xs bg-secondary px-1 rounded">/database/</code> - All 30+ tables as JSON</li>
+              <li>• <code className="text-xs bg-secondary px-1 rounded">/config/</code> - App settings & config</li>
+              <li>• <code className="text-xs bg-secondary px-1 rounded">metadata.json</code> - Backup info</li>
+              <li>• <code className="text-xs bg-secondary px-1 rounded">README.md</code> - Restore instructions</li>
+              <li>• User profiles, emails, subscriptions</li>
+              <li>• Domains, blogs, templates, settings</li>
             </ul>
           </CardContent>
         </Card>
@@ -399,9 +425,9 @@ const AdminBackup = () => {
           <CardContent>
             <ul className="text-sm text-muted-foreground space-y-1">
               <li>• Backups do not include user passwords</li>
-              <li>• File attachments are not included</li>
+              <li>• File attachments stored separately</li>
+              <li>• Source code managed by Lovable/Git</li>
               <li>• Store backups securely offline</li>
-              <li>• Records auto-delete after 24 hours</li>
               <li>• Generate backups regularly</li>
             </ul>
           </CardContent>

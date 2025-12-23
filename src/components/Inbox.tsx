@@ -21,6 +21,7 @@ import { useNotificationSounds } from "@/hooks/useNotificationSounds";
 import { getErrorMessage } from "@/lib/errorHandler";
 import { useAdminRole } from "@/hooks/useAdminRole";
 import InboxDiagnostics from "@/components/InboxDiagnostics";
+import { tooltips } from "@/lib/tooltips";
 interface NotificationPreferences {
   soundEnabled: boolean;
   pushEnabled: boolean;
@@ -498,27 +499,40 @@ const Inbox = () => {
               </Button>
             )}
 
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCheckMail}
+                  disabled={isCheckingMail}
+                  className="border-primary/30 hover:bg-primary/10"
+                >
+                  <Mail className={`w-4 h-4 mr-1 ${isCheckingMail ? 'animate-pulse' : ''}`} />
+                  {isCheckingMail ? 'Checking...' : 'Check Mail'}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{tooltips.inbox.refresh}</p>
+              </TooltipContent>
+            </Tooltip>
             
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCheckMail}
-              disabled={isCheckingMail}
-              className="border-primary/30 hover:bg-primary/10"
-            >
-              <Mail className={`w-4 h-4 mr-1 ${isCheckingMail ? 'animate-pulse' : ''}`} />
-              {isCheckingMail ? 'Checking...' : 'Check Mail'}
-            </Button>
-            
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => handleRefresh(false)}
-              disabled={isRefreshing}
-            >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {t('refresh')}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => handleRefresh(false)}
+                  disabled={isRefreshing}
+                >
+                  <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  {t('refresh')}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Refresh inbox to check for new emails</p>
+              </TooltipContent>
+            </Tooltip>
 
             <Button
               variant="ghost"

@@ -19,6 +19,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEmailService } from "@/contexts/EmailServiceContext";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -26,6 +27,7 @@ import { EmailQRCode } from "@/components/EmailQRCode";
 import EmailExpiryTimer from "@/components/EmailExpiryTimer";
 import { useRecaptcha } from "@/hooks/useRecaptcha";
 import { supabase } from "@/integrations/supabase/client";
+import { tooltips } from "@/lib/tooltips";
 
 const EmailGenerator = () => {
   const { user } = useAuth();
@@ -267,95 +269,137 @@ const EmailGenerator = () => {
 
             {/* Action Buttons */}
             <div className="flex flex-wrap justify-center gap-3 mt-10">
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button
-                  variant="default"
-                  size="lg"
-                  onClick={copyToClipboard}
-                  className="min-w-[150px] bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg shadow-primary/25"
-                  disabled={!currentEmail}
-                >
-                  <AnimatePresence mode="wait">
-                    {copied ? (
-                      <motion.span
-                        key="copied"
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        className="flex items-center gap-2"
-                      >
-                        <Check className="w-4 h-4" /> {t('copied')}
-                      </motion.span>
-                    ) : (
-                      <motion.span
-                        key="copy"
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        className="flex items-center gap-2"
-                      >
-                        <Copy className="w-4 h-4" /> {t('copy')}
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </Button>
-              </motion.div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                    <Button
+                      variant="default"
+                      size="lg"
+                      onClick={copyToClipboard}
+                      className="min-w-[150px] bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg shadow-primary/25"
+                      disabled={!currentEmail}
+                    >
+                      <AnimatePresence mode="wait">
+                        {copied ? (
+                          <motion.span
+                            key="copied"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="flex items-center gap-2"
+                          >
+                            <Check className="w-4 h-4" /> {t('copied')}
+                          </motion.span>
+                        ) : (
+                          <motion.span
+                            key="copy"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="flex items-center gap-2"
+                          >
+                            <Copy className="w-4 h-4" /> {t('copy')}
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </Button>
+                  </motion.div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{tooltips.emailGenerator.copy}</p>
+                </TooltipContent>
+              </Tooltip>
 
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={refreshEmail}
-                  disabled={isGenerating || isVerifying}
-                  className="border-primary/30 hover:bg-primary/10"
-                >
-                  <RefreshCw className={`w-4 h-4 mr-2 ${isGenerating || isVerifying ? 'animate-spin' : ''}`} />
-                  {isVerifying ? 'Verifying...' : t('newEmail')}
-                </Button>
-              </motion.div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      onClick={refreshEmail}
+                      disabled={isGenerating || isVerifying}
+                      className="border-primary/30 hover:bg-primary/10"
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-2 ${isGenerating || isVerifying ? 'animate-spin' : ''}`} />
+                      {isVerifying ? 'Verifying...' : t('newEmail')}
+                    </Button>
+                  </motion.div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{tooltips.emailGenerator.refresh}</p>
+                </TooltipContent>
+              </Tooltip>
 
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={() => setCustomEmailDialog(true)}
-                  className="border-accent/30 hover:bg-accent/10"
-                >
-                  <Edit2 className="w-4 h-4 mr-2" />
-                  Custom
-                </Button>
-              </motion.div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      onClick={() => setCustomEmailDialog(true)}
+                      className="border-accent/30 hover:bg-accent/10"
+                    >
+                      <Edit2 className="w-4 h-4 mr-2" />
+                      Custom
+                    </Button>
+                  </motion.div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{tooltips.emailGenerator.custom}</p>
+                </TooltipContent>
+              </Tooltip>
 
               {/* QR Code Button with Modal */}
               {currentEmail && (
-                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                  <EmailQRCode email={currentEmail.address} />
-                </motion.div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                      <EmailQRCode email={currentEmail.address} />
+                    </motion.div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{tooltips.emailGenerator.qrCode}</p>
+                  </TooltipContent>
+                </Tooltip>
               )}
 
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button 
-                  variant="outline" 
-                  size="lg" 
-                  onClick={handleSave}
-                  className="border-border hover:bg-secondary"
-                >
-                  <Star className="w-4 h-4 mr-2" />
-                  {t('save')}
-                </Button>
-              </motion.div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                    <Button 
+                      variant="outline" 
+                      size="lg" 
+                      onClick={handleSave}
+                      className="border-border hover:bg-secondary"
+                    >
+                      <Star className="w-4 h-4 mr-2" />
+                      {t('save')}
+                    </Button>
+                  </motion.div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{tooltips.emailGenerator.save}</p>
+                </TooltipContent>
+              </Tooltip>
 
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button 
-                  variant={soundEnabled ? "outline" : "secondary"} 
-                  size="lg"
-                  onClick={toggleSound}
-                  className={soundEnabled ? "border-border hover:bg-secondary" : ""}
-                >
-                  <Volume2 className="w-4 h-4 mr-2" />
-                  {t('sound')}
-                </Button>
-              </motion.div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                    <Button 
+                      variant={soundEnabled ? "outline" : "secondary"} 
+                      size="lg"
+                      onClick={toggleSound}
+                      className={soundEnabled ? "border-border hover:bg-secondary" : ""}
+                    >
+                      <Volume2 className="w-4 h-4 mr-2" />
+                      {t('sound')}
+                    </Button>
+                  </motion.div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{tooltips.emailGenerator.sound}</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
 
             {/* Expiration Timer */}

@@ -27,6 +27,23 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface FriendlyWebsite {
   id: string;
@@ -63,6 +80,138 @@ const defaultSettings: WidgetSettings = {
   animationType: 'slide',
 };
 
+// Sortable Website Card Component
+const SortableWebsiteCard = ({ 
+  website, 
+  onToggleActive, 
+  onEdit, 
+  onDelete 
+}: { 
+  website: FriendlyWebsite;
+  onToggleActive: (id: string, isActive: boolean) => void;
+  onEdit: (website: FriendlyWebsite) => void;
+  onDelete: (id: string) => void;
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: website.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <Card 
+      ref={setNodeRef} 
+      style={style} 
+      className={`${!website.is_active ? 'opacity-60' : ''} ${isDragging ? 'z-50 shadow-lg' : ''}`}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-center gap-4">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div 
+                {...attributes} 
+                {...listeners}
+                className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none"
+              >
+                <GripVertical className="w-5 h-5" />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Drag to reorder</p>
+            </TooltipContent>
+          </Tooltip>
+
+          {website.icon_url ? (
+            <img 
+              src={website.icon_url} 
+              alt={website.name}
+              className="w-10 h-10 rounded-lg object-cover"
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
+              <span className="text-primary font-semibold">
+                {website.name.charAt(0).toUpperCase()}
+              </span>
+            </div>
+          )}
+
+          <div className="flex-1 min-w-0">
+            <h3 className="font-medium text-foreground truncate">{website.name}</h3>
+            <a 
+              href={website.url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-sm text-primary hover:underline flex items-center gap-1 truncate"
+            >
+              {website.url}
+              <ExternalLink className="w-3 h-3" />
+            </a>
+            {website.description && (
+              <p className="text-xs text-muted-foreground truncate mt-1">{website.description}</p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <Switch
+                    checked={website.is_active}
+                    onCheckedChange={(checked) => onToggleActive(website.id, checked)}
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{website.is_active ? 'Disable' : 'Enable'} this website</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => onEdit(website)}
+                >
+                  Edit
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Edit website details</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => onDelete(website.id)}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Delete website</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
 const AdminFriendlyWebsites = () => {
   const queryClient = useQueryClient();
   const [websites, setWebsites] = useState<FriendlyWebsite[]>([]);
@@ -78,6 +227,18 @@ const AdminFriendlyWebsites = () => {
     description: '',
     open_in_new_tab: true,
   });
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -255,6 +416,39 @@ const AdminFriendlyWebsites = () => {
     }
   };
 
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = websites.findIndex((w) => w.id === active.id);
+      const newIndex = websites.findIndex((w) => w.id === over.id);
+
+      const newWebsites = arrayMove(websites, oldIndex, newIndex);
+      setWebsites(newWebsites);
+
+      // Update display_order in database
+      try {
+        const updates = newWebsites.map((website, index) => ({
+          id: website.id,
+          display_order: index,
+        }));
+
+        for (const update of updates) {
+          await supabase
+            .from('friendly_websites')
+            .update({ display_order: update.display_order })
+            .eq('id', update.id);
+        }
+
+        toast.success('Order updated successfully');
+      } catch (error) {
+        console.error('Error updating order:', error);
+        toast.error('Failed to update order');
+        fetchData(); // Revert on error
+      }
+    }
+  };
+
   const openEditDialog = (website: FriendlyWebsite) => {
     setEditingWebsite(website);
     setFormData({
@@ -318,103 +512,28 @@ const AdminFriendlyWebsites = () => {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-3">
-              {websites.map((website) => (
-                <Card key={website.id} className={!website.is_active ? 'opacity-60' : ''}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-4">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="cursor-grab text-muted-foreground hover:text-foreground">
-                            <GripVertical className="w-5 h-5" />
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Drag to reorder</p>
-                        </TooltipContent>
-                      </Tooltip>
-
-                      {website.icon_url ? (
-                        <img 
-                          src={website.icon_url} 
-                          alt={website.name}
-                          className="w-10 h-10 rounded-lg object-cover"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
-                          <span className="text-primary font-semibold">
-                            {website.name.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                      )}
-
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-foreground truncate">{website.name}</h3>
-                        <a 
-                          href={website.url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-sm text-primary hover:underline flex items-center gap-1 truncate"
-                        >
-                          {website.url}
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                        {website.description && (
-                          <p className="text-xs text-muted-foreground truncate mt-1">{website.description}</p>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div>
-                              <Switch
-                                checked={website.is_active}
-                                onCheckedChange={(checked) => handleToggleActive(website.id, checked)}
-                              />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{website.is_active ? 'Disable' : 'Enable'} this website</p>
-                          </TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => openEditDialog(website)}
-                            >
-                              Edit
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Edit website details</p>
-                          </TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button 
-                              variant="ghost" 
-                              size="icon"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => handleDeleteWebsite(website.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Delete website</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={websites.map(w => w.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-3">
+                  {websites.map((website) => (
+                    <SortableWebsiteCard
+                      key={website.id}
+                      website={website}
+                      onToggleActive={handleToggleActive}
+                      onEdit={openEditDialog}
+                      onDelete={handleDeleteWebsite}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
           )}
         </TabsContent>
 
@@ -556,7 +675,7 @@ const AdminFriendlyWebsites = () => {
                 </div>
               </div>
 
-              {/* Mobile visibility */}
+              {/* Mobile */}
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex items-center gap-2">
                   <Smartphone className="w-4 h-4 text-muted-foreground" />
@@ -571,69 +690,56 @@ const AdminFriendlyWebsites = () => {
                 />
               </div>
 
+              {/* Save Button */}
               <Button onClick={saveSettings} disabled={isSaving} className="w-full">
-                {isSaving ? (
-                  <div className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin mr-2" />
-                ) : (
-                  <Save className="w-4 h-4 mr-2" />
-                )}
-                Save Settings
+                <Save className="w-4 h-4 mr-2" />
+                {isSaving ? 'Saving...' : 'Save Settings'}
               </Button>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
-      {/* Add/Edit Dialog */}
-      <Dialog 
-        open={addDialogOpen || !!editingWebsite} 
-        onOpenChange={(open) => {
-          if (!open) {
-            setAddDialogOpen(false);
-            setEditingWebsite(null);
-            setFormData({ name: '', url: '', icon_url: '', description: '', open_in_new_tab: true });
-          }
-        }}
-      >
+      {/* Add Website Dialog */}
+      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingWebsite ? 'Edit Website' : 'Add Website'}</DialogTitle>
+            <DialogTitle>Add Friendly Website</DialogTitle>
             <DialogDescription>
-              {editingWebsite ? 'Update the website details' : 'Add a new friendly website to the sidebar'}
+              Add a partner or related website to show in the sidebar widget
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Name *</Label>
               <Input
+                placeholder="Website name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Website name"
               />
             </div>
             <div className="space-y-2">
               <Label>URL *</Label>
               <Input
+                placeholder="https://example.com"
                 value={formData.url}
                 onChange={(e) => setFormData({ ...formData, url: e.target.value })}
-                placeholder="https://example.com"
               />
             </div>
             <div className="space-y-2">
-              <Label>Icon URL</Label>
+              <Label>Icon URL (optional)</Label>
               <Input
+                placeholder="https://example.com/icon.png"
                 value={formData.icon_url}
                 onChange={(e) => setFormData({ ...formData, icon_url: e.target.value })}
-                placeholder="https://example.com/icon.png"
               />
             </div>
             <div className="space-y-2">
-              <Label>Description</Label>
+              <Label>Description (optional)</Label>
               <Textarea
+                placeholder="Brief description of the website"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Brief description of the website"
-                rows={2}
               />
             </div>
             <div className="flex items-center justify-between">
@@ -645,19 +751,65 @@ const AdminFriendlyWebsites = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setAddDialogOpen(false);
-                setEditingWebsite(null);
-                setFormData({ name: '', url: '', icon_url: '', description: '', open_in_new_tab: true });
-              }}
-            >
-              Cancel
-            </Button>
-            <Button onClick={editingWebsite ? handleUpdateWebsite : handleAddWebsite}>
-              {editingWebsite ? 'Update' : 'Add'} Website
-            </Button>
+            <Button variant="outline" onClick={() => setAddDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddWebsite}>Add Website</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Website Dialog */}
+      <Dialog open={!!editingWebsite} onOpenChange={(open) => !open && setEditingWebsite(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Website</DialogTitle>
+            <DialogDescription>
+              Update the website details
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Name *</Label>
+              <Input
+                placeholder="Website name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>URL *</Label>
+              <Input
+                placeholder="https://example.com"
+                value={formData.url}
+                onChange={(e) => setFormData({ ...formData, url: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Icon URL (optional)</Label>
+              <Input
+                placeholder="https://example.com/icon.png"
+                value={formData.icon_url}
+                onChange={(e) => setFormData({ ...formData, icon_url: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description (optional)</Label>
+              <Textarea
+                placeholder="Brief description of the website"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label>Open in new tab</Label>
+              <Switch
+                checked={formData.open_in_new_tab}
+                onCheckedChange={(checked) => setFormData({ ...formData, open_in_new_tab: checked })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingWebsite(null)}>Cancel</Button>
+            <Button onClick={handleUpdateWebsite}>Save Changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

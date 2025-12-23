@@ -50,6 +50,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useSubscription } from "@/hooks/useSubscription";
+import FeatureGate from "@/components/FeatureGate";
 import { useConfetti } from "@/hooks/useConfetti";
 import { storage } from "@/lib/storage";
 
@@ -82,8 +83,6 @@ const APIAccess = () => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newKeyValue, setNewKeyValue] = useState<string | null>(null);
-
-  const canUseAPI = isPremium && currentTier?.can_use_api;
 
   // Simulated usage stats
   const usageStats: UsageStats = {
@@ -183,46 +182,6 @@ const APIAccess = () => {
     return null;
   }
 
-  if (!canUseAPI) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <main className="pt-24 pb-16">
-          <div className="container mx-auto px-4 max-w-4xl">
-            <Button variant="ghost" className="mb-6" onClick={() => navigate(-1)}>
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back
-            </Button>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-center py-16"
-            >
-              <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-r from-purple-500/20 to-pink-500/20 flex items-center justify-center">
-                <Crown className="w-10 h-10 text-purple-500" />
-              </div>
-              <h1 className="text-3xl font-bold mb-4">API Access is a Premium Feature</h1>
-              <p className="text-muted-foreground mb-8 max-w-md mx-auto">
-                Upgrade to Pro or Business to get programmatic access to your temporary emails
-                with our powerful REST API.
-              </p>
-              <Button
-                size="lg"
-                className="bg-gradient-to-r from-purple-500 to-pink-500 gap-2"
-                onClick={() => navigate("/dashboard")}
-              >
-                <Zap className="w-4 h-4" />
-                Upgrade to Pro
-              </Button>
-            </motion.div>
-          </div>
-        </main>
-        <Footer />
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -232,6 +191,8 @@ const APIAccess = () => {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back
           </Button>
+
+          <FeatureGate feature="canUseApi" requiredTier="pro">
 
           {/* Header */}
           <motion.div
@@ -586,6 +547,7 @@ Response:
               </Card>
             </TabsContent>
           </Tabs>
+          </FeatureGate>
         </div>
       </main>
       <Footer />

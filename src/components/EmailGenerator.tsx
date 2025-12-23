@@ -109,6 +109,26 @@ const EmailGenerator = () => {
   };
 
   const refreshEmail = async () => {
+    // Check rate limit first (10 emails per 10 minutes for anonymous, 30 for logged in)
+    const identifier = user?.id || 'anonymous';
+    const maxRequests = user ? 30 : 10;
+    
+    const { data: rateLimitOk, error: rateLimitError } = await supabase.rpc('check_rate_limit', {
+      p_identifier: identifier,
+      p_action_type: 'generate_email',
+      p_max_requests: maxRequests,
+      p_window_minutes: 10
+    });
+    
+    if (rateLimitError) {
+      console.error('Rate limit check error:', rateLimitError);
+    }
+    
+    if (rateLimitOk === false) {
+      toast.error("You're creating emails too fast. Please wait a moment.");
+      return;
+    }
+    
     // Verify captcha before generating new email
     if (!await verifyCaptcha('generate_email')) {
       return;

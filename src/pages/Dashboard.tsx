@@ -32,6 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useSubscription } from "@/hooks/useSubscription";
+import { usePremiumFeatures } from "@/hooks/usePremiumFeatures";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow, format } from "date-fns";
 import { toast } from "sonner";
@@ -158,8 +159,18 @@ const Dashboard = () => {
               <h1 className="text-3xl font-bold text-foreground">
                 Welcome back, {user.email?.split('@')[0]}!
               </h1>
-              {currentTier && currentTier.name !== 'free' && (
-                <PremiumBadge tier={currentTier.name as 'pro' | 'business'} />
+              {currentTier && (
+                <Badge className={`${
+                  currentTier.name === 'business' 
+                    ? 'bg-gradient-to-r from-amber-500 to-orange-500' 
+                    : currentTier.name === 'pro' 
+                      ? 'bg-gradient-to-r from-purple-500 to-pink-500' 
+                      : 'bg-secondary text-secondary-foreground'
+                } text-white font-medium capitalize`}>
+                  {currentTier.name === 'business' && <Crown className="w-3 h-3 mr-1" />}
+                  {currentTier.name === 'pro' && <Sparkles className="w-3 h-3 mr-1" />}
+                  {currentTier.name} Plan
+                </Badge>
               )}
             </div>
             <p className="text-muted-foreground">

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { storage, STORAGE_KEYS, generateId } from "@/lib/storage";
 import { Globe, Plus, Trash2, CheckCircle, AlertCircle, Clock, ExternalLink, Copy } from "lucide-react";
+import FeatureGate from "@/components/FeatureGate";
 import {
   Table,
   TableBody,
@@ -145,6 +146,7 @@ const AdminCustomDomains = () => {
   };
 
   return (
+    <FeatureGate feature="canUseCustomDomains" requiredTier="business">
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -341,6 +343,7 @@ const AdminCustomDomains = () => {
         </CardContent>
       </Card>
     </div>
+    </FeatureGate>
   );
 };
 

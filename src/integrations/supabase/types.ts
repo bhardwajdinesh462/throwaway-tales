@@ -1315,6 +1315,15 @@ export type Database = {
         Returns: boolean
       }
       cleanup_old_rate_limits: { Args: never; Returns: undefined }
+      create_temp_email: {
+        Args: {
+          p_address: string
+          p_domain_id: string
+          p_expires_at?: string
+          p_user_id?: string
+        }
+        Returns: Json
+      }
       delete_user_as_admin: {
         Args: { target_user_id: string }
         Returns: boolean

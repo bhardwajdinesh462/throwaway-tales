@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/useSupabaseAuth";
 import { toast } from "sonner";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
+import FeatureGate from "@/components/FeatureGate";
 
 interface ForwardingRule {
   id: string;
@@ -209,28 +210,29 @@ const EmailForwarding = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/20">
-            <Forward className="w-5 h-5 text-primary" />
+    <FeatureGate feature="canForwardEmails" requiredTier="pro">
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/20">
+              <Forward className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-foreground">Email Forwarding</h3>
+              <p className="text-sm text-muted-foreground">
+                Forward emails from your temp addresses to your real inbox
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="font-semibold text-foreground">Email Forwarding</h3>
-            <p className="text-sm text-muted-foreground">
-              Forward emails from your temp addresses to your real inbox
-            </p>
-          </div>
+          <Button
+            variant="neon"
+            onClick={() => setShowAddForm(!showAddForm)}
+            disabled={tempEmails.length === 0}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Rule
+          </Button>
         </div>
-        <Button
-          variant="neon"
-          onClick={() => setShowAddForm(!showAddForm)}
-          disabled={tempEmails.length === 0}
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add Rule
-        </Button>
-      </div>
 
       {tempEmails.length === 0 && !isLoading && (
         <div className="bg-secondary/50 border border-border rounded-lg p-4">
@@ -381,7 +383,8 @@ const EmailForwarding = () => {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </FeatureGate>
   );
 };
 

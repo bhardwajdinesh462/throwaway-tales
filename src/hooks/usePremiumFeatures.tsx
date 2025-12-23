@@ -61,9 +61,9 @@ export const usePremiumFeatures = () => {
   const [lastFetchTime, setLastFetchTime] = useState<number>(0);
 
   const fetchSubscription = useCallback(async (forceRefresh = false) => {
-    // Prevent rapid refetching unless forced
+    // Prevent rapid refetching unless forced - reduced debounce to 500ms for responsiveness
     const now = Date.now();
-    if (!forceRefresh && now - lastFetchTime < 2000) {
+    if (!forceRefresh && now - lastFetchTime < 500) {
       console.log('[PremiumFeatures] Skipping fetch - too soon');
       return;
     }
@@ -180,9 +180,10 @@ export const usePremiumFeatures = () => {
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
-          console.log('Subscription changed:', payload);
-          // Refetch subscription data when it changes
-          fetchSubscription();
+          console.log('[PremiumFeatures] Subscription changed via realtime:', payload);
+          // Force refetch immediately when subscription changes
+          setLastFetchTime(0); // Reset debounce to allow immediate fetch
+          fetchSubscription(true);
         }
       )
       .subscribe();

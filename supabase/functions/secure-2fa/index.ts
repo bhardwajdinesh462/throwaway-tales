@@ -150,7 +150,9 @@ serve(async (req: Request): Promise<Response> => {
             .from('user_2fa')
             .update({
               totp_secret: encryptedSecret,
+              totp_secret_encrypted: encryptedSecret, // Also store in new encrypted column
               backup_codes: encryptedBackupCodes,
+              backup_codes_encrypted: encryptedBackupCodes.join(','), // Store as comma-separated in new column
               is_enabled: false,
               updated_at: new Date().toISOString(),
             })
@@ -163,7 +165,9 @@ serve(async (req: Request): Promise<Response> => {
             .insert([{
               user_id: user.id,
               totp_secret: encryptedSecret,
+              totp_secret_encrypted: encryptedSecret,
               backup_codes: encryptedBackupCodes,
+              backup_codes_encrypted: encryptedBackupCodes.join(','),
               is_enabled: false,
             }]);
 

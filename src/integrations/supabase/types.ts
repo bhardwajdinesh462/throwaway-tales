@@ -110,6 +110,42 @@ export type Database = {
         }
         Relationships: []
       }
+      backup_history: {
+        Row: {
+          backup_type: string
+          created_at: string | null
+          created_by: string | null
+          expires_at: string | null
+          file_size_bytes: number | null
+          id: string
+          row_counts: Json | null
+          status: string | null
+          tables_included: string[] | null
+        }
+        Insert: {
+          backup_type?: string
+          created_at?: string | null
+          created_by?: string | null
+          expires_at?: string | null
+          file_size_bytes?: number | null
+          id?: string
+          row_counts?: Json | null
+          status?: string | null
+          tables_included?: string[] | null
+        }
+        Update: {
+          backup_type?: string
+          created_at?: string | null
+          created_by?: string | null
+          expires_at?: string | null
+          file_size_bytes?: number | null
+          id?: string
+          row_counts?: Json | null
+          status?: string | null
+          tables_included?: string[] | null
+        }
+        Relationships: []
+      }
       banners: {
         Row: {
           click_count: number
@@ -522,6 +558,45 @@ export type Database = {
           token?: string
           user_id?: string
           verified_at?: string | null
+        }
+        Relationships: []
+      }
+      friendly_websites: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          display_order: number | null
+          icon_url: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          open_in_new_tab: boolean | null
+          updated_at: string | null
+          url: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          icon_url?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          open_in_new_tab?: boolean | null
+          updated_at?: string | null
+          url: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          icon_url?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          open_in_new_tab?: boolean | null
+          updated_at?: string | null
+          url?: string
         }
         Relationships: []
       }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { User, Trash2, Search, ChevronLeft, ChevronRight, Ban, CheckCircle, Loader2, MailCheck, Mail, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAdminUsers } from "@/hooks/useAdminQueries";
+import { AdminTableSkeleton } from "@/components/admin/AdminSkeletons";
+import { queryKeys } from "@/lib/queryClient";
 import {
   Select,
   SelectContent,
@@ -53,11 +57,9 @@ interface UserProfile {
 }
 
 const AdminUsers = () => {
-  const [users, setUsers] = useState<UserProfile[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
@@ -74,62 +76,14 @@ const AdminUsers = () => {
   
   const pageSize = 10;
 
-  const fetchUsers = async () => {
-    setIsLoading(true);
-    try {
-      const { data, error } = await supabase.rpc('get_all_profiles_for_admin', {
-        p_search: searchQuery || null,
-        p_page: page,
-        p_page_size: pageSize
-      });
+  // Use React Query hook for caching
+  const { data, isLoading, refetch } = useAdminUsers(page, searchQuery, pageSize);
+  const users = data?.users || [];
+  const totalCount = data?.totalCount || 0;
 
-      if (error) throw error;
-
-      if (data && data.length > 0) {
-        // Fetch suspension status for all users
-        const userIds = data.map((row: any) => row.user_id);
-        const { data: suspensions } = await supabase
-          .from('user_suspensions')
-          .select('user_id')
-          .in('user_id', userIds)
-          .eq('is_active', true);
-        
-        // Fetch email verification status for all users
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('user_id, email_verified')
-          .in('user_id', userIds);
-        
-        const suspendedUserIds = new Set(suspensions?.map(s => s.user_id) || []);
-        const emailVerifiedMap = new Map(profiles?.map(p => [p.user_id, p.email_verified]) || []);
-        
-        const usersData = data.map((row: any) => ({
-          id: row.id,
-          user_id: row.user_id,
-          email: row.email,
-          display_name: row.display_name,
-          created_at: row.created_at,
-          role: row.role || 'user',
-          is_suspended: suspendedUserIds.has(row.user_id),
-          email_verified: emailVerifiedMap.get(row.user_id) ?? false
-        }));
-        setUsers(usersData);
-        setTotalCount(Number(data[0]?.total_count) || 0);
-      } else {
-        setUsers([]);
-        setTotalCount(0);
-      }
-    } catch (error: any) {
-      console.error("Error fetching users:", error);
-      toast.error(error.message || "Failed to load users");
-    } finally {
-      setIsLoading(false);
-    }
+  const invalidateUsers = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.admin.users(page, searchQuery) });
   };
-
-  useEffect(() => {
-    fetchUsers();
-  }, [page, searchQuery]);
 
   const updateUserRole = async (userId: string, newRole: string) => {
     try {
@@ -142,10 +96,8 @@ const AdminUsers = () => {
 
       if (error) throw error;
 
-      setUsers(users.map(u => 
-        u.user_id === userId ? { ...u, role: newRole } : u
-      ));
       toast.success("User role updated");
+      invalidateUsers();
     } catch (error) {
       console.error("Error updating role:", error);
       toast.error("Failed to update role");
@@ -155,7 +107,6 @@ const AdminUsers = () => {
   const deleteUser = async (userId: string) => {
     setDeletingUserId(userId);
     try {
-      // Use the edge function to completely delete user from auth.users
       const { data, error } = await supabase.functions.invoke('delete-user-complete', {
         body: { userId }
       });
@@ -169,7 +120,7 @@ const AdminUsers = () => {
         next.delete(userId);
         return next;
       });
-      fetchUsers();
+      invalidateUsers();
     } catch (error: any) {
       console.error("Error deleting user:", error);
       toast.error(error.message || "Failed to delete user");
@@ -192,7 +143,7 @@ const AdminUsers = () => {
       toast.success(`${data} users deleted successfully`);
       setSelectedUsers(new Set());
       setShowBulkDeleteDialog(false);
-      fetchUsers();
+      invalidateUsers();
     } catch (error: any) {
       console.error("Error bulk deleting users:", error);
       toast.error(error.message || "Failed to delete users");
@@ -232,7 +183,7 @@ const AdminUsers = () => {
 
       toast.success(`${suspendingUser.display_name || suspendingUser.email} has been suspended`);
       setSuspendDialogOpen(false);
-      fetchUsers();
+      invalidateUsers();
     } catch (error: any) {
       console.error("Error suspending user:", error);
       toast.error(error.message || "Failed to suspend user");
@@ -250,7 +201,7 @@ const AdminUsers = () => {
       if (error) throw error;
 
       toast.success("User suspension lifted");
-      fetchUsers();
+      invalidateUsers();
     } catch (error: any) {
       console.error("Error unsuspending user:", error);
       toast.error(error.message || "Failed to unsuspend user");
@@ -268,9 +219,7 @@ const AdminUsers = () => {
       if (error) throw error;
 
       toast.success("Email marked as verified");
-      setUsers(users.map(u => 
-        u.user_id === userId ? { ...u, email_verified: true } : u
-      ));
+      invalidateUsers();
     } catch (error: any) {
       console.error("Error verifying email:", error);
       toast.error(error.message || "Failed to verify email");
@@ -347,6 +296,9 @@ const AdminUsers = () => {
             className="pl-10 bg-secondary/50"
           />
         </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          <RefreshCw className="w-4 h-4" />
+        </Button>
         <Badge variant="secondary">{totalCount} users</Badge>
         
         {selectedUsers.size > 0 && (
@@ -388,7 +340,9 @@ const AdminUsers = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {users.length === 0 ? (
+              {isLoading ? (
+                <AdminTableSkeleton rows={5} />
+              ) : users.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="p-8 text-center text-muted-foreground">
                     No users found
@@ -515,20 +469,24 @@ const AdminUsers = () => {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => openSuspendDialog(user)}
-                                className="text-orange-500"
+                                className="text-amber-500"
                               >
                                 <Ban className="w-4 h-4" />
                               </Button>
                             )}
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
                                   className="text-destructive"
                                   disabled={deletingUserId === user.user_id}
                                 >
-                                  <Trash2 className="w-4 h-4" />
+                                  {deletingUserId === user.user_id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                  )}
                                 </Button>
                               </AlertDialogTrigger>
                               <AlertDialogContent>
@@ -540,8 +498,8 @@ const AdminUsers = () => {
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction 
-                                    className="bg-destructive hover:bg-destructive/90"
+                                  <AlertDialogAction
+                                    className="bg-destructive"
                                     onClick={() => deleteUser(user.user_id)}
                                   >
                                     Delete
@@ -559,54 +517,57 @@ const AdminUsers = () => {
             </tbody>
           </table>
         </div>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between p-4 border-t border-border">
-            <p className="text-sm text-muted-foreground">
-              Page {page} of {totalPages}
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-              >
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-        )}
       </motion.div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Page {page} of {totalPages}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+            >
+              <ChevronLeft className="w-4 h-4 mr-1" />
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+            >
+              Next
+              <ChevronRight className="w-4 h-4 ml-1" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Bulk Delete Dialog */}
       <AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Bulk Delete Users</AlertDialogTitle>
+            <AlertDialogTitle>Delete {selectedUsers.size} Users</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete {selectedUsers.size} users? This action cannot be undone.
-              Admin users will be skipped.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isBulkDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction 
-              className="bg-destructive hover:bg-destructive/90"
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive"
               onClick={bulkDeleteUsers}
               disabled={isBulkDeleting}
             >
-              {isBulkDeleting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              Delete {selectedUsers.size} Users
+              {isBulkDeleting ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
+              Delete All
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -623,42 +584,40 @@ const AdminUsers = () => {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="duration">Suspension Duration</Label>
+              <Label>Duration</Label>
               <Select value={suspendDuration} onValueChange={setSuspendDuration}>
-                <SelectTrigger id="duration">
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="1">1 Day</SelectItem>
-                  <SelectItem value="3">3 Days</SelectItem>
-                  <SelectItem value="7">1 Week</SelectItem>
-                  <SelectItem value="14">2 Weeks</SelectItem>
-                  <SelectItem value="30">1 Month</SelectItem>
+                  <SelectItem value="7">7 Days</SelectItem>
+                  <SelectItem value="30">30 Days</SelectItem>
                   <SelectItem value="permanent">Permanent</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="reason">Reason (optional)</Label>
+              <Label>Reason (optional)</Label>
               <Textarea
-                id="reason"
-                placeholder="Enter reason for suspension..."
+                placeholder="Enter a reason for the suspension..."
                 value={suspendReason}
                 onChange={(e) => setSuspendReason(e.target.value)}
-                rows={3}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSuspendDialogOpen(false)} disabled={isSuspending}>
+            <Button variant="ghost" onClick={() => setSuspendDialogOpen(false)}>
               Cancel
             </Button>
-            <Button 
-              variant="destructive" 
+            <Button
+              variant="destructive"
               onClick={suspendUser}
               disabled={isSuspending}
             >
-              {isSuspending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Ban className="w-4 h-4 mr-2" />}
+              {isSuspending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
               Suspend User
             </Button>
           </DialogFooter>

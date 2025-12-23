@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { FileText, Plus, Trash2, Edit, Eye, EyeOff, Upload, Image, Loader2, Tag } from "lucide-react";
+import { FileText, Plus, Trash2, Edit, Eye, EyeOff, Image, Loader2, Tag, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAdminBlogs, useBlogMutations, adminQueryKeys } from "@/hooks/useAdminQueries";
+import { AdminBlogCardSkeleton } from "@/components/admin/AdminSkeletons";
 import {
   Dialog,
   DialogContent,
@@ -43,8 +46,7 @@ interface BlogPost {
 }
 
 const AdminBlogs = () => {
-  const [blogs, setBlogs] = useState<BlogPost[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingBlog, setEditingBlog] = useState<BlogPost | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -63,27 +65,9 @@ const AdminBlogs = () => {
     published: false,
   });
 
-  useEffect(() => {
-    fetchBlogs();
-  }, []);
-
-  const fetchBlogs = async () => {
-    setIsLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("blogs")
-        .select("*")
-        .order("created_at", { ascending: false });
-      
-      if (error) throw error;
-      setBlogs(data || []);
-    } catch (error: any) {
-      console.error("Error fetching blogs:", error);
-      toast.error("Failed to load blogs");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Use React Query for caching
+  const { data: blogs = [], isLoading, refetch } = useAdminBlogs();
+  const { deleteBlog, togglePublished } = useBlogMutations();
 
   const calculateReadingTime = (content: string): number => {
     const wordsPerMinute = 200;
@@ -219,43 +203,19 @@ const AdminBlogs = () => {
 
       setDialogOpen(false);
       resetForm();
-      fetchBlogs();
+      queryClient.invalidateQueries({ queryKey: adminQueryKeys.blogs() });
     } catch (error: any) {
       console.error("Save error:", error);
       toast.error(error.message || "Failed to save blog post");
     }
   };
 
-  const deleteBlog = async (id: string) => {
-    try {
-      const { error } = await supabase.from("blogs").delete().eq("id", id);
-      if (error) throw error;
-      setBlogs(blogs.filter(b => b.id !== id));
-      toast.success("Blog post deleted");
-    } catch (error) {
-      toast.error("Failed to delete blog post");
-    }
+  const handleDeleteBlog = (id: string) => {
+    deleteBlog.mutate(id);
   };
 
-  const togglePublished = async (blog: BlogPost) => {
-    try {
-      const newPublished = !blog.published;
-      const { error } = await supabase
-        .from("blogs")
-        .update({ 
-          published: newPublished,
-          published_at: newPublished ? new Date().toISOString() : null
-        })
-        .eq("id", blog.id);
-      
-      if (error) throw error;
-      setBlogs(blogs.map(b => 
-        b.id === blog.id ? { ...b, published: newPublished } : b
-      ));
-      toast.success(newPublished ? "Blog published" : "Blog unpublished");
-    } catch (error) {
-      toast.error("Failed to update blog status");
-    }
+  const handleTogglePublished = (blog: BlogPost) => {
+    togglePublished.mutate({ id: blog.id, published: blog.published });
   };
 
   return (
@@ -267,14 +227,21 @@ const AdminBlogs = () => {
             Create and manage blog posts with SEO and images
           </p>
         </div>
-        <Button variant="neon" onClick={() => { resetForm(); setDialogOpen(true); }}>
-          <Plus className="w-4 h-4 mr-2" />
-          New Post
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+          <Button variant="neon" onClick={() => { resetForm(); setDialogOpen(true); }}>
+            <Plus className="w-4 h-4 mr-2" />
+            New Post
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4">
-        {blogs.length === 0 ? (
+        {isLoading ? (
+          Array.from({ length: 3 }).map((_, i) => <AdminBlogCardSkeleton key={i} />)
+        ) : blogs.length === 0 ? (
           <div className="glass-card p-8 text-center text-muted-foreground">
             <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
             No blog posts yet. Create your first post!
@@ -285,7 +252,7 @@ const AdminBlogs = () => {
               key={blog.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
+              transition={{ delay: index * 0.03 }}
               className="glass-card p-4"
             >
               <div className="flex items-start gap-4">
@@ -327,7 +294,7 @@ const AdminBlogs = () => {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => togglePublished(blog)}
+                    onClick={() => handleTogglePublished(blog)}
                   >
                     {blog.published ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </Button>
@@ -342,7 +309,7 @@ const AdminBlogs = () => {
                     variant="ghost"
                     size="icon"
                     className="text-destructive"
-                    onClick={() => deleteBlog(blog.id)}
+                    onClick={() => handleDeleteBlog(blog.id)}
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>
@@ -497,45 +464,41 @@ const AdminBlogs = () => {
                   placeholder="SEO title (defaults to post title)"
                   className="bg-secondary/50"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  {formData.meta_title?.length || 0}/60 characters
-                </p>
               </div>
               <div>
                 <label className="text-sm font-medium mb-2 block">Meta Description</label>
                 <Textarea
                   value={formData.meta_description}
                   onChange={(e) => setFormData({ ...formData, meta_description: e.target.value })}
-                  placeholder="SEO description for search engines"
+                  placeholder="SEO description (defaults to excerpt)"
                   className="bg-secondary/50"
                   rows={3}
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  {formData.meta_description?.length || 0}/160 characters
-                </p>
-              </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/30">
-                <div>
-                  <p className="font-medium text-foreground">Publish Status</p>
-                  <p className="text-sm text-muted-foreground">
-                    {formData.published ? "Post is visible to public" : "Post is saved as draft"}
-                  </p>
-                </div>
-                <Button
-                  variant={formData.published ? "default" : "outline"}
-                  onClick={() => setFormData({ ...formData, published: !formData.published })}
-                >
-                  {formData.published ? "Published" : "Draft"}
-                </Button>
               </div>
             </TabsContent>
           </Tabs>
 
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button variant="neon" onClick={handleSave}>
-              {editingBlog ? "Update" : "Create"}
-            </Button>
+          <DialogFooter className="mt-6">
+            <div className="flex items-center gap-4 w-full justify-between">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="published"
+                  checked={formData.published}
+                  onChange={(e) => setFormData({ ...formData, published: e.target.checked })}
+                  className="rounded border-border"
+                />
+                <label htmlFor="published" className="text-sm">Publish immediately</label>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="ghost" onClick={() => setDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button variant="neon" onClick={handleSave}>
+                  {editingBlog ? "Update" : "Create"} Post
+                </Button>
+              </div>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

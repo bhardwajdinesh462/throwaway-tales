@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { Globe, Plus, Trash2, Check, X, Star } from "lucide-react";
+import { Globe, Plus, Trash2, Star, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
+import { useAdminDomains, useDomainMutations } from "@/hooks/useAdminQueries";
+import { AdminDomainSkeleton } from "@/components/admin/AdminSkeletons";
 import {
   Dialog,
   DialogContent,
@@ -37,121 +37,39 @@ interface Domain {
 }
 
 const AdminDomains = () => {
-  const [domains, setDomains] = useState<Domain[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [newDomain, setNewDomain] = useState("");
   const [isPremium, setIsPremium] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const fetchDomains = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("domains")
-        .select("*")
-        .order("created_at", { ascending: false });
+  // Use React Query for caching
+  const { data: domains = [], isLoading, refetch } = useAdminDomains();
+  const { addDomain, toggleActive, togglePremium, deleteDomain } = useDomainMutations();
 
-      if (error) throw error;
-      setDomains(data || []);
-    } catch (error) {
-      console.error("Error fetching domains:", error);
-      toast.error("Failed to load domains");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchDomains();
-  }, []);
-
-  const addDomain = async () => {
-    if (!newDomain.trim()) {
-      toast.error("Please enter a domain name");
-      return;
-    }
-
-    const domainName = newDomain.startsWith("@") ? newDomain : `@${newDomain}`;
-
-    try {
-      const { data, error } = await supabase
-        .from("domains")
-        .insert({
-          name: domainName,
-          is_premium: isPremium,
-          is_active: true,
-        })
-        .select()
-        .single();
-
-      if (error) {
-        if (error.code === "23505") {
-          toast.error("Domain already exists");
-        } else {
-          throw error;
-        }
-        return;
+  const handleAddDomain = () => {
+    if (!newDomain.trim()) return;
+    
+    addDomain.mutate(
+      { name: newDomain, isPremium },
+      {
+        onSuccess: () => {
+          setNewDomain("");
+          setIsPremium(false);
+          setDialogOpen(false);
+        },
       }
-
-      setDomains([data, ...domains]);
-      setNewDomain("");
-      setIsPremium(false);
-      setDialogOpen(false);
-      toast.success("Domain added successfully");
-    } catch (error) {
-      console.error("Error adding domain:", error);
-      toast.error("Failed to add domain");
-    }
+    );
   };
 
-  const toggleActive = async (domain: Domain) => {
-    try {
-      const { error } = await supabase
-        .from("domains")
-        .update({ is_active: !domain.is_active })
-        .eq("id", domain.id);
-
-      if (error) throw error;
-
-      setDomains(domains.map(d => 
-        d.id === domain.id ? { ...d, is_active: !d.is_active } : d
-      ));
-      toast.success(`Domain ${domain.is_active ? "disabled" : "enabled"}`);
-    } catch (error) {
-      console.error("Error updating domain:", error);
-      toast.error("Failed to update domain");
-    }
+  const handleToggleActive = (domain: Domain) => {
+    toggleActive.mutate({ id: domain.id, isActive: domain.is_active });
   };
 
-  const togglePremium = async (domain: Domain) => {
-    try {
-      const { error } = await supabase
-        .from("domains")
-        .update({ is_premium: !domain.is_premium })
-        .eq("id", domain.id);
-
-      if (error) throw error;
-
-      setDomains(domains.map(d => 
-        d.id === domain.id ? { ...d, is_premium: !d.is_premium } : d
-      ));
-      toast.success(`Premium status ${domain.is_premium ? "removed" : "added"}`);
-    } catch (error) {
-      console.error("Error updating domain:", error);
-      toast.error("Failed to update domain");
-    }
+  const handleTogglePremium = (domain: Domain) => {
+    togglePremium.mutate({ id: domain.id, isPremium: domain.is_premium });
   };
 
-  const deleteDomain = async (id: string) => {
-    try {
-      const { error } = await supabase.from("domains").delete().eq("id", id);
-      if (error) throw error;
-
-      setDomains(domains.filter(d => d.id !== id));
-      toast.success("Domain deleted");
-    } catch (error) {
-      console.error("Error deleting domain:", error);
-      toast.error("Failed to delete domain");
-    }
+  const handleDeleteDomain = (id: string) => {
+    deleteDomain.mutate(id);
   };
 
   return (
@@ -164,50 +82,59 @@ const AdminDomains = () => {
             Manage domains available for temporary emails
           </p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button variant="neon">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Domain
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New Domain</DialogTitle>
-              <DialogDescription>
-                Enter a domain name for temporary emails (e.g., @example.com)
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">Domain Name</label>
-                <Input
-                  placeholder="@example.com"
-                  value={newDomain}
-                  onChange={(e) => setNewDomain(e.target.value)}
-                  className="bg-secondary/50"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-sm font-medium">Premium Domain</label>
-                  <p className="text-xs text-muted-foreground">
-                    Premium domains are only available to paying users
-                  </p>
-                </div>
-                <Switch checked={isPremium} onCheckedChange={setIsPremium} />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="neon" onClick={addDomain}>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="neon">
+                <Plus className="w-4 h-4 mr-2" />
                 Add Domain
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New Domain</DialogTitle>
+                <DialogDescription>
+                  Enter a domain name for temporary emails (e.g., @example.com)
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Domain Name</label>
+                  <Input
+                    placeholder="@example.com"
+                    value={newDomain}
+                    onChange={(e) => setNewDomain(e.target.value)}
+                    className="bg-secondary/50"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-sm font-medium">Premium Domain</label>
+                    <p className="text-xs text-muted-foreground">
+                      Premium domains are only available to paying users
+                    </p>
+                  </div>
+                  <Switch checked={isPremium} onCheckedChange={setIsPremium} />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button 
+                  variant="neon" 
+                  onClick={handleAddDomain}
+                  disabled={addDomain.isPending}
+                >
+                  Add Domain
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Domains List */}
@@ -216,7 +143,9 @@ const AdminDomains = () => {
         animate={{ opacity: 1 }}
         className="grid gap-4"
       >
-        {domains.length === 0 ? (
+        {isLoading ? (
+          Array.from({ length: 3 }).map((_, i) => <AdminDomainSkeleton key={i} />)
+        ) : domains.length === 0 ? (
           <div className="glass-card p-8 text-center text-muted-foreground">
             No domains configured
           </div>
@@ -226,7 +155,7 @@ const AdminDomains = () => {
               key={domain.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
+              transition={{ delay: index * 0.03 }}
               className="glass-card p-4 flex items-center justify-between"
             >
               <div className="flex items-center gap-4">
@@ -259,14 +188,14 @@ const AdminDomains = () => {
                   <span className="text-sm text-muted-foreground">Active</span>
                   <Switch
                     checked={domain.is_active}
-                    onCheckedChange={() => toggleActive(domain)}
+                    onCheckedChange={() => handleToggleActive(domain)}
                   />
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Premium</span>
                   <Switch
                     checked={domain.is_premium}
-                    onCheckedChange={() => togglePremium(domain)}
+                    onCheckedChange={() => handleTogglePremium(domain)}
                   />
                 </div>
                 <AlertDialog>
@@ -286,7 +215,7 @@ const AdminDomains = () => {
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
                       <AlertDialogAction 
                         className="bg-destructive"
-                        onClick={() => deleteDomain(domain.id)}
+                        onClick={() => handleDeleteDomain(domain.id)}
                       >
                         Delete
                       </AlertDialogAction>

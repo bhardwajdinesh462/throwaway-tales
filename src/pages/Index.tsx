@@ -10,6 +10,7 @@ import SEOHead from "@/components/SEOHead";
 import JsonLd from "@/components/JsonLd";
 import BannerDisplay from "@/components/BannerDisplay";
 import LiveStatsWidget from "@/components/LiveStatsWidget";
+import FriendlyWebsitesWidget from "@/components/FriendlyWebsitesWidget";
 import { motion } from "framer-motion";
 
 const Index = () => {
@@ -192,6 +193,9 @@ const Index = () => {
       </div>
       
       <Footer />
+      
+      {/* Friendly Websites Sidebar Widget */}
+      <FriendlyWebsitesWidget />
     </div>
   );
 };

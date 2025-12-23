@@ -116,15 +116,40 @@ const AdminFriendlyWebsites = () => {
   const saveSettings = async () => {
     setIsSaving(true);
     try {
-      const { error } = await supabase
+      // Check if settings exist first
+      const { data: existing } = await supabase
         .from('app_settings')
-        .update({
-          value: settings as unknown as Record<string, unknown>,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('key', 'friendly_sites_widget');
+        .select('id')
+        .eq('key', 'friendly_sites_widget')
+        .maybeSingle();
 
-      if (error) throw error;
+      // Convert settings to JSON-compatible format
+      const settingsJson = JSON.parse(JSON.stringify(settings));
+
+      if (existing) {
+        // Update existing
+        const { error } = await supabase
+          .from('app_settings')
+          .update({
+            value: settingsJson,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('key', 'friendly_sites_widget');
+
+        if (error) throw error;
+      } else {
+        // Insert new
+        const { error } = await supabase
+          .from('app_settings')
+          .insert([{
+            key: 'friendly_sites_widget',
+            value: settingsJson,
+            updated_at: new Date().toISOString(),
+          }]);
+
+        if (error) throw error;
+      }
+
       toast.success('Settings saved successfully');
       queryClient.invalidateQueries({ queryKey: ['app_settings'] });
     } catch (error) {

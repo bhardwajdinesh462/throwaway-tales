@@ -86,6 +86,8 @@ const AdminEmailLogs = lazy(() => import("./pages/admin/AdminEmailLogs"));
 const AdminMailboxHealth = lazy(() => import("./pages/admin/AdminMailboxHealth"));
 const AdminAnnouncement = lazy(() => import("./pages/admin/AdminAnnouncement"));
 const AdminStatusSettings = lazy(() => import("./pages/admin/AdminStatusSettings"));
+const AdminFriendlyWebsites = lazy(() => import("./pages/admin/AdminFriendlyWebsites"));
+const AdminBackup = lazy(() => import("./pages/admin/AdminBackup"));
 
 // Redirect www to non-www
 if (typeof window !== 'undefined' && window.location.hostname.startsWith('www.')) {
@@ -288,6 +290,8 @@ const App = () => (
                             <Route path="mailbox-health" element={<AdminMailboxHealth />} />
                             <Route path="announcement" element={<AdminAnnouncement />} />
                             <Route path="status-settings" element={<AdminStatusSettings />} />
+                            <Route path="friendly-websites" element={<AdminFriendlyWebsites />} />
+                            <Route path="backup" element={<AdminBackup />} />
                           </Route>
 
                           <Route path="*" element={<NotFound />} />

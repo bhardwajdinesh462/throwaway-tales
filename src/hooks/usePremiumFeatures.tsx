@@ -58,9 +58,19 @@ export const usePremiumFeatures = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
+  const [lastFetchTime, setLastFetchTime] = useState<number>(0);
 
-  const fetchSubscription = useCallback(async () => {
+  const fetchSubscription = useCallback(async (forceRefresh = false) => {
+    // Prevent rapid refetching unless forced
+    const now = Date.now();
+    if (!forceRefresh && now - lastFetchTime < 2000) {
+      console.log('[PremiumFeatures] Skipping fetch - too soon');
+      return;
+    }
+    setLastFetchTime(now);
+
     if (!user) {
+      console.log('[PremiumFeatures] No user, setting free tier');
       setTier('free');
       setLimits(DEFAULT_TIER_LIMITS.free);
       setExpiresAt(null);
@@ -68,6 +78,8 @@ export const usePremiumFeatures = () => {
       setIsLoading(false);
       return;
     }
+
+    console.log('[PremiumFeatures] Fetching subscription for user:', user.id);
 
     try {
       // Fetch user subscription from database
@@ -96,7 +108,7 @@ export const usePremiumFeatures = () => {
         .maybeSingle();
 
       if (subError) {
-        console.error('Error fetching subscription:', subError);
+        console.error('[PremiumFeatures] Error fetching subscription:', subError);
         // Fallback to free tier
         setTier('free');
         setLimits(DEFAULT_TIER_LIMITS.free);
@@ -104,20 +116,28 @@ export const usePremiumFeatures = () => {
         return;
       }
 
+      console.log('[PremiumFeatures] Subscription data:', subscriptionData);
+
       if (subscriptionData && subscriptionData.subscription_tiers) {
         const tierData = subscriptionData.subscription_tiers as any;
-        const tierName = (tierData.name?.toLowerCase() || 'free') as SubscriptionTier;
+        const rawTierName = tierData.name || 'free';
+        const tierName = rawTierName.toLowerCase() as SubscriptionTier;
         
-        // Use database values for limits
+        console.log('[PremiumFeatures] Tier name from DB:', rawTierName, '-> normalized:', tierName);
+        
+        // Use database values for limits with proper fallbacks
+        const validTierKey = ['free', 'pro', 'business'].includes(tierName) ? tierName : 'free';
         const dbLimits: TierLimits = {
-          maxTempEmails: tierData.max_temp_emails ?? DEFAULT_TIER_LIMITS[tierName].maxTempEmails,
-          emailExpiryHours: tierData.email_expiry_hours ?? DEFAULT_TIER_LIMITS[tierName].emailExpiryHours,
-          canForwardEmails: tierData.can_forward_emails ?? DEFAULT_TIER_LIMITS[tierName].canForwardEmails,
-          canUseCustomDomains: tierData.can_use_custom_domains ?? DEFAULT_TIER_LIMITS[tierName].canUseCustomDomains,
-          canUseApi: tierData.can_use_api ?? DEFAULT_TIER_LIMITS[tierName].canUseApi,
-          prioritySupport: tierData.priority_support ?? DEFAULT_TIER_LIMITS[tierName].prioritySupport,
-          aiSummariesPerDay: tierData.ai_summaries_per_day ?? DEFAULT_TIER_LIMITS[tierName].aiSummariesPerDay,
+          maxTempEmails: tierData.max_temp_emails ?? DEFAULT_TIER_LIMITS[validTierKey].maxTempEmails,
+          emailExpiryHours: tierData.email_expiry_hours ?? DEFAULT_TIER_LIMITS[validTierKey].emailExpiryHours,
+          canForwardEmails: tierData.can_forward_emails ?? DEFAULT_TIER_LIMITS[validTierKey].canForwardEmails,
+          canUseCustomDomains: tierData.can_use_custom_domains ?? DEFAULT_TIER_LIMITS[validTierKey].canUseCustomDomains,
+          canUseApi: tierData.can_use_api ?? DEFAULT_TIER_LIMITS[validTierKey].canUseApi,
+          prioritySupport: tierData.priority_support ?? DEFAULT_TIER_LIMITS[validTierKey].prioritySupport,
+          aiSummariesPerDay: tierData.ai_summaries_per_day ?? DEFAULT_TIER_LIMITS[validTierKey].aiSummariesPerDay,
         };
+
+        console.log('[PremiumFeatures] Setting tier:', tierName, 'with limits:', dbLimits);
 
         setTier(tierName);
         setLimits(dbLimits);
@@ -125,19 +145,20 @@ export const usePremiumFeatures = () => {
         setSubscriptionId(subscriptionData.id);
       } else {
         // No active subscription, use free tier
+        console.log('[PremiumFeatures] No active subscription found, using free tier');
         setTier('free');
         setLimits(DEFAULT_TIER_LIMITS.free);
         setExpiresAt(null);
         setSubscriptionId(null);
       }
     } catch (err) {
-      console.error('Error checking subscription:', err);
+      console.error('[PremiumFeatures] Error checking subscription:', err);
       setTier('free');
       setLimits(DEFAULT_TIER_LIMITS.free);
     } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  }, [user, lastFetchTime]);
 
   // Initial fetch
   useEffect(() => {
@@ -195,7 +216,8 @@ export const usePremiumFeatures = () => {
   }, []);
 
   const refreshSubscription = useCallback(() => {
-    fetchSubscription();
+    console.log('[PremiumFeatures] Manual refresh triggered');
+    fetchSubscription(true);
   }, [fetchSubscription]);
 
   return {

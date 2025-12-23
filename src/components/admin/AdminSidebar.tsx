@@ -1,5 +1,5 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -35,6 +35,9 @@ import {
   Bell,
   HardDrive,
   Heart,
+  Edit3,
+  Check,
+  LucideIcon,
 } from "lucide-react";
 import {
   Sidebar,
@@ -55,6 +58,15 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { motion, AnimatePresence } from "framer-motion";
+import { useSidebarIcons } from "@/hooks/useSidebarIcons";
+import FontAwesomeIconPicker from "@/components/admin/FontAwesomeIconPicker";
+import { toast } from "sonner";
+
+interface MenuItem {
+  title: string;
+  url: string;
+  icon: LucideIcon;
+}
 
 const AdminSidebar = () => {
   const location = useLocation();
@@ -63,27 +75,30 @@ const AdminSidebar = () => {
   const { t } = useLanguage();
   const collapsed = state === "collapsed";
   const [searchQuery, setSearchQuery] = useState("");
+  const [editMode, setEditMode] = useState(false);
+  const [editingUrl, setEditingUrl] = useState<string | null>(null);
+  const { icons, setIcon, getIcon, isSaving } = useSidebarIcons();
 
-  const mainMenuItems = [
+  const mainMenuItems: MenuItem[] = [
     { title: t('dashboard'), url: "/admin", icon: LayoutDashboard },
     { title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
     { title: t('users'), url: "/admin/users", icon: Users },
     { title: t('emails'), url: "/admin/emails", icon: Mail },
   ];
 
-  const domainMenuItems = [
+  const domainMenuItems: MenuItem[] = [
     { title: t('domains'), url: "/admin/domains", icon: Globe },
     { title: "Custom Domains", url: "/admin/custom-domains", icon: LinkIcon },
   ];
 
-  const contentMenuItems = [
+  const contentMenuItems: MenuItem[] = [
     { title: t('blogs'), url: "/admin/blogs", icon: Newspaper },
     { title: t('pages'), url: "/admin/pages", icon: FileText },
     { title: "Email Templates", url: "/admin/email-templates", icon: MailOpen },
     { title: "Friendly Sites", url: "/admin/friendly-websites", icon: Heart },
   ];
 
-  const settingsMenuItems = [
+  const settingsMenuItems: MenuItem[] = [
     { title: "Overview", url: "/admin/settings-overview", icon: LayoutList },
     { title: "General", url: "/admin/general-settings", icon: Settings },
     { title: "Appearance", url: "/admin/appearance", icon: Paintbrush },
@@ -103,7 +118,7 @@ const AdminSidebar = () => {
     { title: "Languages", url: "/admin/languages", icon: Languages },
   ];
 
-  const advancedMenuItems = [
+  const advancedMenuItems: MenuItem[] = [
     { title: "Announcement", url: "/admin/announcement", icon: Bell },
     { title: "Status Settings", url: "/admin/status-settings", icon: Activity },
     { title: "Mailbox Health", url: "/admin/mailbox-health", icon: Activity },
@@ -144,24 +159,69 @@ const AdminSidebar = () => {
     return location.pathname.startsWith(path);
   };
 
-  const renderMenuItems = (items: typeof mainMenuItems) => (
+  const handleIconSelect = useCallback(async (url: string, iconClass: string) => {
+    const success = await setIcon(url, iconClass);
+    if (success) {
+      toast.success("Icon updated");
+    } else {
+      toast.error("Failed to update icon");
+    }
+    setEditingUrl(null);
+  }, [setIcon]);
+
+  const renderIcon = (item: MenuItem) => {
+    const customIcon = getIcon(item.url);
+    
+    if (customIcon) {
+      return <i className={`${customIcon} w-4 h-4`} />;
+    }
+    
+    return <item.icon className="w-4 h-4" />;
+  };
+
+  const renderMenuItems = (items: MenuItem[]) => (
     <SidebarMenu>
       {items.map((item) => (
         <SidebarMenuItem key={item.url}>
           <SidebarMenuButton asChild>
-            <NavLink
-              to={item.url}
-              end={item.url === "/admin"}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors",
-                isActive(item.url)
-                  ? "bg-primary/20 text-primary font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-              )}
-            >
-              <item.icon className="w-4 h-4" />
-              {!collapsed && <span className="text-sm">{item.title}</span>}
-            </NavLink>
+            {editMode ? (
+              <div
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer",
+                  "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                  editingUrl === item.url && "ring-2 ring-primary"
+                )}
+                onClick={() => setEditingUrl(item.url)}
+              >
+                <FontAwesomeIconPicker
+                  value={getIcon(item.url) || ""}
+                  onChange={(iconClass) => handleIconSelect(item.url, iconClass)}
+                  trigger={
+                    <div className="relative group">
+                      {renderIcon(item)}
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-primary rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Edit3 className="w-2 h-2 text-primary-foreground" />
+                      </div>
+                    </div>
+                  }
+                />
+                {!collapsed && <span className="text-sm">{item.title}</span>}
+              </div>
+            ) : (
+              <NavLink
+                to={item.url}
+                end={item.url === "/admin"}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors",
+                  isActive(item.url)
+                    ? "bg-primary/20 text-primary font-medium"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+              >
+                {renderIcon(item)}
+                {!collapsed && <span className="text-sm">{item.title}</span>}
+              </NavLink>
+            )}
           </SidebarMenuButton>
         </SidebarMenuItem>
       ))}
@@ -176,20 +236,42 @@ const AdminSidebar = () => {
   return (
     <Sidebar collapsible="icon" className="border-r border-border">
       <SidebarHeader className="p-4 border-b border-border">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-            <Mail className="w-4 h-4 text-primary-foreground" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+              <Mail className="w-4 h-4 text-primary-foreground" />
+            </div>
+            {!collapsed && (
+              <div>
+                <p className="font-semibold text-foreground">Nullsto</p>
+                <p className="text-xs text-muted-foreground">{t('adminPanel')}</p>
+              </div>
+            )}
           </div>
           {!collapsed && (
-            <div>
-              <p className="font-semibold text-foreground">Nullsto</p>
-              <p className="text-xs text-muted-foreground">{t('adminPanel')}</p>
-            </div>
+            <Button
+              variant={editMode ? "default" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setEditMode(!editMode)}
+              title={editMode ? "Done editing" : "Edit icons"}
+            >
+              {editMode ? <Check className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
+            </Button>
           )}
         </div>
 
+        {/* Edit Mode Banner */}
+        {!collapsed && editMode && (
+          <div className="mt-2 p-2 bg-primary/10 border border-primary/20 rounded-lg">
+            <p className="text-xs text-primary text-center">
+              Click any icon to change it
+            </p>
+          </div>
+        )}
+
         {/* Search Box */}
-        {!collapsed && (
+        {!collapsed && !editMode && (
           <div className="relative mt-3">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input

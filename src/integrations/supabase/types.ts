@@ -611,6 +611,7 @@ export type Database = {
           id: string
           imap_host: string | null
           imap_password: string | null
+          imap_password_encrypted: string | null
           imap_port: number | null
           imap_user: string | null
           is_active: boolean | null
@@ -626,6 +627,7 @@ export type Database = {
           smtp_from: string | null
           smtp_host: string | null
           smtp_password: string | null
+          smtp_password_encrypted: string | null
           smtp_port: number | null
           smtp_user: string | null
           storage_limit_bytes: number | null
@@ -642,6 +644,7 @@ export type Database = {
           id?: string
           imap_host?: string | null
           imap_password?: string | null
+          imap_password_encrypted?: string | null
           imap_port?: number | null
           imap_user?: string | null
           is_active?: boolean | null
@@ -657,6 +660,7 @@ export type Database = {
           smtp_from?: string | null
           smtp_host?: string | null
           smtp_password?: string | null
+          smtp_password_encrypted?: string | null
           smtp_port?: number | null
           smtp_user?: string | null
           storage_limit_bytes?: number | null
@@ -673,6 +677,7 @@ export type Database = {
           id?: string
           imap_host?: string | null
           imap_password?: string | null
+          imap_password_encrypted?: string | null
           imap_port?: number | null
           imap_user?: string | null
           is_active?: boolean | null
@@ -688,6 +693,7 @@ export type Database = {
           smtp_from?: string | null
           smtp_host?: string | null
           smtp_password?: string | null
+          smtp_password_encrypted?: string | null
           smtp_port?: number | null
           smtp_user?: string | null
           storage_limit_bytes?: number | null
@@ -982,28 +988,34 @@ export type Database = {
       user_2fa: {
         Row: {
           backup_codes: string[] | null
+          backup_codes_encrypted: string | null
           created_at: string
           id: string
           is_enabled: boolean
           totp_secret: string
+          totp_secret_encrypted: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
           backup_codes?: string[] | null
+          backup_codes_encrypted?: string | null
           created_at?: string
           id?: string
           is_enabled?: boolean
           totp_secret: string
+          totp_secret_encrypted?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
           backup_codes?: string[] | null
+          backup_codes_encrypted?: string | null
           created_at?: string
           id?: string
           is_enabled?: boolean
           totp_secret?: string
+          totp_secret_encrypted?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -1324,9 +1336,17 @@ export type Database = {
         }
         Returns: Json
       }
+      decrypt_sensitive: {
+        Args: { p_ciphertext: string; p_key_name?: string }
+        Returns: string
+      }
       delete_user_as_admin: {
         Args: { target_user_id: string }
         Returns: boolean
+      }
+      encrypt_sensitive: {
+        Args: { p_key_name?: string; p_plaintext: string }
+        Returns: string
       }
       find_user_by_email: {
         Args: { search_email: string }
@@ -1419,6 +1439,14 @@ export type Database = {
           total_sent: number
         }[]
       }
+      get_mailbox_imap_password: {
+        Args: { p_mailbox_id: string }
+        Returns: string
+      }
+      get_mailbox_smtp_password: {
+        Args: { p_mailbox_id: string }
+        Returns: string
+      }
       get_suspended_users: {
         Args: never
         Returns: {
@@ -1432,6 +1460,11 @@ export type Database = {
           user_id: string
         }[]
       }
+      get_user_2fa_backup_codes: {
+        Args: { p_user_id: string }
+        Returns: string[]
+      }
+      get_user_2fa_secret: { Args: { p_user_id: string }; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1493,6 +1526,18 @@ export type Database = {
           smtp_port: number
           smtp_user: string
         }[]
+      }
+      set_mailbox_imap_password: {
+        Args: { p_mailbox_id: string; p_password: string }
+        Returns: boolean
+      }
+      set_mailbox_smtp_password: {
+        Args: { p_mailbox_id: string; p_password: string }
+        Returns: boolean
+      }
+      set_user_2fa_secret: {
+        Args: { p_backup_codes: string[]; p_secret: string; p_user_id: string }
+        Returns: boolean
       }
       suspend_user: {
         Args: {

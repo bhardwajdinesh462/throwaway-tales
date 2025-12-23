@@ -109,8 +109,18 @@ const EmailGenerator = () => {
   };
 
   const refreshEmail = async () => {
-    // Check rate limit first (10 emails per 10 minutes for anonymous, 30 for logged in)
-    const identifier = user?.id || 'anonymous';
+    // Get or create a unique device identifier for anonymous users
+    // This prevents all anonymous users from sharing the same rate-limit bucket
+    let identifier = user?.id;
+    if (!identifier) {
+      let deviceId = localStorage.getItem('nullsto_device_id');
+      if (!deviceId) {
+        deviceId = 'anon_' + crypto.randomUUID();
+        localStorage.setItem('nullsto_device_id', deviceId);
+      }
+      identifier = deviceId;
+    }
+    
     const maxRequests = user ? 30 : 10;
     
     const { data: rateLimitOk, error: rateLimitError } = await supabase.rpc('check_rate_limit', {

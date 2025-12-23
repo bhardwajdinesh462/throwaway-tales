@@ -74,3 +74,6 @@ verify_jwt = false
 
 [functions.cleanup-old-backups]
 verify_jwt = false
+
+[functions.encryption-health-check]
+verify_jwt = false

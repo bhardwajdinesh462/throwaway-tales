@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Users, Mail, Globe, TrendingUp, Activity, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, Server } from "lucide-react";
+import { Users, Mail, Globe, TrendingUp, Activity, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, Server, Shield, Key } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,28 @@ interface HealthCheckResult {
   overall: 'healthy' | 'degraded' | 'unhealthy';
 }
 
+interface EncryptionHealthResult {
+  encryption_key: {
+    configured: boolean;
+    status: 'healthy' | 'unhealthy' | 'unconfigured';
+    message: string;
+  };
+  database_encryption: {
+    encrypt_function: boolean;
+    decrypt_function: boolean;
+    round_trip_test: boolean;
+    status: 'healthy' | 'unhealthy' | 'unconfigured';
+    message: string;
+  };
+  encrypted_data: {
+    mailboxes_smtp: { total: number; encrypted: number; plaintext: number };
+    mailboxes_imap: { total: number; encrypted: number; plaintext: number };
+    user_2fa: { total: number; encrypted: number; plaintext: number };
+  };
+  overall: 'healthy' | 'degraded' | 'unhealthy';
+  checked_at: string;
+}
+
 const AdminDashboard = () => {
   const [stats, setStats] = useState<Stats>({
     totalUsers: 0,
@@ -44,31 +66,21 @@ const AdminDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [healthCheck, setHealthCheck] = useState<HealthCheckResult | null>(null);
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
+  const [encryptionHealth, setEncryptionHealth] = useState<EncryptionHealthResult | null>(null);
+  const [isCheckingEncryption, setIsCheckingEncryption] = useState(false);
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        // Fetch counts
-        const [usersRes, tempEmailsRes, domainsRes, receivedRes] = await Promise.all([
+        // Fetch counts in parallel
+        const [usersRes, tempEmailsRes, domainsRes, receivedRes, activeRes, emailsTodayRes] = await Promise.all([
           supabase.from("profiles").select("*", { count: "exact", head: true }),
           supabase.from("temp_emails").select("*", { count: "exact", head: true }),
           supabase.from("domains").select("*", { count: "exact", head: true }),
           supabase.from("received_emails").select("*", { count: "exact", head: true }),
+          supabase.from("temp_emails").select("*", { count: "exact", head: true }).eq("is_active", true),
+          supabase.from("received_emails").select("*", { count: "exact", head: true }).gte("received_at", new Date(new Date().setHours(0, 0, 0, 0)).toISOString()),
         ]);
-
-        // Active temp emails
-        const activeRes = await supabase
-          .from("temp_emails")
-          .select("*", { count: "exact", head: true })
-          .eq("is_active", true);
-
-        // Emails received today
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const emailsTodayRes = await supabase
-          .from("received_emails")
-          .select("*", { count: "exact", head: true })
-          .gte("received_at", today.toISOString());
 
         setStats({
           totalUsers: usersRes.count || 0,
@@ -76,7 +88,7 @@ const AdminDashboard = () => {
           totalDomains: domainsRes.count || 0,
           activeEmails: activeRes.count || 0,
           emailsToday: emailsTodayRes.count || 0,
-          userGrowth: 12, // Placeholder
+          userGrowth: 12,
         });
       } catch (error) {
         console.error("Error fetching stats:", error);
@@ -117,6 +129,21 @@ const AdminDashboard = () => {
       toast.error("Failed to run health check");
     } finally {
       setIsCheckingHealth(false);
+    }
+  };
+
+  const runEncryptionHealthCheck = async () => {
+    setIsCheckingEncryption(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('encryption-health-check');
+      if (error) throw error;
+      setEncryptionHealth(data);
+      toast.success("Encryption health check completed");
+    } catch (error: any) {
+      console.error("Encryption health check error:", error);
+      toast.error("Failed to run encryption health check");
+    } finally {
+      setIsCheckingEncryption(false);
     }
   };
 
@@ -226,6 +253,86 @@ const AdminDashboard = () => {
         {!healthCheck && (
           <p className="text-sm text-muted-foreground mt-4 text-center">
             Click "Run Health Check" to check email system status
+          </p>
+        )}
+      </motion.div>
+
+      {/* Encryption Security Health */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="glass-card p-6"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Shield className="w-6 h-6 text-primary" />
+            <h2 className="text-lg font-semibold text-foreground">Encryption Security</h2>
+            {encryptionHealth && getStatusBadge(encryptionHealth.overall)}
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={runEncryptionHealthCheck}
+            disabled={isCheckingEncryption}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isCheckingEncryption ? 'animate-spin' : ''}`} />
+            {isCheckingEncryption ? 'Checking...' : 'Check Encryption'}
+          </Button>
+        </div>
+
+        {encryptionHealth ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Encryption Key Status */}
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Key className="w-5 h-5 text-primary" />
+                  <span className="font-medium">Encryption Key</span>
+                </div>
+                {getStatusIcon(encryptionHealth.encryption_key.status)}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {encryptionHealth.encryption_key.message}
+              </p>
+            </div>
+
+            {/* Database Functions Status */}
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Server className="w-5 h-5 text-primary" />
+                  <span className="font-medium">DB Functions</span>
+                </div>
+                {getStatusIcon(encryptionHealth.database_encryption.status)}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {encryptionHealth.database_encryption.message}
+              </p>
+            </div>
+
+            {/* Encrypted Data Status */}
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-medium">Data Encryption</span>
+                {encryptionHealth.encrypted_data.mailboxes_smtp.plaintext === 0 && 
+                 encryptionHealth.encrypted_data.mailboxes_imap.plaintext === 0 &&
+                 encryptionHealth.encrypted_data.user_2fa.plaintext === 0 ? (
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-yellow-500" />
+                )}
+              </div>
+              <div className="text-xs space-y-1 text-muted-foreground">
+                <p>SMTP: {encryptionHealth.encrypted_data.mailboxes_smtp.encrypted} encrypted, {encryptionHealth.encrypted_data.mailboxes_smtp.plaintext} plaintext</p>
+                <p>IMAP: {encryptionHealth.encrypted_data.mailboxes_imap.encrypted} encrypted, {encryptionHealth.encrypted_data.mailboxes_imap.plaintext} plaintext</p>
+                <p>2FA: {encryptionHealth.encrypted_data.user_2fa.encrypted} encrypted, {encryptionHealth.encrypted_data.user_2fa.plaintext} plaintext</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground text-center">
+            Click "Check Encryption" to verify encryption status
           </p>
         )}
       </motion.div>

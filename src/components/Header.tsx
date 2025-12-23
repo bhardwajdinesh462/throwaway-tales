@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Menu, X, User, LogOut, History, Globe, Sun, Moon, LayoutDashboard, Crown, Send, Sparkles, BookOpen, DollarSign, Info, Mail } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Menu, X, User, LogOut, History, Globe, Sun, Moon, LayoutDashboard, Crown, Send, Sparkles, BookOpen, DollarSign, Info, Mail, Palette, Check } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -9,6 +9,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAppearanceSettings } from "@/hooks/useAppearanceSettings";
 import { useGeneralSettings } from "@/hooks/useGeneralSettings";
 import AnnouncementBar from "./AnnouncementBar";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 import {
   DropdownMenu,
@@ -16,6 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import {
   Select,
@@ -54,6 +56,29 @@ const Header = () => {
     } else {
       setTheme(darkThemes[0]?.id || 'cyber-dark');
     }
+  };
+
+  // Group themes by category
+  const groupedThemes = useMemo(() => {
+    const groups: Record<string, typeof themes> = {};
+    themes.forEach(t => {
+      const category = t.category || 'default';
+      if (!groups[category]) {
+        groups[category] = [];
+      }
+      groups[category].push(t);
+    });
+    return groups;
+  }, [themes]);
+
+  const categoryOrder = ['gradient', 'glass', 'vibrant', 'elegant', 'minimal', 'default'];
+  const categoryLabels: Record<string, string> = {
+    gradient: 'Gradient',
+    glass: 'Glass',
+    vibrant: 'Vibrant',
+    elegant: 'Elegant',
+    minimal: 'Minimal',
+    default: 'Classic'
   };
 
   const navItems = [
@@ -189,39 +214,74 @@ const Header = () => {
                   <span className="hidden lg:inline">Join</span>
                 </motion.a>
 
-                {/* Theme Toggle */}
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={toggleTheme}
-                    className="relative overflow-hidden h-9 w-9 rounded-lg bg-secondary/50 hover:bg-secondary"
-                  >
-                    <AnimatePresence mode="wait">
-                      {theme.isDark ? (
-                        <motion.div
-                          key="moon"
-                          initial={{ rotate: -90, opacity: 0, scale: 0 }}
-                          animate={{ rotate: 0, opacity: 1, scale: 1 }}
-                          exit={{ rotate: 90, opacity: 0, scale: 0 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <Moon className="w-4 h-4" />
-                        </motion.div>
-                      ) : (
-                        <motion.div
-                          key="sun"
-                          initial={{ rotate: 90, opacity: 0, scale: 0 }}
-                          animate={{ rotate: 0, opacity: 1, scale: 1 }}
-                          exit={{ rotate: -90, opacity: 0, scale: 0 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <Sun className="w-4 h-4 text-yellow-500" />
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </Button>
-                </motion.div>
+                {/* Theme Picker Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="relative overflow-hidden h-9 w-9 rounded-lg bg-secondary/50 hover:bg-secondary"
+                      >
+                        <div 
+                          className="absolute inset-1 rounded-md opacity-30"
+                          style={{ backgroundColor: theme.colors.primary }}
+                        />
+                        <Palette className="w-4 h-4 relative z-10" />
+                      </Button>
+                    </motion.div>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 max-h-[400px] overflow-hidden">
+                    <ScrollArea className="h-[380px]">
+                      {/* Quick Dark/Light Toggle */}
+                      <DropdownMenuItem onClick={toggleTheme} className="cursor-pointer">
+                        {theme.isDark ? (
+                          <>
+                            <Sun className="w-4 h-4 mr-2 text-yellow-500" />
+                            Switch to Light Mode
+                          </>
+                        ) : (
+                          <>
+                            <Moon className="w-4 h-4 mr-2" />
+                            Switch to Dark Mode
+                          </>
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      
+                      {/* Grouped Themes */}
+                      {categoryOrder.map(category => {
+                        const categoryThemes = groupedThemes[category];
+                        if (!categoryThemes || categoryThemes.length === 0) return null;
+                        
+                        return (
+                          <div key={category}>
+                            <DropdownMenuLabel className="text-xs text-muted-foreground uppercase tracking-wider">
+                              {categoryLabels[category]}
+                            </DropdownMenuLabel>
+                            {categoryThemes.map(t => (
+                              <DropdownMenuItem
+                                key={t.id}
+                                onClick={() => setTheme(t.id)}
+                                className={`cursor-pointer flex items-center gap-2 ${theme.id === t.id ? 'bg-primary/10' : ''}`}
+                              >
+                                <div 
+                                  className="w-4 h-4 rounded-full border border-border flex-shrink-0"
+                                  style={{ 
+                                    background: `linear-gradient(135deg, ${t.colors.primary} 0%, ${t.colors.accent} 100%)`
+                                  }}
+                                />
+                                <span className="flex-1 truncate">{t.name}</span>
+                                {theme.id === t.id && <Check className="w-4 h-4 text-primary" />}
+                                {t.isDark && <Moon className="w-3 h-3 text-muted-foreground" />}
+                              </DropdownMenuItem>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </ScrollArea>
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
                 {user ? (
                   <DropdownMenu>
@@ -327,25 +387,65 @@ const Header = () => {
             className="fixed top-0 right-0 bottom-0 w-[85%] max-w-sm bg-background border-l border-border shadow-2xl z-[60] md:hidden overflow-y-auto pt-20"
           >
             <nav className="p-6 flex flex-col gap-2">
-              {/* Theme Toggle and Language - Mobile */}
+              {/* Theme Picker and Language - Mobile */}
               <div className="flex gap-2 mb-4">
-                <Button
-                  variant="outline"
-                  onClick={toggleTheme}
-                  className="flex-1 h-11"
-                >
-                  {theme.isDark ? (
-                    <>
-                      <Moon className="w-4 h-4 mr-2" />
-                      Dark
-                    </>
-                  ) : (
-                    <>
-                      <Sun className="w-4 h-4 mr-2 text-yellow-500" />
-                      Light
-                    </>
-                  )}
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="flex-1 h-11">
+                      <Palette className="w-4 h-4 mr-2" />
+                      Theme
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-56 max-h-[300px] overflow-hidden">
+                    <ScrollArea className="h-[280px]">
+                      {/* Quick Dark/Light Toggle */}
+                      <DropdownMenuItem onClick={toggleTheme} className="cursor-pointer">
+                        {theme.isDark ? (
+                          <>
+                            <Sun className="w-4 h-4 mr-2 text-yellow-500" />
+                            Switch to Light Mode
+                          </>
+                        ) : (
+                          <>
+                            <Moon className="w-4 h-4 mr-2" />
+                            Switch to Dark Mode
+                          </>
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      
+                      {/* Grouped Themes */}
+                      {categoryOrder.map(category => {
+                        const categoryThemes = groupedThemes[category];
+                        if (!categoryThemes || categoryThemes.length === 0) return null;
+                        
+                        return (
+                          <div key={category}>
+                            <DropdownMenuLabel className="text-xs text-muted-foreground uppercase tracking-wider">
+                              {categoryLabels[category]}
+                            </DropdownMenuLabel>
+                            {categoryThemes.map(t => (
+                              <DropdownMenuItem
+                                key={t.id}
+                                onClick={() => setTheme(t.id)}
+                                className={`cursor-pointer flex items-center gap-2 ${theme.id === t.id ? 'bg-primary/10' : ''}`}
+                              >
+                                <div 
+                                  className="w-4 h-4 rounded-full border border-border flex-shrink-0"
+                                  style={{ 
+                                    background: `linear-gradient(135deg, ${t.colors.primary} 0%, ${t.colors.accent} 100%)`
+                                  }}
+                                />
+                                <span className="flex-1 truncate">{t.name}</span>
+                                {theme.id === t.id && <Check className="w-4 h-4 text-primary" />}
+                              </DropdownMenuItem>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </ScrollArea>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="flex-1 h-11">

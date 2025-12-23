@@ -237,22 +237,31 @@ const EmailGenerator = () => {
               
               {/* Domain Selector */}
               <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-2">
-                <Select 
-                  value={currentDomain?.id || ""} 
-                  onValueChange={changeDomain}
-                  disabled={isGenerating}
-                >
-                  <SelectTrigger className="w-52 bg-card border-primary/30 text-sm shadow-lg">
-                    <SelectValue placeholder="Select domain" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {domains.map((domain) => (
-                      <SelectItem key={domain.id} value={domain.id}>
-                        {domain.name} {domain.is_premium && "⭐"} {domain.is_custom && "🔧"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div>
+                      <Select 
+                        value={currentDomain?.id || ""} 
+                        onValueChange={changeDomain}
+                        disabled={isGenerating}
+                      >
+                        <SelectTrigger className="w-52 bg-card border-primary/30 text-sm shadow-lg">
+                          <SelectValue placeholder="Select domain" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {domains.map((domain) => (
+                            <SelectItem key={domain.id} value={domain.id}>
+                              {domain.name} {domain.is_premium && "⭐"} {domain.is_custom && "🔧"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{tooltips.emailGenerator.domain}</p>
+                  </TooltipContent>
+                </Tooltip>
                 {user && (
                   <Button
                     variant="secondary"
@@ -410,13 +419,22 @@ const EmailGenerator = () => {
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.8 }}
               >
-                <EmailExpiryTimer 
-                  expiresAt={currentEmail.expires_at} 
-                  onExpired={() => {
-                    toast.info("Email expired. Generating a new one...");
-                    refreshEmail();
-                  }}
-                />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div>
+                      <EmailExpiryTimer 
+                        expiresAt={currentEmail.expires_at} 
+                        onExpired={() => {
+                          toast.info("Email expired. Generating a new one...");
+                          refreshEmail();
+                        }}
+                      />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{tooltips.emailGenerator.timer}</p>
+                  </TooltipContent>
+                </Tooltip>
                 {!user && (
                   <p className="text-xs text-muted-foreground">
                     <span className="text-primary cursor-pointer hover:underline" onClick={() => window.location.href = "/auth"}>

@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import JSZip from "https://esm.sh/jszip@3.10.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -54,40 +55,48 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log('[generate-backup] Starting backup generation for admin:', user.email);
+    console.log('[generate-backup] Starting ZIP backup generation for admin:', user.email);
 
-    // Define tables to backup
+    // Define ALL tables to backup
     const tables = [
       'profiles',
       'temp_emails',
       'received_emails',
+      'email_attachments',
       'domains',
       'blogs',
       'app_settings',
       'banners',
       'email_templates',
+      'email_forwarding',
+      'email_logs',
+      'email_restrictions',
+      'email_verifications',
       'subscription_tiers',
       'user_subscriptions',
       'user_roles',
-      'email_logs',
-      'email_restrictions',
+      'user_2fa',
+      'user_invoices',
+      'user_suspensions',
+      'user_usage',
       'blocked_ips',
       'friendly_websites',
       'backup_history',
+      'admin_audit_logs',
+      'admin_role_requests',
+      'mailboxes',
+      'push_subscriptions',
+      'rate_limits',
+      'saved_emails',
     ];
 
-    const backup: Record<string, any> = {
-      metadata: {
-        created_at: new Date().toISOString(),
-        created_by: user.email,
-        version: '1.0',
-        tables: tables,
-      },
-      data: {},
-    };
+    // Create ZIP file
+    const zip = new JSZip();
+    const dbFolder = zip.folder('database');
+    const configFolder = zip.folder('config');
 
     const rowCounts: Record<string, number> = {};
-    let totalSize = 0;
+    let totalRows = 0;
 
     // Fetch data from each table
     for (const table of tables) {
@@ -95,25 +104,83 @@ Deno.serve(async (req) => {
         const { data, error } = await serviceClient
           .from(table)
           .select('*')
-          .limit(10000);
+          .limit(50000);
 
         if (error) {
           console.warn(`[generate-backup] Warning: Could not backup table ${table}:`, error.message);
-          backup.data[table] = { error: error.message };
+          dbFolder?.file(`${table}.json`, JSON.stringify({ error: error.message }, null, 2));
           rowCounts[table] = 0;
         } else {
-          backup.data[table] = data || [];
+          dbFolder?.file(`${table}.json`, JSON.stringify(data || [], null, 2));
           rowCounts[table] = data?.length || 0;
-          totalSize += JSON.stringify(data).length;
+          totalRows += rowCounts[table];
         }
       } catch (err) {
         console.warn(`[generate-backup] Error backing up table ${table}:`, err);
-        backup.data[table] = { error: 'Failed to fetch' };
+        dbFolder?.file(`${table}.json`, JSON.stringify({ error: 'Failed to fetch' }, null, 2));
         rowCounts[table] = 0;
       }
     }
 
-    console.log('[generate-backup] Backup complete. Row counts:', rowCounts);
+    // Add metadata
+    const metadata = {
+      created_at: new Date().toISOString(),
+      created_by: user.email,
+      version: '2.0',
+      format: 'zip',
+      tables: tables,
+      row_counts: rowCounts,
+      total_rows: totalRows,
+      supabase_url: supabaseUrl,
+    };
+    zip.file('metadata.json', JSON.stringify(metadata, null, 2));
+
+    // Add config/settings
+    const { data: settingsData } = await serviceClient
+      .from('app_settings')
+      .select('*');
+    configFolder?.file('app_settings.json', JSON.stringify(settingsData || [], null, 2));
+
+    // Add README
+    const readme = `# Database Backup
+Generated: ${metadata.created_at}
+Created by: ${metadata.created_by}
+
+## Contents
+- /database/ - All database tables as JSON files
+- /config/ - Application configuration
+- metadata.json - Backup information
+
+## Tables Included
+${tables.map(t => `- ${t}: ${rowCounts[t] || 0} rows`).join('\n')}
+
+Total Rows: ${totalRows}
+
+## Important Notes
+- This backup contains database data only
+- Source code is managed by Lovable/Git
+- Passwords and sensitive credentials are hashed/excluded
+- To restore, import JSON files into your database
+
+## Restoration
+Import these JSON files into your Supabase project using:
+1. Supabase Dashboard > Table Editor > Import
+2. Or use the Supabase API/SDK to insert data
+`;
+    zip.file('README.md', readme);
+
+    console.log('[generate-backup] Generating ZIP file...');
+
+    // Generate ZIP as base64
+    const zipBlob = await zip.generateAsync({ 
+      type: 'base64',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 }
+    });
+
+    const fileSize = Math.round(zipBlob.length * 0.75); // Approximate decoded size
+
+    console.log('[generate-backup] Backup complete. Total rows:', totalRows, 'Size:', fileSize);
 
     // Record backup in history
     await serviceClient
@@ -121,7 +188,7 @@ Deno.serve(async (req) => {
       .insert({
         backup_type: 'manual',
         status: 'completed',
-        file_size_bytes: totalSize,
+        file_size_bytes: fileSize,
         tables_included: tables,
         row_counts: rowCounts,
         created_by: user.id,
@@ -131,9 +198,12 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true, 
-        backup,
+        zipData: zipBlob,
+        format: 'base64',
+        fileName: `backup-${new Date().toISOString().split('T')[0]}.zip`,
         rowCounts,
-        totalSize,
+        totalRows,
+        totalSize: fileSize,
       }),
       { 
         status: 200, 

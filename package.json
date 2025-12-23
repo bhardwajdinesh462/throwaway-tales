@@ -16,6 +16,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fortawesome/fontawesome-free": "^7.1.0",
     "@hookform/resolvers": "^3.10.0",
     "@playwright/test": "^1.57.0",
     "@radix-ui/react-accordion": "^1.2.11",

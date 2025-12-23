@@ -253,7 +253,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const [themes, setThemes] = useState<Theme[]>(defaultThemes);
   const [currentThemeId, setCurrentThemeId] = useState<string>(() => {
-    return storage.get(STORAGE_KEYS.THEME, 'cyber-dark');
+    return storage.get(STORAGE_KEYS.THEME, 'light-minimal');
   });
 
   const theme = themes.find(t => t.id === currentThemeId) || themes[0];

@@ -8,7 +8,12 @@ import {
   Calendar, 
   Loader2,
   CheckCircle,
-  XCircle
+  XCircle,
+  Users,
+  ChevronDown,
+  ChevronUp,
+  Mail,
+  BarChart3
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,7 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { queryKeys, invalidateQueries } from "@/lib/queryClient";
+import { invalidateQueries } from "@/lib/queryClient";
 import {
   Select,
   SelectContent,
@@ -47,6 +52,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface SubscriptionTier {
   id: string;
@@ -66,9 +72,33 @@ interface UserSubscription {
   current_period_end: string;
 }
 
+interface TierUser {
+  user_id: string;
+  email: string;
+  display_name: string;
+  current_period_start: string;
+  current_period_end: string;
+  status: string;
+  usage?: {
+    temp_emails_created: number;
+    ai_summaries_used: number;
+    emails_received: number;
+  };
+}
+
+interface TierStats {
+  tier_id: string;
+  tier_name: string;
+  user_count: number;
+  users: TierUser[];
+  isExpanded: boolean;
+  isLoading: boolean;
+}
+
 const AdminSubscriptions = () => {
   const queryClient = useQueryClient();
   const [tiers, setTiers] = useState<SubscriptionTier[]>([]);
+  const [tierStats, setTierStats] = useState<TierStats[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchEmail, setSearchEmail] = useState("");
   const [isSearching, setIsSearching] = useState(false);
@@ -99,12 +129,124 @@ const AdminSubscriptions = () => {
 
       if (error) throw error;
       setTiers(data || []);
+      
+      // Initialize tier stats
+      if (data) {
+        const stats: TierStats[] = data.map(tier => ({
+          tier_id: tier.id,
+          tier_name: tier.name,
+          user_count: 0,
+          users: [],
+          isExpanded: false,
+          isLoading: false,
+        }));
+        
+        // Fetch user counts for each tier
+        for (const stat of stats) {
+          const { count } = await supabase
+            .from('user_subscriptions')
+            .select('*', { count: 'exact', head: true })
+            .eq('tier_id', stat.tier_id)
+            .eq('status', 'active');
+          
+          stat.user_count = count || 0;
+        }
+        
+        setTierStats(stats);
+      }
     } catch (error: any) {
       console.error("Error fetching tiers:", error);
       toast.error("Failed to load subscription tiers");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const fetchUsersForTier = async (tierId: string) => {
+    const statIndex = tierStats.findIndex(s => s.tier_id === tierId);
+    if (statIndex === -1) return;
+
+    // Update loading state
+    setTierStats(prev => prev.map((s, i) => 
+      i === statIndex ? { ...s, isLoading: true } : s
+    ));
+
+    try {
+      // Fetch subscriptions for this tier
+      const { data: subscriptions, error: subError } = await supabase
+        .from('user_subscriptions')
+        .select('user_id, current_period_start, current_period_end, status')
+        .eq('tier_id', tierId)
+        .eq('status', 'active');
+
+      if (subError) throw subError;
+
+      if (!subscriptions || subscriptions.length === 0) {
+        setTierStats(prev => prev.map((s, i) => 
+          i === statIndex ? { ...s, users: [], isLoading: false } : s
+        ));
+        return;
+      }
+
+      // Fetch profiles for these users
+      const userIds = subscriptions.map(s => s.user_id);
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('user_id, email, display_name')
+        .in('user_id', userIds);
+
+      // Fetch usage for today
+      const today = new Date().toISOString().split('T')[0];
+      const { data: usageData } = await supabase
+        .from('user_usage')
+        .select('user_id, temp_emails_created, ai_summaries_used, emails_received')
+        .in('user_id', userIds)
+        .eq('date', today);
+
+      // Combine data
+      const users: TierUser[] = subscriptions.map(sub => {
+        const profile = profiles?.find(p => p.user_id === sub.user_id);
+        const usage = usageData?.find(u => u.user_id === sub.user_id);
+        
+        return {
+          user_id: sub.user_id,
+          email: profile?.email || 'Unknown',
+          display_name: profile?.display_name || 'Unknown',
+          current_period_start: sub.current_period_start,
+          current_period_end: sub.current_period_end,
+          status: sub.status,
+          usage: usage ? {
+            temp_emails_created: usage.temp_emails_created,
+            ai_summaries_used: usage.ai_summaries_used,
+            emails_received: usage.emails_received,
+          } : undefined,
+        };
+      });
+
+      setTierStats(prev => prev.map((s, i) => 
+        i === statIndex ? { ...s, users, isLoading: false } : s
+      ));
+    } catch (error: any) {
+      console.error("Error fetching users for tier:", error);
+      toast.error("Failed to load users");
+      setTierStats(prev => prev.map((s, i) => 
+        i === statIndex ? { ...s, isLoading: false } : s
+      ));
+    }
+  };
+
+  const toggleTierExpand = async (tierId: string) => {
+    const stat = tierStats.find(s => s.tier_id === tierId);
+    if (!stat) return;
+
+    if (!stat.isExpanded && stat.users.length === 0) {
+      // Fetch users when expanding for the first time
+      await fetchUsersForTier(tierId);
+    }
+
+    setTierStats(prev => prev.map(s => 
+      s.tier_id === tierId ? { ...s, isExpanded: !s.isExpanded } : s
+    ));
   };
 
   const searchUser = async () => {
@@ -117,7 +259,6 @@ const AdminSubscriptions = () => {
     setFoundUser(null);
 
     try {
-      // Find user by email
       const { data: userData, error: userError } = await supabase.rpc('find_user_by_email', {
         search_email: searchEmail.trim()
       });
@@ -131,7 +272,6 @@ const AdminSubscriptions = () => {
 
       const user = userData[0];
 
-      // Get current subscription
       const { data: subData } = await supabase.rpc('admin_get_user_subscription', {
         target_user_id: user.found_user_id
       });
@@ -175,10 +315,8 @@ const AdminSubscriptions = () => {
       const tierName = tiers.find(t => t.id === selectedTierId)?.name || 'subscription';
       toast.success(`${tierName} assigned to ${foundUser.display_name || foundUser.email} for ${durationMonths} month(s)`);
       
-      // Invalidate subscription queries for instant reflection
       invalidateQueries.subscriptions(queryClient);
       
-      // Refresh user subscription
       const { data: subData } = await supabase.rpc('admin_get_user_subscription', {
         target_user_id: foundUser.user_id
       });
@@ -187,6 +325,9 @@ const AdminSubscriptions = () => {
         ...foundUser,
         current_subscription: subData && subData.length > 0 ? subData[0] : undefined
       });
+
+      // Refresh tier stats
+      fetchTiers();
 
       setDialogOpen(false);
     } catch (error: any) {
@@ -214,10 +355,8 @@ const AdminSubscriptions = () => {
 
       toast.success(`Subscription revoked for ${foundUser.display_name || foundUser.email}`);
       
-      // Invalidate subscription queries for instant reflection
       invalidateQueries.subscriptions(queryClient);
       
-      // Refresh user subscription
       const { data: subData } = await supabase.rpc('admin_get_user_subscription', {
         target_user_id: foundUser.user_id
       });
@@ -226,6 +365,9 @@ const AdminSubscriptions = () => {
         ...foundUser,
         current_subscription: subData && subData.length > 0 ? subData[0] : undefined
       });
+
+      // Refresh tier stats
+      fetchTiers();
     } catch (error: any) {
       console.error("Error revoking subscription:", error);
       toast.error(error.message || "Failed to revoke subscription");
@@ -241,6 +383,13 @@ const AdminSubscriptions = () => {
     setDurationMonths("1");
   };
 
+  const getTierBadgeColor = (tierName: string) => {
+    const name = tierName.toLowerCase();
+    if (name === 'business') return 'bg-gradient-to-r from-amber-500 to-orange-500 text-white';
+    if (name === 'pro') return 'bg-gradient-to-r from-purple-500 to-pink-500 text-white';
+    return 'bg-secondary';
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -249,41 +398,142 @@ const AdminSubscriptions = () => {
             <CreditCard className="w-8 h-8 text-primary" />
             Manual Subscriptions
           </h1>
-          <p className="text-muted-foreground">Assign subscription plans to users manually</p>
+          <p className="text-muted-foreground">Assign subscription plans and view users by tier</p>
+        </div>
+      </div>
+
+      {/* Users by Plan Section */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <Users className="w-5 h-5" />
+          Users by Plan
+        </h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {isLoading ? (
+            <div className="col-span-3 flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : tierStats.length === 0 ? (
+            <div className="col-span-3 text-center py-8 text-muted-foreground">
+              No subscription tiers configured
+            </div>
+          ) : (
+            tierStats.map((stat) => (
+              <Collapsible 
+                key={stat.tier_id}
+                open={stat.isExpanded}
+                onOpenChange={() => toggleTierExpand(stat.tier_id)}
+              >
+                <Card className="glass-card overflow-hidden">
+                  <CollapsibleTrigger asChild>
+                    <CardHeader className="pb-2 cursor-pointer hover:bg-secondary/30 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <Crown className="w-5 h-5 text-yellow-500" />
+                          {stat.tier_name}
+                        </CardTitle>
+                        <div className="flex items-center gap-2">
+                          <Badge className={getTierBadgeColor(stat.tier_name)}>
+                            {stat.user_count} users
+                          </Badge>
+                          {stat.isExpanded ? (
+                            <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                          )}
+                        </div>
+                      </div>
+                      <CardDescription>
+                        Click to view users
+                      </CardDescription>
+                    </CardHeader>
+                  </CollapsibleTrigger>
+                  
+                  <CollapsibleContent>
+                    <CardContent className="pt-0">
+                      {stat.isLoading ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : stat.users.length === 0 ? (
+                        <p className="text-sm text-muted-foreground py-4 text-center">
+                          No users on this plan
+                        </p>
+                      ) : (
+                        <div className="space-y-3 max-h-64 overflow-y-auto">
+                          {stat.users.map((user) => (
+                            <motion.div
+                              key={user.user_id}
+                              initial={{ opacity: 0, y: 5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="p-3 bg-secondary/30 rounded-lg"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-medium text-sm truncate">
+                                    {user.display_name || 'Unknown'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                    <Mail className="w-3 h-3" />
+                                    {user.email}
+                                  </p>
+                                </div>
+                                <Badge variant="outline" className="text-xs shrink-0">
+                                  {user.status}
+                                </Badge>
+                              </div>
+                              
+                              <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <span className="text-muted-foreground">Expires:</span>
+                                  <p className="font-medium">
+                                    {format(new Date(user.current_period_end), 'MMM d, yyyy')}
+                                  </p>
+                                </div>
+                                {user.usage && (
+                                  <div className="flex items-center gap-1">
+                                    <BarChart3 className="w-3 h-3 text-muted-foreground" />
+                                    <span className="text-muted-foreground">
+                                      {user.usage.temp_emails_created} emails today
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </CollapsibleContent>
+                </Card>
+              </Collapsible>
+            ))
+          )}
         </div>
       </div>
 
       {/* Subscription Tiers Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {isLoading ? (
-          <div className="col-span-3 flex items-center justify-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : tiers.length === 0 ? (
-          <div className="col-span-3 text-center py-8 text-muted-foreground">
-            No subscription tiers configured
-          </div>
-        ) : (
-          tiers.map((tier) => (
-            <Card key={tier.id} className="glass-card">
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2">
-                  <Crown className="w-5 h-5 text-yellow-500" />
-                  {tier.name}
-                </CardTitle>
-                <CardDescription>
-                  ${tier.price_monthly}/month or ${tier.price_yearly}/year
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-1 text-sm text-muted-foreground">
-                  <p>• {tier.max_temp_emails} temp emails</p>
-                  <p>• {tier.email_expiry_hours}h email expiry</p>
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        )}
+        {tiers.map((tier) => (
+          <Card key={tier.id} className="glass-card">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2">
+                <Crown className="w-5 h-5 text-yellow-500" />
+                {tier.name}
+              </CardTitle>
+              <CardDescription>
+                ${tier.price_monthly}/month or ${tier.price_yearly}/year
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-1 text-sm text-muted-foreground">
+                <p>• {tier.max_temp_emails === -1 ? 'Unlimited' : tier.max_temp_emails} temp emails</p>
+                <p>• {tier.email_expiry_hours}h email expiry</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       {/* Assign Subscription */}
@@ -336,8 +586,8 @@ const AdminSubscriptions = () => {
                   </div>
                 </div>
                 {foundUser.current_subscription && (
-                  <Badge variant="secondary" className="gap-1">
-                    <Crown className="w-3 h-3" />
+                  <Badge className={getTierBadgeColor(foundUser.current_subscription.tier_name)}>
+                    <Crown className="w-3 h-3 mr-1" />
                     {foundUser.current_subscription.tier_name}
                   </Badge>
                 )}
@@ -365,46 +615,46 @@ const AdminSubscriptions = () => {
                       <p className="text-muted-foreground">Expires</p>
                       <p>{format(new Date(foundUser.current_subscription.current_period_end), 'MMM d, yyyy')}</p>
                     </div>
-                    </div>
-                    
-                    {/* Revoke button */}
-                    {foundUser.current_subscription.tier_name?.toLowerCase() !== 'free' && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button 
-                            variant="destructive" 
-                            size="sm"
-                            disabled={isRevoking}
-                          >
-                            {isRevoking ? (
-                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                            ) : (
-                              <XCircle className="w-4 h-4 mr-2" />
-                            )}
-                            Revoke Subscription
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Revoke Subscription</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will immediately downgrade {foundUser.display_name || foundUser.email} to the Free tier. 
-                              They will lose access to all premium features.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={revokeSubscription}
-                              className="bg-destructive hover:bg-destructive/90"
-                            >
-                              Revoke
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
                   </div>
+                  
+                  {foundUser.current_subscription.tier_name?.toLowerCase() !== 'free' && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button 
+                          variant="destructive" 
+                          size="sm"
+                          className="mt-3"
+                          disabled={isRevoking}
+                        >
+                          {isRevoking ? (
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          ) : (
+                            <XCircle className="w-4 h-4 mr-2" />
+                          )}
+                          Revoke Subscription
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Revoke Subscription</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will immediately downgrade {foundUser.display_name || foundUser.email} to the Free tier. 
+                            They will lose access to all premium features.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={revokeSubscription}
+                            className="bg-destructive hover:bg-destructive/90"
+                          >
+                            Revoke
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+                </div>
               )}
 
               {/* Assign New Subscription */}

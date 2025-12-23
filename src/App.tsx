@@ -15,79 +15,104 @@ import { createQueryClient } from "@/lib/queryClient";
 import ErrorBoundary, { PageErrorBoundary } from "@/components/ErrorBoundary";
 import UpdatePrompt from "@/components/UpdatePrompt";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, ComponentType } from "react";
+
+// Lazy loading wrapper with retry for stale chunk errors
+function lazyWithRetry<T extends ComponentType<any>>(
+  componentImport: () => Promise<{ default: T }>
+): React.LazyExoticComponent<T> {
+  return lazy(async () => {
+    try {
+      return await componentImport();
+    } catch (error: any) {
+      // Check if it's a chunk loading error
+      if (
+        error?.message?.includes('Failed to fetch dynamically imported module') ||
+        error?.message?.includes('Loading chunk') ||
+        error?.message?.includes('Loading CSS chunk')
+      ) {
+        console.warn('[App] Stale chunk detected, reloading page...', error);
+        // Clear any cached modules
+        window.location.reload();
+        // Return a placeholder to prevent the error from propagating
+        return { default: (() => null) as unknown as T };
+      }
+      throw error;
+    }
+  });
+}
 
 // Import Index directly (no lazy loading for main page - faster initial load)
 import Index from "./pages/Index";
-const Blog = lazy(() => import("./pages/Blog"));
-const BlogPost = lazy(() => import("./pages/BlogPost"));
-const Contact = lazy(() => import("./pages/Contact"));
-const Auth = lazy(() => import("./pages/Auth"));
-const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
-const History = lazy(() => import("./pages/History"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const DeployGuide = lazy(() => import("./pages/DeployGuide"));
-const AdminGuide = lazy(() => import("./pages/AdminGuide"));
-const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
-const TermsOfService = lazy(() => import("./pages/TermsOfService"));
-const CookiePolicy = lazy(() => import("./pages/CookiePolicy"));
-const Profile = lazy(() => import("./pages/Profile"));
-const NotFound = lazy(() => import("./pages/NotFound"));
-const Pricing = lazy(() => import("./pages/Pricing"));
-const BillingHistory = lazy(() => import("./pages/BillingHistory"));
-const PremiumFeatures = lazy(() => import("./pages/PremiumFeatures"));
-const APIAccess = lazy(() => import("./pages/APIAccess"));
-const About = lazy(() => import("./pages/About"));
-const Changelog = lazy(() => import("./pages/Changelog"));
-const Status = lazy(() => import("./pages/Status"));
+const Blog = lazyWithRetry(() => import("./pages/Blog"));
+const BlogPost = lazyWithRetry(() => import("./pages/BlogPost"));
+const Contact = lazyWithRetry(() => import("./pages/Contact"));
+const Auth = lazyWithRetry(() => import("./pages/Auth"));
+const VerifyEmail = lazyWithRetry(() => import("./pages/VerifyEmail"));
+const History = lazyWithRetry(() => import("./pages/History"));
+const Dashboard = lazyWithRetry(() => import("./pages/Dashboard"));
+const DeployGuide = lazyWithRetry(() => import("./pages/DeployGuide"));
+const AdminGuide = lazyWithRetry(() => import("./pages/AdminGuide"));
+const PrivacyPolicy = lazyWithRetry(() => import("./pages/PrivacyPolicy"));
+const TermsOfService = lazyWithRetry(() => import("./pages/TermsOfService"));
+const CookiePolicy = lazyWithRetry(() => import("./pages/CookiePolicy"));
+const Profile = lazyWithRetry(() => import("./pages/Profile"));
+const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
+const Pricing = lazyWithRetry(() => import("./pages/Pricing"));
+const BillingHistory = lazyWithRetry(() => import("./pages/BillingHistory"));
+const PremiumFeatures = lazyWithRetry(() => import("./pages/PremiumFeatures"));
+const APIAccess = lazyWithRetry(() => import("./pages/APIAccess"));
+const About = lazyWithRetry(() => import("./pages/About"));
+const Changelog = lazyWithRetry(() => import("./pages/Changelog"));
+const Status = lazyWithRetry(() => import("./pages/Status"));
 
-// Lazy load admin pages
-const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
-const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
-const AdminAnalytics = lazy(() => import("./pages/admin/AdminAnalytics"));
-const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
-const AdminDomains = lazy(() => import("./pages/admin/AdminDomains"));
-const AdminEmails = lazy(() => import("./pages/admin/AdminEmails"));
-const AdminSettings = lazy(() => import("./pages/admin/AdminSettings"));
-const AdminBlogs = lazy(() => import("./pages/admin/AdminBlogs"));
-const AdminPages = lazy(() => import("./pages/admin/AdminPages"));
-const AdminThemes = lazy(() => import("./pages/admin/AdminThemes"));
-const AdminCustomDomains = lazy(() => import("./pages/admin/AdminCustomDomains"));
-const AdminGeneralSettings = lazy(() => import("./pages/admin/AdminGeneralSettings"));
-const AdminSMTPSettings = lazy(() => import("./pages/admin/AdminSMTPSettings"));
-const AdminIMAPSettings = lazy(() => import("./pages/admin/AdminIMAPSettings"));
-const AdminAppearance = lazy(() => import("./pages/admin/AdminAppearance"));
-const AdminUserSettings = lazy(() => import("./pages/admin/AdminUserSettings"));
-const AdminAdmins = lazy(() => import("./pages/admin/AdminAdmins"));
-const AdminSEO = lazy(() => import("./pages/admin/AdminSEO"));
-const AdminBlogSettings = lazy(() => import("./pages/admin/AdminBlogSettings"));
-const AdminEmailTemplates = lazy(() => import("./pages/admin/AdminEmailTemplates"));
-const AdminLanguages = lazy(() => import("./pages/admin/AdminLanguages"));
-const AdminAds = lazy(() => import("./pages/admin/AdminAds"));
-const AdminCaptcha = lazy(() => import("./pages/admin/AdminCaptcha"));
-const AdminAPI = lazy(() => import("./pages/admin/AdminAPI"));
-const AdminCron = lazy(() => import("./pages/admin/AdminCron"));
-const AdminCache = lazy(() => import("./pages/admin/AdminCache"));
-const AdminAdvancedSettings = lazy(() => import("./pages/admin/AdminAdvancedSettings"));
-const AdminBanners = lazy(() => import("./pages/admin/AdminBanners"));
-const AdminAuditLogs = lazy(() => import("./pages/admin/AdminAuditLogs"));
-const AdminEmailSetup = lazy(() => import("./pages/admin/AdminEmailSetup"));
-const AdminDeployGuide = lazy(() => import("./pages/admin/AdminDeployGuide"));
-const AdminRateLimits = lazy(() => import("./pages/admin/AdminRateLimits"));
-const AdminRoleApprovals = lazy(() => import("./pages/admin/AdminRoleApprovals"));
-const AdminSettingsOverview = lazy(() => import("./pages/admin/AdminSettingsOverview"));
-const AdminRegistration = lazy(() => import("./pages/admin/AdminRegistration"));
-const AdminPayments = lazy(() => import("./pages/admin/AdminPayments"));
-const AdminIPBlocking = lazy(() => import("./pages/admin/AdminIPBlocking"));
-const AdminSubscriptions = lazy(() => import("./pages/admin/AdminSubscriptions"));
-const AdminEmailRestrictions = lazy(() => import("./pages/admin/AdminEmailRestrictions"));
-const AdminMailboxes = lazy(() => import("./pages/admin/AdminMailboxes"));
-const AdminEmailLogs = lazy(() => import("./pages/admin/AdminEmailLogs"));
-const AdminMailboxHealth = lazy(() => import("./pages/admin/AdminMailboxHealth"));
-const AdminAnnouncement = lazy(() => import("./pages/admin/AdminAnnouncement"));
-const AdminStatusSettings = lazy(() => import("./pages/admin/AdminStatusSettings"));
-const AdminFriendlyWebsites = lazy(() => import("./pages/admin/AdminFriendlyWebsites"));
-const AdminBackup = lazy(() => import("./pages/admin/AdminBackup"));
+// Lazy load admin pages with retry
+const AdminLayout = lazyWithRetry(() => import("./pages/admin/AdminLayout"));
+const AdminDashboard = lazyWithRetry(() => import("./pages/admin/AdminDashboard"));
+const AdminAnalytics = lazyWithRetry(() => import("./pages/admin/AdminAnalytics"));
+const AdminUsers = lazyWithRetry(() => import("./pages/admin/AdminUsers"));
+const AdminDomains = lazyWithRetry(() => import("./pages/admin/AdminDomains"));
+const AdminEmails = lazyWithRetry(() => import("./pages/admin/AdminEmails"));
+const AdminSettings = lazyWithRetry(() => import("./pages/admin/AdminSettings"));
+const AdminBlogs = lazyWithRetry(() => import("./pages/admin/AdminBlogs"));
+const AdminPages = lazyWithRetry(() => import("./pages/admin/AdminPages"));
+const AdminThemes = lazyWithRetry(() => import("./pages/admin/AdminThemes"));
+const AdminCustomDomains = lazyWithRetry(() => import("./pages/admin/AdminCustomDomains"));
+const AdminGeneralSettings = lazyWithRetry(() => import("./pages/admin/AdminGeneralSettings"));
+const AdminSMTPSettings = lazyWithRetry(() => import("./pages/admin/AdminSMTPSettings"));
+const AdminIMAPSettings = lazyWithRetry(() => import("./pages/admin/AdminIMAPSettings"));
+const AdminAppearance = lazyWithRetry(() => import("./pages/admin/AdminAppearance"));
+const AdminUserSettings = lazyWithRetry(() => import("./pages/admin/AdminUserSettings"));
+const AdminAdmins = lazyWithRetry(() => import("./pages/admin/AdminAdmins"));
+const AdminSEO = lazyWithRetry(() => import("./pages/admin/AdminSEO"));
+const AdminBlogSettings = lazyWithRetry(() => import("./pages/admin/AdminBlogSettings"));
+const AdminEmailTemplates = lazyWithRetry(() => import("./pages/admin/AdminEmailTemplates"));
+const AdminLanguages = lazyWithRetry(() => import("./pages/admin/AdminLanguages"));
+const AdminAds = lazyWithRetry(() => import("./pages/admin/AdminAds"));
+const AdminCaptcha = lazyWithRetry(() => import("./pages/admin/AdminCaptcha"));
+const AdminAPI = lazyWithRetry(() => import("./pages/admin/AdminAPI"));
+const AdminCron = lazyWithRetry(() => import("./pages/admin/AdminCron"));
+const AdminCache = lazyWithRetry(() => import("./pages/admin/AdminCache"));
+const AdminAdvancedSettings = lazyWithRetry(() => import("./pages/admin/AdminAdvancedSettings"));
+const AdminBanners = lazyWithRetry(() => import("./pages/admin/AdminBanners"));
+const AdminAuditLogs = lazyWithRetry(() => import("./pages/admin/AdminAuditLogs"));
+const AdminEmailSetup = lazyWithRetry(() => import("./pages/admin/AdminEmailSetup"));
+const AdminDeployGuide = lazyWithRetry(() => import("./pages/admin/AdminDeployGuide"));
+const AdminRateLimits = lazyWithRetry(() => import("./pages/admin/AdminRateLimits"));
+const AdminRoleApprovals = lazyWithRetry(() => import("./pages/admin/AdminRoleApprovals"));
+const AdminSettingsOverview = lazyWithRetry(() => import("./pages/admin/AdminSettingsOverview"));
+const AdminRegistration = lazyWithRetry(() => import("./pages/admin/AdminRegistration"));
+const AdminPayments = lazyWithRetry(() => import("./pages/admin/AdminPayments"));
+const AdminIPBlocking = lazyWithRetry(() => import("./pages/admin/AdminIPBlocking"));
+const AdminSubscriptions = lazyWithRetry(() => import("./pages/admin/AdminSubscriptions"));
+const AdminEmailRestrictions = lazyWithRetry(() => import("./pages/admin/AdminEmailRestrictions"));
+const AdminMailboxes = lazyWithRetry(() => import("./pages/admin/AdminMailboxes"));
+const AdminEmailLogs = lazyWithRetry(() => import("./pages/admin/AdminEmailLogs"));
+const AdminMailboxHealth = lazyWithRetry(() => import("./pages/admin/AdminMailboxHealth"));
+const AdminAnnouncement = lazyWithRetry(() => import("./pages/admin/AdminAnnouncement"));
+const AdminStatusSettings = lazyWithRetry(() => import("./pages/admin/AdminStatusSettings"));
+const AdminFriendlyWebsites = lazyWithRetry(() => import("./pages/admin/AdminFriendlyWebsites"));
+const AdminBackup = lazyWithRetry(() => import("./pages/admin/AdminBackup"));
 
 // Redirect www to non-www
 if (typeof window !== 'undefined' && window.location.hostname.startsWith('www.')) {

@@ -1,0 +1,112 @@
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+
+interface SidebarIconsMap {
+  [key: string]: string; // url path -> icon class
+}
+
+const STORAGE_KEY = 'sidebar_icons';
+
+export const useSidebarIcons = () => {
+  const [icons, setIcons] = useState<SidebarIconsMap>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Load icons from app_settings
+  const loadIcons = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', STORAGE_KEY)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error loading sidebar icons:', error);
+        return;
+      }
+
+      if (data?.value && typeof data.value === 'object') {
+        setIcons(data.value as SidebarIconsMap);
+      }
+    } catch (err) {
+      console.error('Error loading sidebar icons:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadIcons();
+  }, [loadIcons]);
+
+  // Save icon for a specific menu item
+  const setIcon = useCallback(async (menuUrl: string, iconClass: string) => {
+    setIsSaving(true);
+    const newIcons = { ...icons, [menuUrl]: iconClass };
+    
+    try {
+      // Check if setting exists
+      const { data: existing } = await supabase
+        .from('app_settings')
+        .select('id')
+        .eq('key', STORAGE_KEY)
+        .maybeSingle();
+
+      if (existing) {
+        await supabase
+          .from('app_settings')
+          .update({ value: newIcons, updated_at: new Date().toISOString() })
+          .eq('key', STORAGE_KEY);
+      } else {
+        await supabase
+          .from('app_settings')
+          .insert({ key: STORAGE_KEY, value: newIcons });
+      }
+
+      setIcons(newIcons);
+      return true;
+    } catch (err) {
+      console.error('Error saving sidebar icon:', err);
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [icons]);
+
+  // Get icon class for a menu item
+  const getIcon = useCallback((menuUrl: string): string | undefined => {
+    return icons[menuUrl];
+  }, [icons]);
+
+  // Remove icon for a specific menu item
+  const removeIcon = useCallback(async (menuUrl: string) => {
+    const newIcons = { ...icons };
+    delete newIcons[menuUrl];
+    
+    try {
+      await supabase
+        .from('app_settings')
+        .update({ value: newIcons, updated_at: new Date().toISOString() })
+        .eq('key', STORAGE_KEY);
+      
+      setIcons(newIcons);
+      return true;
+    } catch (err) {
+      console.error('Error removing sidebar icon:', err);
+      return false;
+    }
+  }, [icons]);
+
+  return {
+    icons,
+    isLoading,
+    isSaving,
+    setIcon,
+    getIcon,
+    removeIcon,
+    refreshIcons: loadIcons,
+  };
+};
+
+export default useSidebarIcons;

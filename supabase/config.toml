@@ -68,3 +68,9 @@ verify_jwt = false
 
 [functions.validate-temp-email]
 verify_jwt = false
+
+[functions.generate-backup]
+verify_jwt = false
+
+[functions.cleanup-old-backups]
+verify_jwt = false

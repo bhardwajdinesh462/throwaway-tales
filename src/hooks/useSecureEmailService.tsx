@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useSupabaseAuth';
 import { toast } from 'sonner';
 import { storage } from '@/lib/storage';
-import { getErrorMessage } from '@/lib/errorHandler';
+import { parseEmailCreationError } from '@/lib/emailErrorHandler';
 
 export interface Domain {
   id: string;
@@ -240,14 +240,16 @@ export const useSecureEmailService = () => {
       if (error) {
         console.error('Error creating temp email:', error);
         
-        // Check for rate limit error
-        if (error.message?.includes('Rate limit exceeded')) {
-          toast.error('Rate limit exceeded. Please wait before creating more emails.');
-        } else if (error.code === '23505') {
-          toast.error('This email address already exists. Please try a different username.');
-        } else {
-          toast.error('Failed to create email. Please try again.');
-        }
+        // Use centralized error parser for specific error messages
+        const parsedError = parseEmailCreationError(error);
+        toast.error(parsedError.message, {
+          description: parsedError.isRetryable ? 'You can try again.' : undefined,
+          action: parsedError.isRetryable ? {
+            label: 'Retry',
+            onClick: () => generateEmail(domainId, customUsername, skipExistingCheck),
+          } : undefined,
+        });
+        
         setIsGenerating(false);
         return false;
       }

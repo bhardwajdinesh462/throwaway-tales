@@ -24,12 +24,13 @@ import { format, formatDistanceToNow } from "date-fns";
 interface BackupHistory {
   id: string;
   backup_type: string;
-  status: string;
+  status: string | null;
   file_size_bytes: number | null;
   tables_included: string[] | null;
   row_counts: Record<string, number> | null;
-  created_at: string;
-  expires_at: string;
+  created_at: string | null;
+  expires_at: string | null;
+  created_by: string | null;
 }
 
 const AdminBackup = () => {
@@ -47,7 +48,19 @@ const AdminBackup = () => {
         .limit(10);
 
       if (error) throw error;
-      setHistory(data || []);
+      // Map database response to BackupHistory interface
+      const mappedData: BackupHistory[] = (data || []).map((item) => ({
+        id: item.id,
+        backup_type: item.backup_type,
+        status: item.status,
+        file_size_bytes: item.file_size_bytes,
+        tables_included: item.tables_included,
+        row_counts: item.row_counts as Record<string, number> | null,
+        created_at: item.created_at,
+        expires_at: item.expires_at,
+        created_by: item.created_by,
+      }));
+      setHistory(mappedData);
     } catch (error) {
       console.error('Error fetching backup history:', error);
     } finally {

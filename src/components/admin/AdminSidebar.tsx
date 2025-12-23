@@ -33,6 +33,8 @@ import {
   Activity,
   X,
   Bell,
+  HardDrive,
+  Heart,
 } from "lucide-react";
 import {
   Sidebar,
@@ -78,6 +80,7 @@ const AdminSidebar = () => {
     { title: t('blogs'), url: "/admin/blogs", icon: Newspaper },
     { title: t('pages'), url: "/admin/pages", icon: FileText },
     { title: "Email Templates", url: "/admin/email-templates", icon: MailOpen },
+    { title: "Friendly Sites", url: "/admin/friendly-websites", icon: Heart },
   ];
 
   const settingsMenuItems = [
@@ -116,6 +119,7 @@ const AdminSidebar = () => {
     { title: "API", url: "/admin/api", icon: Key },
     { title: "Cron Jobs", url: "/admin/cron", icon: Clock },
     { title: "Cache", url: "/admin/cache", icon: Database },
+    { title: "Backup", url: "/admin/backup", icon: HardDrive },
   ];
 
   // Combine all menu items for search

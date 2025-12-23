@@ -17,6 +17,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys, invalidateQueries } from "@/lib/queryClient";
 import {
   Select,
   SelectContent,
@@ -65,6 +67,7 @@ interface UserSubscription {
 }
 
 const AdminSubscriptions = () => {
+  const queryClient = useQueryClient();
   const [tiers, setTiers] = useState<SubscriptionTier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchEmail, setSearchEmail] = useState("");
@@ -172,6 +175,9 @@ const AdminSubscriptions = () => {
       const tierName = tiers.find(t => t.id === selectedTierId)?.name || 'subscription';
       toast.success(`${tierName} assigned to ${foundUser.display_name || foundUser.email} for ${durationMonths} month(s)`);
       
+      // Invalidate subscription queries for instant reflection
+      invalidateQueries.subscriptions(queryClient);
+      
       // Refresh user subscription
       const { data: subData } = await supabase.rpc('admin_get_user_subscription', {
         target_user_id: foundUser.user_id
@@ -207,6 +213,9 @@ const AdminSubscriptions = () => {
       if (error) throw error;
 
       toast.success(`Subscription revoked for ${foundUser.display_name || foundUser.email}`);
+      
+      // Invalidate subscription queries for instant reflection
+      invalidateQueries.subscriptions(queryClient);
       
       // Refresh user subscription
       const { data: subData } = await supabase.rpc('admin_get_user_subscription', {

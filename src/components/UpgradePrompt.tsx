@@ -11,7 +11,7 @@ interface UpgradePromptProps {
 }
 
 const UpgradePrompt = ({ isOpen, onClose, feature, requiredTier = 'pro' }: UpgradePromptProps) => {
-  const { tier: currentTier, tierPrices, tierLimits, upgradeTier } = usePremiumFeatures();
+  const { tier: currentTier, tierPrices, tierLimits } = usePremiumFeatures();
 
   const tiers: { name: SubscriptionTier; label: string; icon: typeof Crown; color: string }[] = [
     { name: 'free', label: 'Free', icon: Zap, color: 'text-muted-foreground' },
@@ -20,8 +20,8 @@ const UpgradePrompt = ({ isOpen, onClose, feature, requiredTier = 'pro' }: Upgra
   ];
 
   const handleUpgrade = (tier: SubscriptionTier) => {
-    // In production, this would redirect to Stripe checkout
-    upgradeTier(tier);
+    // Redirect to pricing page for Stripe checkout
+    window.location.href = '/pricing';
     onClose();
   };
 

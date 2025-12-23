@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Menu, X, User, LogOut, History, Globe, Sun, Moon, LayoutDashboard, Crown, Send, Sparkles, BookOpen, DollarSign, Info, Mail, Palette, Check } from "lucide-react";
-import { useState, useEffect, useMemo } from "react";
+import { Menu, X, User, LogOut, History, Globe, Sun, Moon, LayoutDashboard, Crown, Send, Sparkles, BookOpen, DollarSign, Info, Mail, Palette, Check, ChevronDown } from "lucide-react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -10,6 +10,7 @@ import { useAppearanceSettings } from "@/hooks/useAppearanceSettings";
 import { useGeneralSettings } from "@/hooks/useGeneralSettings";
 import AnnouncementBar from "./AnnouncementBar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 import {
   DropdownMenu,
@@ -19,18 +20,17 @@ import {
   DropdownMenuTrigger,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
+  const [previewThemeId, setPreviewThemeId] = useState<string | null>(null);
+  const [mobileThemeOpen, setMobileThemeOpen] = useState(false);
+  const [mobileLanguageOpen, setMobileLanguageOpen] = useState(false);
+  const originalThemeRef = useRef<string | null>(null);
+  
   const { user, isAdmin, signOut } = useAuth();
   const { t, language, setLanguage, languages, isRTL } = useLanguage();
   const { theme, themes, setTheme } = useTheme();
@@ -47,6 +47,36 @@ const Header = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Keyboard shortcuts for theme switching
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Don't trigger shortcuts when typing in inputs
+      const target = event.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+
+      // Ctrl+Shift+T to toggle theme picker
+      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 't') {
+        event.preventDefault();
+        setThemePickerOpen(prev => !prev);
+        return;
+      }
+
+      // Ctrl+1-9 for quick theme selection
+      if (event.ctrlKey && !event.shiftKey && !event.altKey) {
+        const num = parseInt(event.key);
+        if (num >= 1 && num <= 9 && themes[num - 1]) {
+          event.preventDefault();
+          setTheme(themes[num - 1].id);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [themes, setTheme]);
+
   const toggleTheme = () => {
     const darkThemes = themes.filter(t => t.isDark);
     const lightThemes = themes.filter(t => !t.isDark);
@@ -57,6 +87,38 @@ const Header = () => {
       setTheme(darkThemes[0]?.id || 'cyber-dark');
     }
   };
+
+  // Theme preview handlers
+  const handleThemeHover = useCallback((themeId: string) => {
+    if (originalThemeRef.current === null) {
+      originalThemeRef.current = theme.id;
+    }
+    setPreviewThemeId(themeId);
+    setTheme(themeId);
+  }, [theme.id, setTheme]);
+
+  const handleThemeLeave = useCallback(() => {
+    if (originalThemeRef.current !== null) {
+      setTheme(originalThemeRef.current);
+      setPreviewThemeId(null);
+    }
+  }, [setTheme]);
+
+  const handleThemeSelect = useCallback((themeId: string) => {
+    originalThemeRef.current = null;
+    setPreviewThemeId(null);
+    setTheme(themeId);
+  }, [setTheme]);
+
+  const handleDropdownOpenChange = useCallback((open: boolean) => {
+    setThemePickerOpen(open);
+    if (!open && originalThemeRef.current !== null && previewThemeId !== null) {
+      // Revert to original if closing without selection
+      setTheme(originalThemeRef.current);
+      originalThemeRef.current = null;
+      setPreviewThemeId(null);
+    }
+  }, [previewThemeId, setTheme]);
 
   // Group themes by category
   const groupedThemes = useMemo(() => {
@@ -96,6 +158,14 @@ const Header = () => {
 
   const getInitials = (email: string) => {
     return email?.slice(0, 2).toUpperCase() || "U";
+  };
+
+  const getLangFlag = (code: string) => {
+    const flags: Record<string, string> = {
+      en: '🇺🇸', ar: '🇸🇦', es: '🇪🇸', fr: '🇫🇷', de: '🇩🇪', 
+      zh: '🇨🇳', ja: '🇯🇵', ko: '🇰🇷', pt: '🇧🇷', ru: '🇷🇺', hi: '🇮🇳'
+    };
+    return flags[code] || '🌐';
   };
 
   return (
@@ -194,7 +264,7 @@ const Header = () => {
                         onClick={() => setLanguage(lang.code as any)}
                         className={`cursor-pointer ${language === lang.code ? 'bg-primary/10 text-primary' : ''}`}
                       >
-                        <span className="mr-2">{lang.code === 'en' ? '🇺🇸' : lang.code === 'ar' ? '🇸🇦' : lang.code === 'es' ? '🇪🇸' : lang.code === 'fr' ? '🇫🇷' : lang.code === 'de' ? '🇩🇪' : lang.code === 'zh' ? '🇨🇳' : lang.code === 'ja' ? '🇯🇵' : lang.code === 'ko' ? '🇰🇷' : lang.code === 'pt' ? '🇧🇷' : lang.code === 'ru' ? '🇷🇺' : lang.code === 'hi' ? '🇮🇳' : '🌐'}</span>
+                        <span className="mr-2">{getLangFlag(lang.code)}</span>
                         {lang.name}
                       </DropdownMenuItem>
                     ))}
@@ -214,8 +284,8 @@ const Header = () => {
                   <span className="hidden lg:inline">Join</span>
                 </motion.a>
 
-                {/* Theme Picker Dropdown */}
-                <DropdownMenu>
+                {/* Theme Picker Dropdown with Preview */}
+                <DropdownMenu open={themePickerOpen} onOpenChange={handleDropdownOpenChange}>
                   <DropdownMenuTrigger asChild>
                     <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                       <Button
@@ -231,7 +301,11 @@ const Header = () => {
                       </Button>
                     </motion.div>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 max-h-[400px] overflow-hidden">
+                  <DropdownMenuContent 
+                    align="end" 
+                    className="w-56 max-h-[400px] overflow-hidden"
+                    onMouseLeave={handleThemeLeave}
+                  >
                     <ScrollArea className="h-[380px]">
                       {/* Quick Dark/Light Toggle */}
                       <DropdownMenuItem onClick={toggleTheme} className="cursor-pointer">
@@ -249,6 +323,11 @@ const Header = () => {
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       
+                      <div className="px-2 py-1 text-xs text-muted-foreground">
+                        Ctrl+Shift+T to toggle • Ctrl+1-9 quick select
+                      </div>
+                      <DropdownMenuSeparator />
+                      
                       {/* Grouped Themes */}
                       {categoryOrder.map(category => {
                         const categoryThemes = groupedThemes[category];
@@ -259,11 +338,12 @@ const Header = () => {
                             <DropdownMenuLabel className="text-xs text-muted-foreground uppercase tracking-wider">
                               {categoryLabels[category]}
                             </DropdownMenuLabel>
-                            {categoryThemes.map(t => (
+                            {categoryThemes.map((t, idx) => (
                               <DropdownMenuItem
                                 key={t.id}
-                                onClick={() => setTheme(t.id)}
-                                className={`cursor-pointer flex items-center gap-2 ${theme.id === t.id ? 'bg-primary/10' : ''}`}
+                                onClick={() => handleThemeSelect(t.id)}
+                                onMouseEnter={() => handleThemeHover(t.id)}
+                                className={`cursor-pointer flex items-center gap-2 ${theme.id === t.id && !previewThemeId ? 'bg-primary/10' : ''}`}
                               >
                                 <div 
                                   className="w-4 h-4 rounded-full border border-border flex-shrink-0"
@@ -272,7 +352,7 @@ const Header = () => {
                                   }}
                                 />
                                 <span className="flex-1 truncate">{t.name}</span>
-                                {theme.id === t.id && <Check className="w-4 h-4 text-primary" />}
+                                {theme.id === t.id && !previewThemeId && <Check className="w-4 h-4 text-primary" />}
                                 {t.isDark && <Moon className="w-3 h-3 text-muted-foreground" />}
                               </DropdownMenuItem>
                             ))}
@@ -387,93 +467,116 @@ const Header = () => {
             className="fixed top-0 right-0 bottom-0 w-[85%] max-w-sm bg-background border-l border-border shadow-2xl z-[60] md:hidden overflow-y-auto pt-20"
           >
             <nav className="p-6 flex flex-col gap-2">
-              {/* Theme Picker and Language - Mobile */}
-              <div className="flex gap-2 mb-4">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="flex-1 h-11">
-                      <Palette className="w-4 h-4 mr-2" />
-                      Theme
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-56 max-h-[300px] overflow-hidden">
-                    <ScrollArea className="h-[280px]">
-                      {/* Quick Dark/Light Toggle */}
-                      <DropdownMenuItem onClick={toggleTheme} className="cursor-pointer">
-                        {theme.isDark ? (
-                          <>
-                            <Sun className="w-4 h-4 mr-2 text-yellow-500" />
-                            Switch to Light Mode
-                          </>
-                        ) : (
-                          <>
-                            <Moon className="w-4 h-4 mr-2" />
-                            Switch to Dark Mode
-                          </>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
+              {/* Theme Picker - Mobile Collapsible */}
+              <Collapsible open={mobileThemeOpen} onOpenChange={setMobileThemeOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="outline" className="w-full h-11 justify-between">
+                    <div className="flex items-center gap-2">
+                      <Palette className="w-4 h-4" />
+                      <span>Theme: {theme.name}</span>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${mobileThemeOpen ? 'rotate-180' : ''}`} />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2">
+                  <div className="bg-secondary/30 rounded-lg p-3 space-y-2 max-h-[300px] overflow-y-auto">
+                    {/* Quick Dark/Light Toggle */}
+                    <button
+                      onClick={toggleTheme}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/80 transition-colors"
+                    >
+                      {theme.isDark ? (
+                        <>
+                          <Sun className="w-4 h-4 text-yellow-500" />
+                          <span>Switch to Light Mode</span>
+                        </>
+                      ) : (
+                        <>
+                          <Moon className="w-4 h-4" />
+                          <span>Switch to Dark Mode</span>
+                        </>
+                      )}
+                    </button>
+                    <div className="border-t border-border my-2" />
+                    
+                    {/* All Themes */}
+                    {categoryOrder.map(category => {
+                      const categoryThemes = groupedThemes[category];
+                      if (!categoryThemes || categoryThemes.length === 0) return null;
                       
-                      {/* Grouped Themes */}
-                      {categoryOrder.map(category => {
-                        const categoryThemes = groupedThemes[category];
-                        if (!categoryThemes || categoryThemes.length === 0) return null;
-                        
-                        return (
-                          <div key={category}>
-                            <DropdownMenuLabel className="text-xs text-muted-foreground uppercase tracking-wider">
-                              {categoryLabels[category]}
-                            </DropdownMenuLabel>
-                            {categoryThemes.map(t => (
-                              <DropdownMenuItem
-                                key={t.id}
-                                onClick={() => setTheme(t.id)}
-                                className={`cursor-pointer flex items-center gap-2 ${theme.id === t.id ? 'bg-primary/10' : ''}`}
-                              >
-                                <div 
-                                  className="w-4 h-4 rounded-full border border-border flex-shrink-0"
-                                  style={{ 
-                                    background: `linear-gradient(135deg, ${t.colors.primary} 0%, ${t.colors.accent} 100%)`
-                                  }}
-                                />
-                                <span className="flex-1 truncate">{t.name}</span>
-                                {theme.id === t.id && <Check className="w-4 h-4 text-primary" />}
-                              </DropdownMenuItem>
-                            ))}
+                      return (
+                        <div key={category}>
+                          <div className="text-xs text-muted-foreground uppercase tracking-wider px-3 py-1">
+                            {categoryLabels[category]}
                           </div>
-                        );
-                      })}
-                    </ScrollArea>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="flex-1 h-11">
-                      <Globe className="w-4 h-4 mr-2 text-primary" />
-                      {languages.find(l => l.code === language)?.name || 'EN'}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-40">
+                          {categoryThemes.map(t => (
+                            <button
+                              key={t.id}
+                              onClick={() => {
+                                setTheme(t.id);
+                                setMobileThemeOpen(false);
+                              }}
+                              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                                theme.id === t.id ? 'bg-primary/10 text-primary' : 'hover:bg-secondary/80'
+                              }`}
+                            >
+                              <div 
+                                className="w-5 h-5 rounded-full border border-border flex-shrink-0"
+                                style={{ 
+                                  background: `linear-gradient(135deg, ${t.colors.primary} 0%, ${t.colors.accent} 100%)`
+                                }}
+                              />
+                              <span className="flex-1 text-left truncate">{t.name}</span>
+                              {theme.id === t.id && <Check className="w-4 h-4" />}
+                              {t.isDark && <Moon className="w-3 h-3 text-muted-foreground" />}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+
+              {/* Language Picker - Mobile Collapsible */}
+              <Collapsible open={mobileLanguageOpen} onOpenChange={setMobileLanguageOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="outline" className="w-full h-11 justify-between">
+                    <div className="flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-primary" />
+                      <span>{getLangFlag(language)} {languages.find(l => l.code === language)?.name || 'EN'}</span>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${mobileLanguageOpen ? 'rotate-180' : ''}`} />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2">
+                  <div className="bg-secondary/30 rounded-lg p-2 space-y-1">
                     {languages.map((lang) => (
-                      <DropdownMenuItem
+                      <button
                         key={lang.code}
-                        onClick={() => setLanguage(lang.code as any)}
-                        className={`cursor-pointer ${language === lang.code ? 'bg-primary/10 text-primary' : ''}`}
+                        onClick={() => {
+                          setLanguage(lang.code as any);
+                          setMobileLanguageOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                          language === lang.code ? 'bg-primary/10 text-primary' : 'hover:bg-secondary/80'
+                        }`}
                       >
-                        <span className="mr-2">{lang.code === 'en' ? '🇺🇸' : lang.code === 'ar' ? '🇸🇦' : lang.code === 'es' ? '🇪🇸' : lang.code === 'fr' ? '🇫🇷' : lang.code === 'de' ? '🇩🇪' : lang.code === 'zh' ? '🇨🇳' : lang.code === 'ja' ? '🇯🇵' : lang.code === 'ko' ? '🇰🇷' : lang.code === 'pt' ? '🇧🇷' : lang.code === 'ru' ? '🇷🇺' : lang.code === 'hi' ? '🇮🇳' : '🌐'}</span>
-                        {lang.name}
-                      </DropdownMenuItem>
+                        <span className="text-lg">{getLangFlag(lang.code)}</span>
+                        <span>{lang.name}</span>
+                        {language === lang.code && <Check className="w-4 h-4 ml-auto" />}
+                      </button>
                     ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
 
               {/* Telegram - Mobile */}
               <a
                 href="https://t.me/nullstoemail"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#0088cc]/10 hover:bg-[#0088cc]/20 border border-[#0088cc]/30 text-[#0088cc] transition-all text-sm font-medium mb-4"
+                className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#0088cc]/10 hover:bg-[#0088cc]/20 border border-[#0088cc]/30 text-[#0088cc] transition-all text-sm font-medium mt-2 mb-4"
               >
                 <Send className="w-5 h-5" />
                 Join Telegram for Updates

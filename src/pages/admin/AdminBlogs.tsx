@@ -44,7 +44,7 @@ interface BlogPost {
 
 const AdminBlogs = () => {
   const [blogs, setBlogs] = useState<BlogPost[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingBlog, setEditingBlog] = useState<BlogPost | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -274,12 +274,7 @@ const AdminBlogs = () => {
       </div>
 
       <div className="grid gap-4">
-        {isLoading ? (
-          <div className="glass-card p-8 text-center text-muted-foreground">
-            <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-            Loading...
-          </div>
-        ) : blogs.length === 0 ? (
+        {blogs.length === 0 ? (
           <div className="glass-card p-8 text-center text-muted-foreground">
             <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
             No blog posts yet. Create your first post!

@@ -63,7 +63,7 @@ const AdminDashboard = () => {
     emailsToday: 0,
     userGrowth: 0,
   });
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [healthCheck, setHealthCheck] = useState<HealthCheckResult | null>(null);
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
   const [encryptionHealth, setEncryptionHealth] = useState<EncryptionHealthResult | null>(null);
@@ -351,7 +351,7 @@ const AdminDashboard = () => {
               <div>
                 <p className="text-muted-foreground text-sm">{stat.title}</p>
                 <p className="text-3xl font-bold text-foreground mt-1">
-                  {isLoading ? "..." : stat.value}
+                  {stat.value}
                 </p>
               </div>
               <div className={`p-3 rounded-xl bg-secondary/50 ${stat.color}`}>

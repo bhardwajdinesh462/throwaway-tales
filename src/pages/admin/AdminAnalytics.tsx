@@ -62,7 +62,7 @@ const AdminAnalytics = () => {
   const [emailTrends, setEmailTrends] = useState<any[]>([]);
   const [domainDistribution, setDomainDistribution] = useState<any[]>([]);
   const [hourlyActivity, setHourlyActivity] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     fetchAnalytics();
@@ -242,7 +242,7 @@ const AdminAnalytics = () => {
                   <div>
                     <p className="text-sm text-muted-foreground">{stat.title}</p>
                     <p className="text-3xl font-bold text-foreground mt-2">
-                      {isLoading ? "..." : stat.value}
+                      {stat.value}
                     </p>
                     <div className="flex items-center gap-1 mt-2">
                       {stat.trend === "up" ? (

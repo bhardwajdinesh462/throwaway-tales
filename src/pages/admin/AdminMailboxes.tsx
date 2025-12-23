@@ -100,7 +100,7 @@ const defaultMailbox: Partial<Mailbox> = {
 
 const AdminMailboxes = () => {
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingMailbox, setEditingMailbox] = useState<Partial<Mailbox> | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -309,11 +309,7 @@ const AdminMailboxes = () => {
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </div>
-      ) : mailboxes.length === 0 ? (
+      {mailboxes.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Mail className="w-12 h-12 text-muted-foreground mb-4" />

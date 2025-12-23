@@ -31,7 +31,7 @@ const AdminEmails = () => {
     duplicateCount: 0,
   });
   const [chartData, setChartData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchStats = async () => {
@@ -155,7 +155,7 @@ const AdminEmails = () => {
               <div>
                 <p className="text-muted-foreground text-sm">{stat.title}</p>
                 <p className="text-3xl font-bold text-foreground mt-1">
-                  {isLoading ? "..." : stat.value.toLocaleString()}
+                  {stat.value.toLocaleString()}
                 </p>
               </div>
               <div className={`p-3 rounded-xl bg-secondary/50 ${stat.color}`}>
@@ -185,11 +185,9 @@ const AdminEmails = () => {
             <div>
               <h3 className="text-lg font-semibold text-foreground">Duplicate Emails</h3>
               <p className="text-muted-foreground text-sm">
-                {isLoading ? "Checking..." : (
-                  stats.duplicateCount > 0 
-                    ? `${stats.duplicateCount} duplicate email(s) found`
-                    : "No duplicate emails detected"
-                )}
+                {stats.duplicateCount > 0 
+                  ? `${stats.duplicateCount} duplicate email(s) found`
+                  : "No duplicate emails detected"}
               </p>
             </div>
           </div>
@@ -225,12 +223,7 @@ const AdminEmails = () => {
       >
         <h3 className="text-lg font-semibold text-foreground mb-4">Email Activity (Last 7 Days)</h3>
         <div className="h-[300px]">
-          {isLoading ? (
-            <div className="h-full flex items-center justify-center text-muted-foreground">
-              Loading chart...
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="colorGenerated" x1="0" y1="0" x2="0" y2="1">
@@ -270,7 +263,6 @@ const AdminEmails = () => {
                 />
               </AreaChart>
             </ResponsiveContainer>
-          )}
         </div>
       </motion.div>
     </div>

@@ -38,7 +38,7 @@ interface Domain {
 
 const AdminDomains = () => {
   const [domains, setDomains] = useState<Domain[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [newDomain, setNewDomain] = useState("");
   const [isPremium, setIsPremium] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -216,11 +216,7 @@ const AdminDomains = () => {
         animate={{ opacity: 1 }}
         className="grid gap-4"
       >
-        {isLoading ? (
-          <div className="glass-card p-8 text-center text-muted-foreground">
-            Loading domains...
-          </div>
-        ) : domains.length === 0 ? (
+        {domains.length === 0 ? (
           <div className="glass-card p-8 text-center text-muted-foreground">
             No domains configured
           </div>

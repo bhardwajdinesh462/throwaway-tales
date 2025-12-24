@@ -83,24 +83,25 @@ const LiveStatsWidget = () => {
     };
   }, []);
 
-  // Subscribe to realtime inserts on temp_emails for live counter updates
+  // Subscribe to realtime changes on email_stats for live counter updates (persistent counter)
   useEffect(() => {
     const channel = supabase
-      .channel('temp-emails-stats')
+      .channel('email-stats-updates')
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: 'UPDATE',
           schema: 'public',
-          table: 'temp_emails'
+          table: 'email_stats',
+          filter: 'stat_key=eq.total_emails_generated'
         },
-        () => {
+        (payload) => {
           // Only animate after initial load
-          if (!initialLoadRef.current) {
+          if (!initialLoadRef.current && payload.new) {
+            const newValue = (payload.new as { stat_value?: number }).stat_value || 0;
             setStats(prev => ({
               ...prev,
-              totalEmailsGenerated: prev.totalEmailsGenerated + 1,
-              activeAddresses: prev.activeAddresses + 1,
+              totalEmailsGenerated: newValue,
             }));
             // Trigger animation on "Emails Generated" (index 1)
             setAnimatingIndex(1);

@@ -72,10 +72,10 @@ const AdminDashboard = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        // Fetch counts in parallel
-        const [usersRes, tempEmailsRes, domainsRes, receivedRes, activeRes, emailsTodayRes] = await Promise.all([
+        // Fetch counts in parallel - use email_stats for permanent counter
+        const [usersRes, emailStatsRes, domainsRes, receivedRes, activeRes, emailsTodayRes] = await Promise.all([
           supabase.from("profiles").select("*", { count: "exact", head: true }),
-          supabase.from("temp_emails").select("*", { count: "exact", head: true }),
+          supabase.from("email_stats").select("stat_value").eq("stat_key", "total_emails_generated").maybeSingle(),
           supabase.from("domains").select("*", { count: "exact", head: true }),
           supabase.from("received_emails").select("*", { count: "exact", head: true }),
           supabase.from("temp_emails").select("*", { count: "exact", head: true }).eq("is_active", true),
@@ -84,7 +84,7 @@ const AdminDashboard = () => {
 
         setStats({
           totalUsers: usersRes.count || 0,
-          totalEmails: tempEmailsRes.count || 0,
+          totalEmails: emailStatsRes.data?.stat_value || 0,
           totalDomains: domainsRes.count || 0,
           activeEmails: activeRes.count || 0,
           emailsToday: emailsTodayRes.count || 0,

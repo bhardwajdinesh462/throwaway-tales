@@ -1,8 +1,8 @@
 // Enhanced Service Worker for Push Notifications and Offline Support
-const CACHE_NAME = "nullsto-v2";
-const STATIC_CACHE = "nullsto-static-v2";
-const DYNAMIC_CACHE = "nullsto-dynamic-v2";
-const DATA_CACHE = "nullsto-data-v2";
+const CACHE_NAME = "nullsto-v3";
+const STATIC_CACHE = "nullsto-static-v3";
+const DYNAMIC_CACHE = "nullsto-dynamic-v3";
+const DATA_CACHE = "nullsto-data-v3";
 
 // Static assets to cache on install
 const STATIC_ASSETS = [

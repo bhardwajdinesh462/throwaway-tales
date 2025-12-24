@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
@@ -19,6 +19,20 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import EmailVerificationBanner from '@/components/EmailVerificationBanner';
 
+interface PricingContent {
+  headline: string;
+  subheadline: string;
+  ctaText: string;
+  featuredPlan: string;
+}
+
+const defaultPricingContent: PricingContent = {
+  headline: "Choose the Perfect Plan for You",
+  subheadline: "Start free and upgrade anytime. All plans include core features to protect your privacy.",
+  ctaText: "Get Started",
+  featuredPlan: "pro",
+};
+
 const PricingPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -26,6 +40,27 @@ const PricingPage = () => {
   const { requiresVerification } = useEmailVerification();
   const [selectedBilling, setSelectedBilling] = useState<'monthly' | 'yearly'>('monthly');
   const [processingTier, setProcessingTier] = useState<string | null>(null);
+  const [pricingContent, setPricingContent] = useState<PricingContent>(defaultPricingContent);
+
+  // Fetch pricing content from app_settings
+  useEffect(() => {
+    const fetchPricingContent = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', 'pricing_content')
+          .maybeSingle();
+        
+        if (!error && data?.value) {
+          setPricingContent({ ...defaultPricingContent, ...(data.value as Partial<PricingContent>) });
+        }
+      } catch (err) {
+        console.error('Error fetching pricing content:', err);
+      }
+    };
+    fetchPricingContent();
+  }, []);
 
   const handleSelectPlan = async (tierId: string, tierName: string, price: number) => {
     if (!user) {
@@ -200,14 +235,20 @@ const PricingPage = () => {
             </motion.div>
             
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 text-foreground">
-              Choose the Perfect
-              <span className="block mt-2">
-                <span className="gradient-text">Plan for You</span>
-              </span>
+              {pricingContent.headline.includes('Plan') ? (
+                <>
+                  {pricingContent.headline.split('Plan')[0]}
+                  <span className="block mt-2">
+                    <span className="gradient-text">Plan{pricingContent.headline.split('Plan')[1]}</span>
+                  </span>
+                </>
+              ) : (
+                <span className="gradient-text">{pricingContent.headline}</span>
+              )}
             </h1>
             
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
-              Start free and upgrade anytime. All plans include core features to protect your privacy.
+              {pricingContent.subheadline}
             </p>
           </motion.div>
 
@@ -270,7 +311,7 @@ const PricingPage = () => {
                 ? Number(tier.price_monthly) 
                 : Number(tier.price_yearly);
               const isCurrentPlan = subscription?.tier_id === tier.id;
-              const isPro = tier.name.toLowerCase() === 'pro';
+              const isPro = tier.name.toLowerCase() === pricingContent.featuredPlan.toLowerCase();
               const planConfig = getPlanConfig(tier.name);
               const PlanIcon = planConfig.icon;
 

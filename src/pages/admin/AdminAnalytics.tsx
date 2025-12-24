@@ -73,10 +73,12 @@ const AdminAnalytics = () => {
     try {
       const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
       
-      // Fetch email statistics
-      const { data: emails, count: emailCount } = await supabase
-        .from("temp_emails")
-        .select("*", { count: "exact" });
+      // Fetch email statistics - use email_stats for permanent counter
+      const { data: emailStatsData } = await supabase
+        .from("email_stats")
+        .select("stat_value")
+        .eq("stat_key", "total_emails_generated")
+        .maybeSingle();
 
       const { count: receivedCount } = await supabase
         .from("received_emails")
@@ -91,12 +93,14 @@ const AdminAnalytics = () => {
         .from("profiles")
         .select("*", { count: "exact" });
 
+      const totalEmails = emailStatsData?.stat_value || 0;
+
       setAnalytics({
-        totalEmails: emailCount || 0,
+        totalEmails: totalEmails,
         totalReceived: receivedCount || 0,
         activeUsers: userCount || 0,
         totalDomains: domainCount || 0,
-        avgEmailsPerDay: Math.round((emailCount || 0) / days),
+        avgEmailsPerDay: Math.round(totalEmails / days),
         peakHour: "14:00",
         growthRate: 12.5,
         retentionRate: 68.3,

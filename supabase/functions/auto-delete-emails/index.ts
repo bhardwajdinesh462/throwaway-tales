@@ -42,7 +42,7 @@ serve(async (req: Request): Promise<Response> => {
     const cutoffDate = new Date(Date.now() - settings.autoDeleteHours * 60 * 60 * 1000).toISOString();
     console.log(`[AUTO-DELETE CRON] Deleting emails older than ${cutoffDate}`);
 
-    const stats = { deletedEmails: 0, deletedAttachments: 0, deletedTempEmails: 0 };
+    const stats = { deletedEmails: 0, deletedAttachments: 0, deletedTempEmails: 0, deletedRateLimits: 0 };
 
     // 1. Get old emails
     const { data: oldEmails } = await supabase
@@ -122,6 +122,23 @@ serve(async (req: Request): Promise<Response> => {
       // Delete expired temp emails
       await supabase.from("temp_emails").delete().lt("expires_at", now);
       stats.deletedTempEmails = expiredTempEmails.length;
+    }
+
+    // 3. Clean up old rate limits (older than 24 hours)
+    const rateLimitCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    console.log(`[AUTO-DELETE CRON] Deleting rate limits older than ${rateLimitCutoff}`);
+    
+    const { data: deletedRateLimits, error: rateLimitError } = await supabase
+      .from("rate_limits")
+      .delete()
+      .lt("window_start", rateLimitCutoff)
+      .select("id");
+    
+    if (rateLimitError) {
+      console.error("[AUTO-DELETE CRON] Error deleting rate limits:", rateLimitError);
+    } else {
+      stats.deletedRateLimits = deletedRateLimits?.length || 0;
+      console.log(`[AUTO-DELETE CRON] Deleted ${stats.deletedRateLimits} old rate limit records`);
     }
 
     const duration = Date.now() - startTime;

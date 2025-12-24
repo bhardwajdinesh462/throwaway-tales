@@ -537,9 +537,10 @@ serve(async (req: Request): Promise<Response> => {
           }
         }
 
+        // Use upsert with ON CONFLICT DO NOTHING to prevent duplicate key errors
         const { error: insertError } = await supabase
           .from("received_emails")
-          .insert({
+          .upsert({
             temp_email_id: matchedTempEmailId,
             from_address: fromAddress,
             subject: subject,
@@ -547,6 +548,9 @@ serve(async (req: Request): Promise<Response> => {
             html_body: finalHtmlBody ? finalHtmlBody.substring(0, 50000) : null,
             is_read: false,
             received_at: receivedAtIso,
+          }, { 
+            onConflict: 'id',
+            ignoreDuplicates: true 
           });
 
         if (insertError) {

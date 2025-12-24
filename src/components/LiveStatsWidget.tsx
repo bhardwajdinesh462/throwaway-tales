@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, useSpring, useTransform } from "framer-motion";
 import { Mail, Users, Globe, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { tooltips } from "@/lib/tooltips";
+
+const STATS_STORAGE_KEY = 'trashmails_live_stats';
 
 interface Stats {
   emailsToday: number;
@@ -12,6 +14,45 @@ interface Stats {
   activeDomains: number;
   totalEmailsGenerated: number;
 }
+
+// Helper to parse stat values safely
+const parseStatValue = (val: unknown): number => {
+  if (typeof val === 'number' && !isNaN(val)) return val;
+  if (typeof val === 'string') {
+    const parsed = parseInt(val, 10);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+};
+
+// Load cached stats from localStorage
+const loadCachedStats = (): Stats => {
+  try {
+    const cached = localStorage.getItem(STATS_STORAGE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      return {
+        emailsToday: parseStatValue(parsed.emailsToday),
+        totalEmails: parseStatValue(parsed.totalEmails),
+        activeAddresses: parseStatValue(parsed.activeAddresses),
+        activeDomains: parseStatValue(parsed.activeDomains),
+        totalEmailsGenerated: parseStatValue(parsed.totalEmailsGenerated),
+      };
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return { emailsToday: 0, totalEmails: 0, activeAddresses: 0, activeDomains: 0, totalEmailsGenerated: 0 };
+};
+
+// Save stats to localStorage
+const saveCachedStats = (stats: Stats) => {
+  try {
+    localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(stats));
+  } catch {
+    // ignore storage errors
+  }
+};
 
 // Animated counter component with spring animation
 const AnimatedCounter = ({ value, isAnimating }: { value: number; isAnimating: boolean }) => {
@@ -37,16 +78,25 @@ const AnimatedCounter = ({ value, isAnimating }: { value: number; isAnimating: b
 };
 
 const LiveStatsWidget = () => {
-  const [stats, setStats] = useState<Stats>({
-    emailsToday: 0,
-    totalEmails: 0,
-    activeAddresses: 0,
-    activeDomains: 0,
-    totalEmailsGenerated: 0,
-  });
+  const [stats, setStats] = useState<Stats>(loadCachedStats);
   const [isLoading, setIsLoading] = useState(true);
   const [animatingIndex, setAnimatingIndex] = useState<number | null>(null);
   const initialLoadRef = useRef(true);
+
+  // Update stats with clamping to prevent decreases
+  const updateStats = useCallback((incoming: Partial<Stats>) => {
+    setStats(prev => {
+      const next: Stats = {
+        emailsToday: Math.max(prev.emailsToday, parseStatValue(incoming.emailsToday ?? prev.emailsToday)),
+        totalEmails: Math.max(prev.totalEmails, parseStatValue(incoming.totalEmails ?? prev.totalEmails)),
+        activeAddresses: Math.max(prev.activeAddresses, parseStatValue(incoming.activeAddresses ?? prev.activeAddresses)),
+        activeDomains: parseStatValue(incoming.activeDomains ?? prev.activeDomains), // domains can change
+        totalEmailsGenerated: Math.max(prev.totalEmailsGenerated, parseStatValue(incoming.totalEmailsGenerated ?? prev.totalEmailsGenerated)),
+      };
+      saveCachedStats(next);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -54,12 +104,12 @@ const LiveStatsWidget = () => {
         const { data, error } = await supabase.functions.invoke('get-public-stats');
         
         if (!error && data) {
-          setStats({
-            emailsToday: data.emailsToday || 0,
-            totalEmails: data.totalEmails || 0,
-            activeAddresses: data.activeAddresses || 0,
-            activeDomains: data.activeDomains || 0,
-            totalEmailsGenerated: data.totalEmailsGenerated || 0,
+          updateStats({
+            emailsToday: data.emailsToday,
+            totalEmails: data.totalEmails,
+            activeAddresses: data.activeAddresses,
+            activeDomains: data.activeDomains,
+            totalEmailsGenerated: data.totalEmailsGenerated,
           });
         }
       } catch (err) {
@@ -81,7 +131,7 @@ const LiveStatsWidget = () => {
       clearTimeout(timeoutId);
       clearInterval(interval);
     };
-  }, []);
+  }, [updateStats]);
 
   // Subscribe to realtime changes on email_stats for live counter updates (persistent counter)
   useEffect(() => {
@@ -98,11 +148,8 @@ const LiveStatsWidget = () => {
         (payload) => {
           // Only animate after initial load
           if (!initialLoadRef.current && payload.new) {
-            const newValue = (payload.new as { stat_value?: number }).stat_value || 0;
-            setStats(prev => ({
-              ...prev,
-              totalEmailsGenerated: newValue,
-            }));
+            const newValue = parseStatValue((payload.new as { stat_value?: number }).stat_value);
+            updateStats({ totalEmailsGenerated: newValue });
             // Trigger animation on "Emails Generated" (index 1)
             setAnimatingIndex(1);
             setTimeout(() => setAnimatingIndex(null), 500);

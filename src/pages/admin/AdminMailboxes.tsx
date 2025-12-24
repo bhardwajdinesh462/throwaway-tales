@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Mail,
@@ -49,6 +49,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAdminMailboxes, useMailboxMutations } from "@/hooks/useAdminQueries";
+import { AdminMailboxCardSkeleton } from "@/components/admin/AdminSkeletons";
 
 interface Mailbox {
   id: string;
@@ -99,34 +101,13 @@ const defaultMailbox: Partial<Mailbox> = {
 };
 
 const AdminMailboxes = () => {
-  const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const { data: mailboxes = [], isLoading, refetch } = useAdminMailboxes();
+  const { toggleActive, deleteMailbox: deleteMailboxMutation } = useMailboxMutations();
+  
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingMailbox, setEditingMailbox] = useState<Partial<Mailbox> | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState<string | null>(null);
-
-  const fetchMailboxes = async () => {
-    setIsLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("mailboxes")
-        .select("*")
-        .order("priority", { ascending: true });
-
-      if (error) throw error;
-      setMailboxes((data as Mailbox[]) || []);
-    } catch (error: any) {
-      console.error("Error fetching mailboxes:", error);
-      toast.error("Failed to load mailboxes");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchMailboxes();
-  }, []);
 
   const openDialog = (mailbox?: Mailbox) => {
     if (mailbox) {
@@ -203,7 +184,7 @@ const AdminMailboxes = () => {
       }
 
       closeDialog();
-      fetchMailboxes();
+      refetch();
     } catch (error: any) {
       console.error("Error saving mailbox:", error);
       toast.error(error.message || "Failed to save mailbox");
@@ -212,15 +193,11 @@ const AdminMailboxes = () => {
     }
   };
 
-  const deleteMailbox = async (id: string) => {
+  const handleDeleteMailbox = async (id: string) => {
     try {
-      const { error } = await supabase.from("mailboxes").delete().eq("id", id);
-      if (error) throw error;
-      toast.success("Mailbox deleted");
-      fetchMailboxes();
+      await deleteMailboxMutation.mutateAsync(id);
     } catch (error: any) {
       console.error("Error deleting mailbox:", error);
-      toast.error("Failed to delete mailbox");
     }
   };
 
@@ -256,19 +233,11 @@ const AdminMailboxes = () => {
     }
   };
 
-  const toggleMailboxActive = async (mailbox: Mailbox) => {
+  const handleToggleMailboxActive = async (mailbox: Mailbox) => {
     try {
-      const { error } = await supabase
-        .from("mailboxes")
-        .update({ is_active: !mailbox.is_active, updated_at: new Date().toISOString() })
-        .eq("id", mailbox.id);
-
-      if (error) throw error;
-      toast.success(mailbox.is_active ? "Mailbox disabled" : "Mailbox enabled");
-      fetchMailboxes();
+      await toggleActive.mutateAsync({ id: mailbox.id, isActive: mailbox.is_active });
     } catch (error: any) {
       console.error("Error toggling mailbox:", error);
-      toast.error("Failed to toggle mailbox");
     }
   };
 
@@ -298,7 +267,7 @@ const AdminMailboxes = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={fetchMailboxes} disabled={isLoading}>
+          <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
@@ -309,7 +278,13 @@ const AdminMailboxes = () => {
         </div>
       </div>
 
-      {mailboxes.length === 0 ? (
+      {isLoading ? (
+        <div className="grid gap-4">
+          {[1, 2, 3].map((i) => (
+            <AdminMailboxCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : mailboxes.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Mail className="w-12 h-12 text-muted-foreground mb-4" />
@@ -363,7 +338,7 @@ const AdminMailboxes = () => {
                     <div className="flex items-center gap-2">
                       <Switch
                         checked={mailbox.is_active}
-                        onCheckedChange={() => toggleMailboxActive(mailbox)}
+                        onCheckedChange={() => handleToggleMailboxActive(mailbox)}
                       />
                       <Button
                         variant="ghost"
@@ -398,7 +373,7 @@ const AdminMailboxes = () => {
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction
                               className="bg-destructive hover:bg-destructive/90"
-                              onClick={() => deleteMailbox(mailbox.id)}
+                              onClick={() => handleDeleteMailbox(mailbox.id)}
                             >
                               Delete
                             </AlertDialogAction>

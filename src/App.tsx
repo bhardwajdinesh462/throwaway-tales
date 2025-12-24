@@ -113,6 +113,7 @@ const AdminAnnouncement = lazyWithRetry(() => import("./pages/admin/AdminAnnounc
 const AdminStatusSettings = lazyWithRetry(() => import("./pages/admin/AdminStatusSettings"));
 const AdminFriendlyWebsites = lazyWithRetry(() => import("./pages/admin/AdminFriendlyWebsites"));
 const AdminBackup = lazyWithRetry(() => import("./pages/admin/AdminBackup"));
+const AdminPricing = lazyWithRetry(() => import("./pages/admin/AdminPricing"));
 
 // Redirect www to non-www
 if (typeof window !== 'undefined' && window.location.hostname.startsWith('www.')) {
@@ -313,6 +314,7 @@ const App = () => (
                             <Route path="status-settings" element={<AdminStatusSettings />} />
                             <Route path="friendly-websites" element={<AdminFriendlyWebsites />} />
                             <Route path="backup" element={<AdminBackup />} />
+                            <Route path="pricing" element={<AdminPricing />} />
                           </Route>
 
                           <Route path="*" element={<NotFound />} />

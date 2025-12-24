@@ -18,6 +18,7 @@ const AdminLayout = () => {
   const getPageTitle = () => {
     const path = location.pathname;
     if (path === "/admin") return t('dashboard');
+    if (path.includes("pricing")) return "Pricing";
     if (path.includes("users")) return t('users');
     if (path.includes("domains")) return t('domains');
     if (path.includes("emails")) return t('emails');

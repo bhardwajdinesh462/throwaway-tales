@@ -9,7 +9,8 @@ import {
   Check, 
   X, 
   RefreshCw,
-  ChevronRight
+  ChevronRight,
+  DollarSign
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -339,6 +340,32 @@ const AdminSettingsOverview = () => {
               ) : (
                 <p className="text-sm text-muted-foreground italic">Not configured</p>
               )}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Pricing Settings */}
+        <motion.div variants={cardVariants} initial="hidden" animate="visible" transition={{ delay: 0.5 }}>
+          <Card className="h-full hover:border-primary/50 transition-colors cursor-pointer" onClick={() => navigate('/admin/pricing')}>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                    <DollarSign className="w-5 h-5 text-emerald-500" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">Pricing</CardTitle>
+                    <CardDescription>Plans & pricing page</CardDescription>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-muted-foreground" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-1">
+                <SettingRow label="Status" value={<Badge variant="default" className="bg-green-500/20 text-green-500 border-green-500/30"><Check className="w-3 h-3 mr-1" />Active</Badge>} />
+                <SettingRow label="Tiers" value="Managed via database" />
+              </div>
             </CardContent>
           </Card>
         </motion.div>

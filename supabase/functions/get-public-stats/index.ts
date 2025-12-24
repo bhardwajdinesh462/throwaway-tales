@@ -63,14 +63,14 @@ serve(async (req) => {
         .maybeSingle(),
     ]);
 
-    // Use the permanent counter from email_stats, fallback to active count if not found
-    const totalEmailsGenerated = emailStatsData?.stat_value || activeAddresses || 0;
+    // Use the permanent counter from email_stats - use ?? to preserve 0 values
+    const totalEmailsGenerated = emailStatsData?.stat_value ?? 0;
 
     const stats = {
-      emailsToday: totalEmailsToday || 0,
-      totalEmails: totalEmails || 0,
-      activeAddresses: activeAddresses || 0,
-      activeDomains: totalDomains || 0,
+      emailsToday: totalEmailsToday ?? 0,
+      totalEmails: totalEmails ?? 0,
+      activeAddresses: activeAddresses ?? 0,
+      activeDomains: totalDomains ?? 0,
       totalEmailsGenerated: Number(totalEmailsGenerated),
       updatedAt: new Date().toISOString(),
     };

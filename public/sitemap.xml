@@ -2,73 +2,85 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://nullsto.edu.pl/</loc>
-    <lastmod>2025-01-01</lastmod>
+    <lastmod>2024-12-27</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://nullsto.edu.pl/dashboard</loc>
-    <lastmod>2025-01-01</lastmod>
+    <lastmod>2024-12-27</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://nullsto.edu.pl/blog</loc>
-    <lastmod>2025-01-01</lastmod>
+    <lastmod>2024-12-27</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://nullsto.edu.pl/pricing</loc>
-    <lastmod>2025-01-01</lastmod>
+    <lastmod>2024-12-27</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://nullsto.edu.pl/about</loc>
-    <lastmod>2025-01-01</lastmod>
+    <lastmod>2024-12-27</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://nullsto.edu.pl/contact</loc>
-    <lastmod>2025-01-01</lastmod>
+    <lastmod>2024-12-27</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://nullsto.edu.pl/auth</loc>
-    <lastmod>2025-01-01</lastmod>
+    <lastmod>2024-12-27</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://nullsto.edu.pl/premium-features</loc>
-    <lastmod>2025-01-01</lastmod>
+    <loc>https://nullsto.edu.pl/features</loc>
+    <lastmod>2024-12-27</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://nullsto.edu.pl/status</loc>
+    <lastmod>2024-12-27</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://nullsto.edu.pl/changelog</loc>
+    <lastmod>2024-12-27</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://nullsto.edu.pl/privacy</loc>
-    <lastmod>2025-01-01</lastmod>
+    <lastmod>2024-12-27</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
     <loc>https://nullsto.edu.pl/terms</loc>
-    <lastmod>2025-01-01</lastmod>
+    <lastmod>2024-12-27</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
     <loc>https://nullsto.edu.pl/cookies</loc>
-    <lastmod>2025-01-01</lastmod>
+    <lastmod>2024-12-27</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.4</priority>
   </url>
   <url>
     <loc>https://nullsto.edu.pl/api-access</loc>
-    <lastmod>2025-01-01</lastmod>
+    <lastmod>2024-12-27</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>

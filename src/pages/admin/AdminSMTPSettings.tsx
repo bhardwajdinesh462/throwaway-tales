@@ -123,10 +123,23 @@ const AdminSMTPSettings = () => {
   const [isSavingToDb, setIsSavingToDb] = useState(false);
   const [syncSource, setSyncSource] = useState<'local' | 'database'>('local');
 
-  useEffect(() => {
-    fetchBackendConfig();
-    fetchMailboxes();
-  }, []);
+  // Failover test state
+  const [failoverDialogOpen, setFailoverDialogOpen] = useState(false);
+  const [failoverTestEmail, setFailoverTestEmail] = useState('');
+  const [isRunningFailover, setIsRunningFailover] = useState(false);
+  const [failoverResult, setFailoverResult] = useState<{
+    success: boolean;
+    attempts: Array<{
+      attemptNumber: number;
+      mailboxId: string;
+      smtpHost: string;
+      smtpFrom: string;
+      success: boolean;
+      error?: string;
+      forcedFailure?: boolean;
+    }>;
+    message: string;
+  } | null>(null);
 
   const fetchBackendConfig = async () => {
     setIsLoadingConfig(true);
@@ -385,6 +398,54 @@ const AdminSMTPSettings = () => {
     }
   };
 
+  const handleRunFailoverTest = async () => {
+    if (!failoverTestEmail) {
+      toast.error("Please enter a recipient email address");
+      return;
+    }
+
+    if (mailboxes.length < 2) {
+      toast.error("You need at least 2 mailboxes configured to test failover");
+      return;
+    }
+
+    setIsRunningFailover(true);
+    setFailoverResult(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('smtp-failover-test', {
+        body: {
+          recipientEmail: failoverTestEmail,
+          forceFirstFailure: true,
+        },
+      });
+
+      if (error) throw error;
+
+      setFailoverResult(data);
+      if (data.success) {
+        toast.success(data.message);
+      } else {
+        toast.error(data.message);
+      }
+    } catch (error: any) {
+      console.error("Failover test error:", error);
+      setFailoverResult({
+        success: false,
+        attempts: [],
+        message: error.message || "Failed to run failover test",
+      });
+      toast.error(error.message || "Failed to run failover test");
+    } finally {
+      setIsRunningFailover(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBackendConfig();
+    fetchMailboxes();
+  }, []);
+
   const updateSetting = <K extends keyof SMTPSettings>(key: K, value: SMTPSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
     setConnectionStatus('idle');
@@ -402,6 +463,118 @@ const AdminSMTPSettings = () => {
           <p className="text-muted-foreground">Configure email sending settings for outbound emails</p>
         </div>
         <div className="flex gap-2">
+          <Dialog open={failoverDialogOpen} onOpenChange={setFailoverDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Test Failover
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-xl">
+              <DialogHeader>
+                <DialogTitle>SMTP Failover Test</DialogTitle>
+                <DialogDescription>
+                  Test that email sending correctly switches to another mailbox when one fails.
+                  This will force the first attempt to fail and verify the system retries with another mailbox.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="failover-email">Recipient Email Address</Label>
+                  <Input
+                    id="failover-email"
+                    type="email"
+                    value={failoverTestEmail}
+                    onChange={(e) => setFailoverTestEmail(e.target.value)}
+                    placeholder="your@email.com"
+                  />
+                </div>
+
+                {mailboxes.length < 2 && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="w-4 h-4" />
+                    <AlertTitle>Insufficient Mailboxes</AlertTitle>
+                    <AlertDescription>
+                      You need at least 2 active mailboxes configured to test failover.
+                      Currently you have {mailboxes.length} mailbox(es).
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {failoverResult && (
+                  <div className={`p-4 rounded-lg border space-y-3 ${
+                    failoverResult.success 
+                      ? 'bg-green-500/10 border-green-500/30' 
+                      : 'bg-destructive/10 border-destructive/30'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {failoverResult.success ? (
+                        <CheckCircle className="w-5 h-5 text-green-500" />
+                      ) : (
+                        <XCircle className="w-5 h-5 text-destructive" />
+                      )}
+                      <span className={`font-medium ${failoverResult.success ? 'text-green-500' : 'text-destructive'}`}>
+                        {failoverResult.message}
+                      </span>
+                    </div>
+
+                    {failoverResult.attempts.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium">Attempt Log:</p>
+                        {failoverResult.attempts.map((attempt, i) => (
+                          <div 
+                            key={i}
+                            className={`p-2 rounded text-sm flex items-start gap-2 ${
+                              attempt.success 
+                                ? 'bg-green-500/20' 
+                                : attempt.forcedFailure 
+                                  ? 'bg-yellow-500/20'
+                                  : 'bg-destructive/20'
+                            }`}
+                          >
+                            <span className="font-mono text-xs bg-background px-1 rounded">
+                              #{attempt.attemptNumber}
+                            </span>
+                            <div className="flex-1">
+                              <p>
+                                <strong>{attempt.smtpFrom}</strong> via {attempt.smtpHost}
+                              </p>
+                              {attempt.success ? (
+                                <span className="text-green-500 text-xs">✓ Success</span>
+                              ) : (
+                                <span className={`text-xs ${attempt.forcedFailure ? 'text-yellow-500' : 'text-destructive'}`}>
+                                  ✗ {attempt.forcedFailure ? 'Forced failure (testing)' : attempt.error}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => {
+                  setFailoverDialogOpen(false);
+                  setFailoverResult(null);
+                }}>
+                  Close
+                </Button>
+                <Button 
+                  onClick={handleRunFailoverTest} 
+                  disabled={isRunningFailover || mailboxes.length < 2}
+                >
+                  {isRunningFailover ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                  )}
+                  {isRunningFailover ? 'Running Test...' : 'Run Failover Test'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <Button variant="outline" onClick={handleTestConnection} disabled={isTesting}>
             {isTesting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Wifi className="w-4 h-4 mr-2" />}
             {isTesting ? 'Testing...' : 'Test Connectivity'}

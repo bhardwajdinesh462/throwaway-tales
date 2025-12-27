@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
@@ -14,53 +14,20 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useSupabaseAuth';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useEmailVerification } from '@/hooks/useEmailVerification';
+import { usePricingContent } from '@/hooks/usePricingContent';
 import { supabase } from '@/integrations/supabase/client';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import EmailVerificationBanner from '@/components/EmailVerificationBanner';
-
-interface PricingContent {
-  headline: string;
-  subheadline: string;
-  ctaText: string;
-  featuredPlan: string;
-}
-
-const defaultPricingContent: PricingContent = {
-  headline: "Choose the Perfect Plan for You",
-  subheadline: "Start free and upgrade anytime. All plans include core features to protect your privacy.",
-  ctaText: "Get Started",
-  featuredPlan: "pro",
-};
 
 const PricingPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { tiers, subscription, isLoading } = useSubscription();
   const { requiresVerification } = useEmailVerification();
+  const { content: pricingContent } = usePricingContent();
   const [selectedBilling, setSelectedBilling] = useState<'monthly' | 'yearly'>('monthly');
   const [processingTier, setProcessingTier] = useState<string | null>(null);
-  const [pricingContent, setPricingContent] = useState<PricingContent>(defaultPricingContent);
-
-  // Fetch pricing content from app_settings
-  useEffect(() => {
-    const fetchPricingContent = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'pricing_content')
-          .maybeSingle();
-        
-        if (!error && data?.value) {
-          setPricingContent({ ...defaultPricingContent, ...(data.value as Partial<PricingContent>) });
-        }
-      } catch (err) {
-        console.error('Error fetching pricing content:', err);
-      }
-    };
-    fetchPricingContent();
-  }, []);
 
   const handleSelectPlan = async (tierId: string, tierName: string, price: number) => {
     if (!user) {

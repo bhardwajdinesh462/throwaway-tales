@@ -1,6 +1,6 @@
 // Enhanced Service Worker for Push Notifications and Offline Support
 // VERSION is checked on each build - changing it triggers cache invalidation
-const SW_VERSION = "3.0.1";
+const SW_VERSION = "3.1.0";
 const CACHE_NAME = `nullsto-${SW_VERSION}`;
 const STATIC_CACHE = `nullsto-static-${SW_VERSION}`;
 const DYNAMIC_CACHE = `nullsto-dynamic-${SW_VERSION}`;
@@ -16,13 +16,22 @@ const STATIC_ASSETS = [
   "/nullsto-favicon.png",
 ];
 
-// API routes that should be cached for offline access
+// API routes that should NEVER be cached (always fetch fresh)
+const NEVER_CACHE_ROUTES = [
+  "/rest/v1/app_settings",
+  "/rest/v1/subscription_tiers",
+];
+
+// API routes that CAN be cached for offline access (less dynamic data)
 const CACHEABLE_API_ROUTES = [
   "/rest/v1/domains",
-  "/rest/v1/subscription_tiers",
-  "/rest/v1/app_settings",
   "/rest/v1/blogs",
 ];
+
+// Check if a URL should never be cached
+function shouldNeverCache(url) {
+  return NEVER_CACHE_ROUTES.some(route => url.includes(route));
+}
 
 // Install event - cache static assets
 self.addEventListener("install", (event) => {
@@ -93,6 +102,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // CRITICAL: Never cache app_settings and subscription_tiers - always network only
+  if (shouldNeverCache(url.pathname) || shouldNeverCache(url.href)) {
+    event.respondWith(networkOnly(request));
+    return;
+  }
+
   // API requests - Network first, then cache
   if (url.pathname.includes("/rest/v1/") || url.pathname.includes("/functions/v1/")) {
     event.respondWith(networkFirst(request));
@@ -125,6 +140,23 @@ self.addEventListener("fetch", (event) => {
   // Default - Network first
   event.respondWith(networkFirst(request));
 });
+
+// Network-only strategy (for dynamic settings that must always be fresh)
+async function networkOnly(request) {
+  try {
+    const networkResponse = await fetch(request);
+    return networkResponse;
+  } catch (error) {
+    console.log("Network-only request failed for:", request.url);
+    return new Response(
+      JSON.stringify({ error: "Network request failed", offline: true }),
+      {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+}
 
 // Cache-first strategy (for static assets)
 async function cacheFirst(request) {

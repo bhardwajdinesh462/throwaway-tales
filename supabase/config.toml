@@ -77,3 +77,6 @@ verify_jwt = false
 
 [functions.encryption-health-check]
 verify_jwt = false
+
+[functions.smtp-failover-test]
+verify_jwt = false

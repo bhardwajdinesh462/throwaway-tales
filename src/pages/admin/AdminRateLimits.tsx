@@ -187,16 +187,16 @@ const AdminRateLimits = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 pb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Gauge className="w-8 h-8 text-primary" />
+          <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
+            <Gauge className="w-6 h-6 sm:w-8 sm:h-8 text-primary" />
             Rate Limits
           </h1>
-          <p className="text-muted-foreground">Configure rate limiting for temp email creation</p>
+          <p className="text-muted-foreground text-sm sm:text-base">Configure rate limiting for temp email creation</p>
         </div>
-        <Button onClick={saveSettings} disabled={isSaving}>
+        <Button onClick={saveSettings} disabled={isSaving} className="w-full sm:w-auto">
           <Save className="w-4 h-4 mr-2" />
           {isSaving ? "Saving..." : "Save Settings"}
         </Button>
@@ -204,24 +204,23 @@ const AdminRateLimits = () => {
 
       {/* Prominent Reset All Rate Limits Card */}
       <Card className="border-destructive/50 bg-destructive/5">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-destructive">
-            <Users className="w-5 h-5" />
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-destructive text-lg sm:text-xl">
+            <Users className="w-4 h-4 sm:w-5 sm:h-5" />
             Reset All User Rate Limits
           </CardTitle>
-          <CardDescription>
-            Instantly clear all rate limit restrictions for all users, moderators, and admins
+          <CardDescription className="text-sm">
+            Instantly clear all rate limit restrictions for all users
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <div className="flex-1">
+          <div className="flex flex-col gap-4">
+            <div>
               <p className="text-sm text-muted-foreground">
-                This will immediately allow all users who have been rate-limited to create emails again. 
-                Use this if users are reporting they cannot create new emails due to rate limits.
+                This will immediately allow all rate-limited users to create emails again. 
               </p>
               <p className="text-sm font-medium mt-2">
-                Currently tracking: <span className="text-primary">{rateLimits.length} active rate limit record(s)</span>
+                Currently tracking: <span className="text-primary">{rateLimits.length} active record(s)</span>
               </p>
             </div>
             <AlertDialog>
@@ -229,7 +228,7 @@ const AdminRateLimits = () => {
                 <Button 
                   variant="destructive" 
                   size="lg" 
-                  className="shrink-0"
+                  className="w-full sm:w-auto"
                   disabled={isResettingAll || rateLimits.length === 0}
                 >
                   {isResettingAll ? (
@@ -245,7 +244,7 @@ const AdminRateLimits = () => {
                   )}
                 </Button>
               </AlertDialogTrigger>
-              <AlertDialogContent>
+              <AlertDialogContent className="max-w-[90vw] sm:max-w-md">
                 <AlertDialogHeader>
                   <AlertDialogTitle className="flex items-center gap-2">
                     <AlertTriangle className="w-5 h-5 text-destructive" />
@@ -253,15 +252,13 @@ const AdminRateLimits = () => {
                   </AlertDialogTitle>
                   <AlertDialogDescription>
                     This will immediately clear all {rateLimits.length} rate limit record(s). 
-                    All users, moderators, and admins will be able to create emails again without restriction.
-                    <br /><br />
-                    This action cannot be undone, but rate limits will naturally rebuild as users create new emails.
+                    All users will be able to create emails again without restriction.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={clearAllRateLimits} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                    Yes, Reset All Limits
+                <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                  <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={clearAllRateLimits} className="w-full sm:w-auto bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    Yes, Reset All
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -270,32 +267,28 @@ const AdminRateLimits = () => {
         </CardContent>
       </Card>
 
-      {/* What is Rate Limiting Explanation */}
+      {/* What is Rate Limiting Explanation - Collapsible on mobile */}
       <Card className="border-primary/20 bg-primary/5">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-primary" />
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
             What is Rate Limiting?
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            <strong>Rate limiting</strong> prevents abuse by restricting how many emails a user or guest can create within a time window. 
-            This protects your service from spam, bots, and excessive resource usage.
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            <strong>Rate limiting</strong> prevents abuse by restricting how many emails a user can create within a time window.
           </p>
-          <div className="grid md:grid-cols-2 gap-4 text-sm">
-            <div className="p-3 bg-background rounded-lg border">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
+            <div className="p-2 sm:p-3 bg-background rounded-lg border">
               <p className="font-medium mb-1">🔐 Registered Users</p>
-              <p className="text-muted-foreground">Tracked by their user ID. Higher limits recommended for trusted users.</p>
+              <p className="text-muted-foreground">Tracked by user ID.</p>
             </div>
-            <div className="p-3 bg-background rounded-lg border">
+            <div className="p-2 sm:p-3 bg-background rounded-lg border">
               <p className="font-medium mb-1">👤 Guest Users</p>
-              <p className="text-muted-foreground">Tracked by device fingerprint (localStorage). Lower limits to prevent abuse.</p>
+              <p className="text-muted-foreground">Tracked by device fingerprint.</p>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">
-            <strong>Note:</strong> Changes apply in real-time. When you save settings, all connected clients will automatically use the new limits.
-          </p>
         </CardContent>
       </Card>
 
@@ -456,43 +449,45 @@ const AdminRateLimits = () => {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Active Rate Limits</CardTitle>
-          <CardDescription>Current rate limit tracking records</CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base sm:text-lg">Active Rate Limits</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">Current rate limit tracking records</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0 sm:p-6 sm:pt-0">
           {rateLimits.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">No active rate limits</p>
+            <p className="text-center text-muted-foreground py-8 text-sm">No active rate limits</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Identifier</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Request Count</TableHead>
-                  <TableHead>Window Start</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rateLimits.map((record) => (
-                  <TableRow key={record.id}>
-                    <TableCell className="font-mono text-xs max-w-[200px] truncate">
-                      {record.identifier}
-                    </TableCell>
-                    <TableCell>{record.action_type}</TableCell>
-                    <TableCell>
-                      <span className={record.request_count >= settings.max_requests ? "text-destructive font-bold" : ""}>
-                        {record.request_count}
-                      </span>
-                      <span className="text-muted-foreground"> / {settings.max_requests}</span>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDistanceToNow(new Date(record.window_start), { addSuffix: true })}
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">Identifier</TableHead>
+                    <TableHead className="text-xs hidden sm:table-cell">Action</TableHead>
+                    <TableHead className="text-xs">Count</TableHead>
+                    <TableHead className="text-xs">Time</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {rateLimits.map((record) => (
+                    <TableRow key={record.id}>
+                      <TableCell className="font-mono text-[10px] sm:text-xs max-w-[100px] sm:max-w-[200px] truncate">
+                        {record.identifier.substring(0, 12)}...
+                      </TableCell>
+                      <TableCell className="text-xs hidden sm:table-cell">{record.action_type}</TableCell>
+                      <TableCell className="text-xs">
+                        <span className={record.request_count >= settings.max_requests ? "text-destructive font-bold" : ""}>
+                          {record.request_count}
+                        </span>
+                        <span className="text-muted-foreground hidden sm:inline"> / {settings.max_requests}</span>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-[10px] sm:text-xs">
+                        {formatDistanceToNow(new Date(record.window_start), { addSuffix: true })}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

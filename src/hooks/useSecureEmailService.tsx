@@ -145,11 +145,17 @@ export const useSecureEmailService = () => {
 
   // Load domains from Supabase with retry logic
   useEffect(() => {
+    let cancelled = false;
+    let retryTimeout: NodeJS.Timeout | null = null;
+
     const loadDomains = async (attempt = 0) => {
-      const maxRetries = 3;
-      const backoffMs = Math.min(1000 * Math.pow(2, attempt), 5000);
+      if (cancelled) return;
+      
+      const maxRetries = 5;
+      const backoffMs = Math.min(2000 * Math.pow(1.5, attempt), 10000);
 
       try {
+        console.log(`[email-service] Loading domains (attempt ${attempt + 1})...`);
         const { data, error } = await supabase
           .from('domains')
           .select('id, name, is_premium, is_active, created_at')
@@ -157,33 +163,41 @@ export const useSecureEmailService = () => {
           .order('is_premium', { ascending: true })
           .limit(20);
 
-        if (!error && data) {
+        if (cancelled) return;
+
+        if (!error && data && data.length > 0) {
+          console.log(`[email-service] Loaded ${data.length} domains`);
           setDomains(data);
           return;
         }
         
         if (error) {
-          console.error(`Error loading domains (attempt ${attempt + 1}):`, error);
-          const isRetryable = error.message?.includes('Failed to fetch') || 
-                              error.message?.includes('fetch') ||
-                              error.message?.includes('timeout') ||
-                              error.message?.includes('network');
-          
-          if (isRetryable && attempt < maxRetries) {
-            console.log(`[email-service] Retrying domain load in ${backoffMs}ms...`);
-            setTimeout(() => loadDomains(attempt + 1), backoffMs);
-            return;
-          }
+          console.error(`[email-service] Error loading domains (attempt ${attempt + 1}):`, error.message);
+        }
+        
+        // Retry on any failure if we haven't exceeded max retries
+        if (attempt < maxRetries) {
+          console.log(`[email-service] Retrying domain load in ${backoffMs}ms...`);
+          retryTimeout = setTimeout(() => loadDomains(attempt + 1), backoffMs);
+        } else {
+          console.error('[email-service] Failed to load domains after max retries');
         }
       } catch (err: any) {
-        console.error(`Error loading domains (attempt ${attempt + 1}):`, err);
+        if (cancelled) return;
+        console.error(`[email-service] Error loading domains (attempt ${attempt + 1}):`, err?.message || err);
         if (attempt < maxRetries) {
-          setTimeout(() => loadDomains(attempt + 1), backoffMs);
+          retryTimeout = setTimeout(() => loadDomains(attempt + 1), backoffMs);
         }
       }
     };
 
+    // Start loading immediately
     void loadDomains();
+
+    return () => {
+      cancelled = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+    };
   }, []);
 
   // Load email history for logged-in users

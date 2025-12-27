@@ -75,11 +75,19 @@ const BannerDisplay = ({ position, className = "" }: BannerDisplayProps) => {
   }, [position]);
 
   useEffect(() => {
-    fetchBanners();
+    let cancelled = false;
+    
+    const doFetch = async () => {
+      if (!cancelled) await fetchBanners();
+    };
+    
+    doFetch();
 
-    // Subscribe to real-time banner changes
-    const channel = supabase
-      .channel(`banners_${position}_${Date.now()}`)
+    // Subscribe to real-time banner changes - use stable channel name
+    const channelName = `banners_realtime_${position}`;
+    const channel = supabase.channel(channelName);
+    
+    channel
       .on(
         'postgres_changes',
         {
@@ -88,17 +96,18 @@ const BannerDisplay = ({ position, className = "" }: BannerDisplayProps) => {
           table: 'banners',
         },
         (payload) => {
-          console.log('[BannerDisplay] Realtime update received:', payload.eventType);
-          // Refetch on any change for instant global updates
-          fetchBanners();
+          if (!cancelled) {
+            console.log('[BannerDisplay] Realtime update received:', payload.eventType);
+            fetchBanners();
+          }
         }
       )
-      .subscribe((status) => {
-        console.log(`[BannerDisplay] Subscription status for ${position}:`, status);
-      });
+      .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      // Use unsubscribe instead of removeChannel to avoid stack overflow
+      channel.unsubscribe();
     };
   }, [position, fetchBanners]);
 
@@ -188,7 +197,7 @@ const BannerDisplay = ({ position, className = "" }: BannerDisplayProps) => {
           {banner.type === "html" && (
             <div
               className="banner-html-content"
-              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.content) }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.content || '') }}
             />
           )}
 

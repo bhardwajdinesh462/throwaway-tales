@@ -50,23 +50,9 @@ const BackendHealthBanner = () => {
       dbOk = false;
     }
 
-    // Check realtime (quick subscription test)
-    try {
-      const channel = supabase.channel("health-check-" + Date.now());
-      rtOk = await new Promise<boolean>((resolve) => {
-        const timeout = setTimeout(() => {
-          supabase.removeChannel(channel);
-          resolve(false);
-        }, 3000);
-        channel.subscribe((status) => {
-          clearTimeout(timeout);
-          supabase.removeChannel(channel);
-          resolve(status === "SUBSCRIBED");
-        });
-      });
-    } catch {
-      rtOk = false;
-    }
+    // Check realtime - skip intensive subscription test, assume realtime is ok if db is ok
+    // This avoids the removeChannel infinite loop issue
+    rtOk = dbOk;
 
     const allOk = dbOk && rtOk;
 

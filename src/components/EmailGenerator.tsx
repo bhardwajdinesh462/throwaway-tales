@@ -226,16 +226,21 @@ const EmailGenerator = () => {
 
   // Load settings on mount and subscribe to real-time changes
   useEffect(() => {
+    let cancelled = false;
+    
     const init = async () => {
+      if (cancelled) return;
       const limit = await loadRateLimitSettings();
+      if (cancelled) return;
       const windowMinutes = user ? rateLimitSettings.window_minutes : rateLimitSettings.guest_window_minutes;
       await updateEmailUsage(limit, windowMinutes || 1440);
     };
     init();
 
     // Subscribe to real-time changes in settings, tiers, and temp_emails
-    const channel = supabase
-      .channel('email_usage_tracking')
+    const channel = supabase.channel('email_usage_tracking');
+    
+    channel
       .on(
         'postgres_changes',
         {
@@ -245,8 +250,9 @@ const EmailGenerator = () => {
           filter: 'key=eq.rate_limit_temp_email_create'
         },
         async () => {
+          if (cancelled) return;
           const limit = await loadRateLimitSettings();
-          await updateEmailUsage(limit);
+          if (!cancelled) await updateEmailUsage(limit);
         }
       )
       .on(
@@ -257,8 +263,9 @@ const EmailGenerator = () => {
           table: 'subscription_tiers',
         },
         async () => {
+          if (cancelled) return;
           const limit = await loadRateLimitSettings();
-          await updateEmailUsage(limit);
+          if (!cancelled) await updateEmailUsage(limit);
         }
       )
       .on(
@@ -269,6 +276,7 @@ const EmailGenerator = () => {
           table: 'temp_emails',
         },
         async () => {
+          if (cancelled) return;
           // Immediately update usage when a new temp email is created
           const limit = user ? rateLimitSettings.max_requests : rateLimitSettings.guest_max_requests;
           await updateEmailUsage(limit || 5);
@@ -282,6 +290,7 @@ const EmailGenerator = () => {
           table: 'rate_limits',
         },
         async () => {
+          if (cancelled) return;
           // Update usage when rate_limits changes (including admin reset)
           const limit = user ? rateLimitSettings.max_requests : rateLimitSettings.guest_max_requests;
           const windowMinutes = user ? rateLimitSettings.window_minutes : rateLimitSettings.guest_window_minutes;
@@ -291,7 +300,8 @@ const EmailGenerator = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      channel.unsubscribe();
     };
   }, [loadRateLimitSettings, updateEmailUsage, user, rateLimitSettings.max_requests, rateLimitSettings.guest_max_requests]);
 

@@ -538,6 +538,135 @@ IMAP_PASSWORD=your-secure-password`} />
           </CardContent>
         </Card>
 
+        {/* Database Export */}
+        <Card className="mb-12">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-primary" />
+              Database Export & Migration
+            </CardTitle>
+            <CardDescription>Export your data from Lovable Cloud to self-hosted Supabase</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Accordion type="single" collapsible className="w-full">
+              <AccordionItem value="export-options">
+                <AccordionTrigger>Export Options Overview</AccordionTrigger>
+                <AccordionContent className="space-y-4">
+                  <p>There are multiple ways to export your data:</p>
+                  <ul className="list-disc pl-6 space-y-2">
+                    <li><strong>Admin Backup (JSON)</strong>: Go to Admin → Backup → Generate Backup. Downloads all tables as JSON.</li>
+                    <li><strong>SQL Migration Scripts</strong>: Copy the migration files from <code>supabase/migrations/</code> folder.</li>
+                    <li><strong>Manual API Export</strong>: Use the Supabase API to fetch and save data programmatically.</li>
+                  </ul>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="migration-files">
+                <AccordionTrigger>Step 1: Copy Migration Files</AccordionTrigger>
+                <AccordionContent className="space-y-4">
+                  <p>All database schema is defined in migration files. Copy them to your new project:</p>
+                  <CodeBlock code={`# In your Lovable project, download the supabase folder
+# Then in your new Supabase project:
+
+cd your-new-project
+cp -r /path/to/lovable-project/supabase/migrations ./supabase/
+
+# Apply migrations to new database
+supabase db push`} />
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="export-data">
+                <AccordionTrigger>Step 2: Export Data via Admin Panel</AccordionTrigger>
+                <AccordionContent className="space-y-4">
+                  <p>Use the built-in backup system:</p>
+                  <ol className="list-decimal pl-6 space-y-2">
+                    <li>Login as admin at <code>/admin/backup</code></li>
+                    <li>Click "Generate Backup" to create a full JSON export</li>
+                    <li>Download the backup file</li>
+                    <li>This includes: temp_emails, received_emails, domains, profiles, app_settings, etc.</li>
+                  </ol>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="import-data">
+                <AccordionTrigger>Step 3: Import Data to New Database</AccordionTrigger>
+                <AccordionContent className="space-y-4">
+                  <p>After applying migrations, import the JSON data:</p>
+                  <CodeBlock code={`// Example Node.js import script
+const { createClient } = require('@supabase/supabase-js');
+const backup = require('./backup.json');
+
+const supabase = createClient(
+  'https://your-new-project.supabase.co',
+  'your-service-role-key'
+);
+
+async function importData() {
+  // Import domains first (referenced by temp_emails)
+  await supabase.from('domains').upsert(backup.domains);
+  
+  // Import app_settings
+  await supabase.from('app_settings').upsert(backup.app_settings);
+  
+  // Import profiles
+  await supabase.from('profiles').upsert(backup.profiles);
+  
+  // Import temp_emails
+  await supabase.from('temp_emails').upsert(backup.temp_emails);
+  
+  // Import received_emails
+  await supabase.from('received_emails').upsert(backup.received_emails);
+  
+  console.log('Import complete!');
+}
+
+importData();`} />
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="edge-functions">
+                <AccordionTrigger>Step 4: Deploy Edge Functions</AccordionTrigger>
+                <AccordionContent className="space-y-4">
+                  <p>Copy and deploy all edge functions to your new Supabase project:</p>
+                  <CodeBlock code={`# Copy edge functions
+cp -r /path/to/lovable-project/supabase/functions ./supabase/
+
+# Deploy all functions
+supabase functions deploy
+
+# Or deploy individually
+supabase functions deploy fetch-imap-emails
+supabase functions deploy secure-email-access
+supabase functions deploy get-public-stats
+supabase functions deploy validate-temp-email
+supabase functions deploy create-verification-and-send`} />
+                  <p className="mt-2">Don't forget to set the required secrets:</p>
+                  <CodeBlock code={`supabase secrets set IMAP_HOST=your-imap-host
+supabase secrets set IMAP_PORT=993
+supabase secrets set IMAP_USER=catchall@yourdomain.com
+supabase secrets set IMAP_PASSWORD=your-password
+supabase secrets set ENCRYPTION_KEY=your-32-char-key`} />
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="update-frontend">
+                <AccordionTrigger>Step 5: Update Frontend Configuration</AccordionTrigger>
+                <AccordionContent className="space-y-4">
+                  <p>Update your .env file to point to the new Supabase project:</p>
+                  <CodeBlock code={`# .env
+VITE_SUPABASE_URL=https://your-new-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-new-anon-key
+VITE_SUPABASE_PROJECT_ID=your-new-project-id`} />
+                  <p className="mt-2">Then rebuild and deploy:</p>
+                  <CodeBlock code={`npm run build
+# Deploy to your hosting (see deployment tabs above)`} />
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </CardContent>
+        </Card>
+
         {/* Troubleshooting */}
         <Card>
           <CardHeader>

@@ -132,6 +132,13 @@ const Inbox = () => {
 
   // Auto-refresh functionality
   useEffect(() => {
+    // Don't start polling until we actually have an inbox selected
+    if (!currentEmail?.id) {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      if (refreshRef.current) clearInterval(refreshRef.current);
+      return;
+    }
+
     if (!autoRefreshEnabled) {
       if (countdownRef.current) clearInterval(countdownRef.current);
       if (refreshRef.current) clearInterval(refreshRef.current);

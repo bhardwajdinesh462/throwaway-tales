@@ -112,11 +112,13 @@ export const useRecaptcha = () => {
       return null;
     }
 
-    // Wait for ready state with retry
+    // Wait for ready state (avoid false failures right after page load)
     if (!isReady || !window.grecaptcha) {
-      // Wait a bit and retry
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      const startedAt = Date.now();
+      while ((!window.grecaptcha || !isReady) && Date.now() - startedAt < 8000) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+
       if (!window.grecaptcha) {
         console.error('reCAPTCHA not available after waiting');
         return null;

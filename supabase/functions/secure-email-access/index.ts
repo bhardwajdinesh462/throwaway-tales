@@ -208,8 +208,8 @@ function isRetryableError(error: unknown): boolean {
 // Retry helper for transient network errors with exponential backoff
 async function withRetry<T>(
   fn: () => Promise<T>,
-  maxRetries = 5,
-  initialDelay = 1000
+  maxRetries = 2,
+  initialDelay = 250
 ): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -271,8 +271,8 @@ serve(async (req: Request) => {
         }
         
         return result.data;
-      }, 5, 1000);
-    } catch (err) {
+       }, 2, 250);
+     } catch (err) {
       verifyError = err instanceof Error ? err : new Error(String(err));
     }
 

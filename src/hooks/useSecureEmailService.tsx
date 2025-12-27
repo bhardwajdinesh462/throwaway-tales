@@ -146,20 +146,30 @@ export const useSecureEmailService = () => {
   // Load domains from Supabase
   useEffect(() => {
     const loadDomains = async () => {
-      const { data, error } = await supabase
-        .from('domains')
-        .select('*')
-        .eq('is_active', true);
+      // Small retry to avoid getting stuck in "generating..." when backend is temporarily busy
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const { data, error } = await supabase
+          .from('domains')
+          .select('*')
+          .eq('is_active', true);
 
-      if (error) {
+        if (!error) {
+          setDomains(data || []);
+          return;
+        }
+
         console.error('Error loading domains:', error);
-        return;
+        if (attempt < 3) {
+          await new Promise((r) => setTimeout(r, 250 * attempt));
+        } else {
+          toast.error('Backend is busy. Please refresh and try again.');
+          setIsLoading(false);
+          initStartedRef.current = false;
+        }
       }
-
-      setDomains(data || []);
     };
 
-    loadDomains();
+    void loadDomains();
   }, []);
 
   // Load email history for logged-in users
@@ -469,10 +479,23 @@ export const useSecureEmailService = () => {
       if (activeEmailIdRef.current !== email.id) return;
 
       if (error) {
+        const msg = error.message || '';
+        const isRetryable = msg.includes('503') || msg.includes('timeout') || msg.includes('connect') || msg.includes('non-2xx');
+
+        // Retryable backend outage: don't leave UI stuck, retry shortly
+        if (isRetryable) {
+          console.warn('[email-service] Backend temporarily unavailable, retrying inbox fetch...');
+          setTimeout(() => {
+            // best-effort retry; safe because we also guard by activeEmailIdRef + seq
+            void fetchSecureEmailsFor(email);
+          }, 1500);
+          return;
+        }
+
         // Check if this is an "email not found" error - handle 404 responses
         const isNotFound = 
-          error.message?.includes('404') || 
-          error.message?.includes('non-2xx') ||
+          msg.includes('404') || 
+          msg.includes('EMAIL_NOT_FOUND') ||
           data?.code === 'EMAIL_NOT_FOUND' ||
           data?.error === 'Temp email not found';
         

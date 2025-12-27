@@ -74,7 +74,7 @@ const EmailGenerator = () => {
       }
       
       if (!token) {
-        toast.error("reCAPTCHA verification failed. Please try again.");
+        toast.error("reCAPTCHA not ready (or blocked). Please wait a moment and try again.");
         return false;
       }
 

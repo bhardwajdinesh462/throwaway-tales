@@ -189,7 +189,7 @@ export const usePremiumFeatures = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
     };
   }, [user, fetchSubscription]);
 
@@ -214,7 +214,7 @@ export const usePremiumFeatures = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
     };
   }, [fetchSubscription]);
 

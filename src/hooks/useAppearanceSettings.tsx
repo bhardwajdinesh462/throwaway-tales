@@ -115,7 +115,7 @@ export const useAppearanceSettings = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
     };
   }, []);
 

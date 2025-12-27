@@ -87,7 +87,7 @@ export const useGeneralSettings = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
     };
   }, []);
 

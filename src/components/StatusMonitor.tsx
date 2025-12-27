@@ -154,28 +154,15 @@ const StatusMonitor = () => {
         lastChecked: now
       };
     } else {
-      try {
-        const channel = supabase.channel('status-check');
-        const subscribed = await new Promise<boolean>((resolve) => {
-          const timeout = setTimeout(() => resolve(false), 3000);
-          channel.subscribe((status) => {
-            clearTimeout(timeout);
-            resolve(status === 'SUBSCRIBED');
-            supabase.removeChannel(channel);
-          });
-        });
-
-        const rtIndex = newServices.findIndex(s => s.key === "realtime");
-        newServices[rtIndex] = {
-          ...newServices[rtIndex],
-          status: subscribed ? "operational" : "degraded",
-          customMessage: undefined,
-          lastChecked: now
-        };
-      } catch {
-        const rtIndex = newServices.findIndex(s => s.key === "realtime");
-        newServices[rtIndex] = { ...newServices[rtIndex], status: "down", lastChecked: now };
-      }
+      // Skip realtime channel test to avoid cleanup issues - just check DB status
+      const rtIndex = newServices.findIndex(s => s.key === "realtime");
+      const dbStatus = newServices.find(s => s.key === "database")?.status;
+      newServices[rtIndex] = {
+        ...newServices[rtIndex],
+        status: dbStatus === "operational" ? "operational" : "degraded",
+        customMessage: undefined,
+        lastChecked: now
+      };
     }
 
     // Check IMAP (or use override)

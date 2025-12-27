@@ -305,7 +305,7 @@ export const useSubscription = () => {
       });
 
     return () => {
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
     };
   }, [fetchTiers]);
 

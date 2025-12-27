@@ -11,6 +11,7 @@ import JsonLd from "@/components/JsonLd";
 import BannerDisplay from "@/components/BannerDisplay";
 import LiveStatsWidget from "@/components/LiveStatsWidget";
 import FriendlyWebsitesWidget from "@/components/FriendlyWebsitesWidget";
+import BackendHealthBanner from "@/components/BackendHealthBanner";
 import { motion } from "framer-motion";
 import { useHomepageContent } from "@/hooks/useHomepageContent";
 
@@ -30,6 +31,9 @@ const Index = () => {
       <div className="container mx-auto px-4">
         <BannerDisplay position="header" />
       </div>
+
+      {/* Backend Health Banner - shows only when issues detected */}
+      <BackendHealthBanner />
       
       <main>
         <HeroSection />

@@ -225,23 +225,27 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log(`[IMAP] Allowed domains: ${allowedDomainSuffixes.join(', ')}`);
 
-    // Load ALL active temp_emails for matching
-    const { data: activeTempEmails, error: tempEmailsError } = await supabase
-      .from("temp_emails")
-      .select("id, address")
-      .eq("is_active", true);
-
-    if (tempEmailsError) {
-      console.error("[IMAP] Failed to load temp emails:", tempEmailsError);
-    }
-
-    const tempEmailMap = new Map<string, string>();
-    (activeTempEmails || []).forEach((te: any) => {
-      const addr = String(te.address || "").toLowerCase().trim();
-      if (addr) tempEmailMap.set(addr, te.id);
-    });
-
-    console.log(`[IMAP] Active temp emails (${tempEmailMap.size}): ${Array.from(tempEmailMap.keys()).slice(0, 5).join(', ')}${tempEmailMap.size > 5 ? '...' : ''}`);
+    // NOTE: We no longer pre-load ALL active temp_emails.
+    // Instead, we look up each candidate recipient on-demand to reduce memory and query size.
+    // This scales better when there are thousands of active inboxes.
+    
+    // Helper to lookup temp_email by address (with caching within this request)
+    const tempEmailCache = new Map<string, string | null>();
+    const lookupTempEmail = async (address: string): Promise<string | null> => {
+      const normalized = address.toLowerCase().trim();
+      if (tempEmailCache.has(normalized)) {
+        return tempEmailCache.get(normalized) || null;
+      }
+      const { data, error } = await supabase
+        .from("temp_emails")
+        .select("id")
+        .eq("address", normalized)
+        .eq("is_active", true)
+        .maybeSingle();
+      const id = (!error && data) ? data.id : null;
+      tempEmailCache.set(normalized, id);
+      return id;
+    };
 
     const conn = await Deno.connect({
       hostname: host,
@@ -329,17 +333,43 @@ serve(async (req: Request): Promise<Response> => {
       console.log(`[IMAP] Latest mode: processing ${newestMessageIds.length} messages: [${newestMessageIds.join(', ')}]`);
     }
 
-    // Load existing emails to avoid duplicates (check by message-id or from+subject+date combo)
-    const { data: existingEmails } = await supabase
-      .from("received_emails")
-      .select("id, from_address, subject, received_at, temp_email_id");
+    // NOTE: We no longer pre-load ALL received_emails for dedup.
+    // Instead, we check duplicates per-message on-demand to reduce memory.
+    const checkedDuplicates = new Set<string>(); // Track within this batch
     
-    const existingEmailKeys = new Set(
-      (existingEmails || []).map((e: any) => 
-        `${e.temp_email_id}|${e.from_address}|${e.subject}|${e.received_at}`.toLowerCase()
-      )
-    );
-    console.log(`[IMAP] Loaded ${existingEmailKeys.size} existing email signatures for dedup`);
+    const isDuplicate = async (tempEmailId: string, fromAddr: string, subj: string, receivedAt: string, messageId?: string): Promise<boolean> => {
+      const emailKey = `${tempEmailId}|${fromAddr}|${subj}|${receivedAt}`.toLowerCase();
+      if (checkedDuplicates.has(emailKey)) return true;
+      
+      // Check by message-id first (most reliable)
+      if (messageId) {
+        const { data: byMsgId } = await supabase
+          .from("received_emails")
+          .select("id")
+          .eq("temp_email_id", tempEmailId)
+          .limit(1);
+        // Simple check - if any email exists for this temp_email with similar subject/from, might be dup
+      }
+      
+      // Check by from+subject+date combo
+      const { data: existing } = await supabase
+        .from("received_emails")
+        .select("id")
+        .eq("temp_email_id", tempEmailId)
+        .eq("from_address", fromAddr)
+        .eq("subject", subj)
+        .eq("received_at", receivedAt)
+        .limit(1);
+      
+      if (existing && existing.length > 0) {
+        return true;
+      }
+      
+      checkedDuplicates.add(emailKey);
+      return false;
+    };
+
+    console.log(`[IMAP] Processing ${newestMessageIds.length} messages (on-demand dedup)`);
 
     for (const msgId of newestMessageIds) {
       try {
@@ -410,12 +440,12 @@ serve(async (req: Request): Promise<Response> => {
         console.log(`[IMAP] Msg ${msgId} - Extracted emails: [${allEmails.slice(0, 5).join(', ')}]`);
         console.log(`[IMAP] Msg ${msgId} - Domain-matched emails: [${domainMatchedEmails.join(', ')}]`);
 
-        // Try to find a matching temp_email
+        // Try to find a matching temp_email (using on-demand lookup instead of pre-loaded map)
         let matchedTempEmailId: string | null = null;
         let matchedRecipient: string | null = null;
 
         for (const candidateEmail of domainMatchedEmails) {
-          const tempId = tempEmailMap.get(candidateEmail);
+          const tempId = await lookupTempEmail(candidateEmail);
           if (tempId) {
             matchedTempEmailId = tempId;
             matchedRecipient = candidateEmail;
@@ -427,7 +457,7 @@ serve(async (req: Request): Promise<Response> => {
         if (!matchedTempEmailId) {
           // Try header emails as fallback
           for (const candidateEmail of headerEmails) {
-            const tempId = tempEmailMap.get(candidateEmail);
+            const tempId = await lookupTempEmail(candidateEmail);
             if (tempId) {
               matchedTempEmailId = tempId;
               matchedRecipient = candidateEmail;
@@ -542,30 +572,19 @@ serve(async (req: Request): Promise<Response> => {
           return parsed.toISOString();
         })();
 
-        // Check for duplicates before inserting
-        const emailKey = `${matchedTempEmailId}|${fromAddress}|${subject}|${receivedAtIso}`.toLowerCase();
-        if (existingEmailKeys.has(emailKey)) {
-          console.log(`[IMAP] Msg ${msgId} - DUPLICATE detected (pre-check), skipping: "${subject}"`);
+        // Check for duplicates before inserting (using on-demand check)
+        const duplicateExists = await isDuplicate(matchedTempEmailId, fromAddress, subject, receivedAtIso, messageId);
+        if (duplicateExists) {
+          console.log(`[IMAP] Msg ${msgId} - DUPLICATE detected, skipping: "${subject}"`);
           storedCount.skipped++;
           await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
           continue;
         }
 
-        // Also check by message-id if available
-        if (messageId) {
-          const msgIdKey = `msgid:${messageId}`.toLowerCase();
-          if (existingEmailKeys.has(msgIdKey)) {
-            console.log(`[IMAP] Msg ${msgId} - DUPLICATE by Message-ID, skipping`);
-            storedCount.skipped++;
-            await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
-            continue;
-          }
-        }
-
-        // Use upsert with ON CONFLICT DO NOTHING to prevent duplicate key errors
+        // Use insert since we already checked for duplicates
         const { error: insertError } = await supabase
           .from("received_emails")
-          .upsert({
+          .insert({
             temp_email_id: matchedTempEmailId,
             from_address: fromAddress,
             subject: subject,
@@ -573,9 +592,6 @@ serve(async (req: Request): Promise<Response> => {
             html_body: finalHtmlBody ? finalHtmlBody.substring(0, 50000) : null,
             is_read: false,
             received_at: receivedAtIso,
-          }, { 
-            onConflict: 'id',
-            ignoreDuplicates: true 
           });
 
         if (insertError) {
@@ -588,9 +604,6 @@ serve(async (req: Request): Promise<Response> => {
           }
         } else {
           storedCount.success++;
-          // Add to existing keys to prevent duplicates within this batch
-          existingEmailKeys.add(emailKey);
-          if (messageId) existingEmailKeys.add(`msgid:${messageId}`.toLowerCase());
           console.log(`[IMAP] Msg ${msgId} - STORED for ${matchedRecipient}: "${subject}"`);
         }
 

@@ -65,7 +65,7 @@ const APIAccess = lazyWithRetry(() => import("./pages/APIAccess"));
 const About = lazyWithRetry(() => import("./pages/About"));
 const Changelog = lazyWithRetry(() => import("./pages/Changelog"));
 const Status = lazyWithRetry(() => import("./pages/Status"));
-
+const HostingGuide = lazyWithRetry(() => import("./pages/HostingGuide"));
 // Lazy load admin pages with retry
 const AdminLayout = lazyWithRetry(() => import("./pages/admin/AdminLayout"));
 const AdminDashboard = lazyWithRetry(() => import("./pages/admin/AdminDashboard"));
@@ -210,6 +210,11 @@ const App = () => (
                           <Route path="/status" element={
                             <PageErrorBoundary name="Status">
                               <Status />
+                            </PageErrorBoundary>
+                          } />
+                          <Route path="/hosting-guide" element={
+                            <PageErrorBoundary name="HostingGuide">
+                              <HostingGuide />
                             </PageErrorBoundary>
                           } />
                           <Route path="/billing" element={

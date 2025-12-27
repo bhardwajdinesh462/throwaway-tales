@@ -145,7 +145,7 @@ const Inbox = () => {
       return;
     }
 
-    // Countdown timer
+    // Countdown timer (visual only - no IMAP polling on auto-refresh to reduce server load)
     countdownRef.current = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
@@ -155,9 +155,10 @@ const Inbox = () => {
       });
     }, 1000);
 
-    // Refresh timer
+    // Auto-refresh timer - only refetch from DB (realtime handles new emails)
+    // NO IMAP polling here - that's manual only via "Check Mail" button
     refreshRef.current = setInterval(() => {
-      void handleRefresh(true, { pollImap: true });
+      void handleRefresh(true, { pollImap: false });
     }, refreshInterval * 1000);
 
     return () => {

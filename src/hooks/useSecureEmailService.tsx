@@ -482,13 +482,21 @@ export const useSecureEmailService = () => {
         const msg = error.message || '';
         const isRetryable = msg.includes('503') || msg.includes('timeout') || msg.includes('connect') || msg.includes('non-2xx');
 
-        // Retryable backend outage: don't leave UI stuck, retry shortly
-        if (isRetryable) {
-          console.warn('[email-service] Backend temporarily unavailable, retrying inbox fetch...');
+        // Circuit breaker: max 3 retries with exponential backoff
+        const retryCount = (email as any)._retryCount || 0;
+        if (isRetryable && retryCount < 3) {
+          const delay = Math.min(1500 * Math.pow(2, retryCount), 10000);
+          console.warn(`[email-service] Backend temporarily unavailable, retry ${retryCount + 1}/3 in ${delay}ms...`);
           setTimeout(() => {
-            // best-effort retry; safe because we also guard by activeEmailIdRef + seq
-            void fetchSecureEmailsFor(email);
-          }, 1500);
+            const emailWithRetry = { ...email, _retryCount: retryCount + 1 } as any;
+            void fetchSecureEmailsFor(emailWithRetry);
+          }, delay);
+          return;
+        }
+        
+        if (isRetryable) {
+          console.error('[email-service] Backend unavailable after 3 retries, stopping');
+          toast.error('Backend temporarily unavailable. Click "Check Mail" to retry.');
           return;
         }
 

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { AlertCircle, CheckCircle2, RefreshCw, Wifi, WifiOff, Database, Zap } from "lucide-react";
+import { AlertCircle, CheckCircle2, RefreshCw, WifiOff, Database, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { useAdminRole } from "@/hooks/useAdminRole";
 
 type ServiceStatus = "ok" | "degraded" | "down" | "checking";
 
@@ -17,6 +18,7 @@ const CIRCUIT_BREAKER_THRESHOLD = 3;
 const COOLDOWN_MS = 30000; // 30s cooldown after circuit breaks
 
 const BackendHealthBanner = () => {
+  const { isAdmin, isLoading: adminLoading } = useAdminRole();
   const [health, setHealth] = useState<HealthState>({
     database: "checking",
     realtime: "checking",
@@ -124,10 +126,12 @@ const BackendHealthBanner = () => {
     };
   }, [checkHealth]);
 
-  // Only show banner if there's an issue
+  // Only show banner if there's an issue AND user is admin
   const hasIssue = health.database === "down" || health.realtime === "down";
   const isChecking = health.database === "checking" || health.realtime === "checking";
 
+  // Don't show to non-admins
+  if (adminLoading || !isAdmin) return null;
   if (!hasIssue && !isChecking) return null;
 
   return (

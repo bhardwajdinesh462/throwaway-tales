@@ -213,9 +213,11 @@ const App = () => (
                             </PageErrorBoundary>
                           } />
                           <Route path="/hosting-guide" element={
-                            <PageErrorBoundary name="HostingGuide">
-                              <HostingGuide />
-                            </PageErrorBoundary>
+                            <ProtectedRoute requireAuth requireAdmin>
+                              <PageErrorBoundary name="HostingGuide">
+                                <HostingGuide />
+                              </PageErrorBoundary>
+                            </ProtectedRoute>
                           } />
                           <Route path="/billing" element={
                             <ProtectedRoute requireAuth>

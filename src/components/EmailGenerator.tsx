@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles, User, Mail } from "lucide-react";
+import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles, User, Mail, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -547,37 +547,74 @@ const EmailGenerator = () => {
               </div>
             </div>
 
-            {/* Email Usage Counter */}
-            <div className="flex justify-center mb-4">
+            {/* Email Usage Counter with Progress Bar */}
+            <div className="flex flex-col items-center gap-3 mb-4">
               <motion.div
                 key={`usage-${emailUsage.used}-${emailUsage.remaining}`}
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.2 }}
-                className="inline-flex items-center gap-4 px-5 py-2.5 rounded-full bg-gradient-to-r from-secondary/60 to-secondary/40 border border-border/50 shadow-sm"
+                className="w-full max-w-sm"
               >
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                  <span className="text-sm text-muted-foreground">
-                    Created: <span className="font-semibold text-foreground">{emailUsage.used}</span>
-                  </span>
-                </div>
-                <div className="h-5 w-px bg-border/70" />
-                <div className="flex items-center gap-2">
-                  {emailUsage.limit === -1 ? (
-                    <span className="text-sm font-semibold text-primary">∞ Unlimited</span>
-                  ) : (
-                    <>
+                {/* Stats row */}
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                    <span className="text-sm text-muted-foreground">
+                      Created: <span className="font-semibold text-foreground">{emailUsage.used}</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {emailUsage.limit === -1 ? (
+                      <span className="text-sm font-semibold text-primary">∞ Unlimited</span>
+                    ) : (
                       <span className="text-sm text-muted-foreground">
                         Left: <span className={`font-semibold ${emailUsage.remaining <= 2 ? 'text-destructive' : 'text-primary'}`}>
                           {emailUsage.remaining}
                         </span>
                         <span className="text-xs text-muted-foreground/70">/{emailUsage.limit}</span>
                       </span>
-                    </>
-                  )}
+                    )}
+                  </div>
                 </div>
+                
+                {/* Progress bar */}
+                {emailUsage.limit !== -1 && (
+                  <div className="relative h-2 w-full rounded-full bg-secondary/50 overflow-hidden border border-border/30">
+                    <motion.div
+                      className={`h-full rounded-full ${
+                        emailUsage.remaining <= 2 
+                          ? 'bg-gradient-to-r from-destructive to-destructive/70' 
+                          : emailUsage.remaining <= emailUsage.limit * 0.3
+                            ? 'bg-gradient-to-r from-yellow-500 to-orange-500'
+                            : 'bg-gradient-to-r from-primary to-primary/70'
+                      }`}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${(emailUsage.used / emailUsage.limit) * 100}%` }}
+                      transition={{ duration: 0.5, ease: "easeOut" }}
+                    />
+                  </div>
+                )}
               </motion.div>
+
+              {/* Upgrade prompt when low or exhausted */}
+              {emailUsage.limit !== -1 && emailUsage.remaining <= 2 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-2"
+                >
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.location.href = "/pricing"}
+                    className="h-8 text-xs border-primary/50 hover:bg-primary/10 hover:border-primary gap-1.5"
+                  >
+                    <Zap className="w-3 h-3 text-primary" />
+                    {emailUsage.remaining === 0 ? 'Upgrade for more emails' : 'Running low? Upgrade now'}
+                  </Button>
+                </motion.div>
+              )}
             </div>
 
             {/* Action Buttons */}

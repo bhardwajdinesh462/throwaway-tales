@@ -477,29 +477,26 @@ const EmailGenerator = () => {
               
             </div>
 
-            {/* Email Options - Redesigned layout */}
-            <div className="mt-8 mb-4">
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                {/* Username Style Card */}
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-secondary/30 border border-border/50">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <User className="w-4 h-4 text-primary" />
-                    <span>Style:</span>
-                  </div>
-                  <div className="flex rounded-lg overflow-hidden border border-border/50">
+            {/* Email Options - Compact responsive layout */}
+            <div className="mt-5 mb-3">
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                {/* Username Style */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30 border border-border/50">
+                  <User className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <div className="flex rounded-md overflow-hidden border border-border/50">
                     <button
                       onClick={() => setUsernameStyle('human')}
-                      className={`px-3 py-1.5 text-sm font-medium transition-all ${
+                      className={`px-2.5 py-1 text-xs font-medium transition-all ${
                         usernameStyle === 'human' 
                           ? 'bg-primary text-primary-foreground' 
                           : 'bg-card hover:bg-secondary text-muted-foreground'
                       }`}
                     >
-                      Human-like
+                      Human
                     </button>
                     <button
                       onClick={() => setUsernameStyle('random')}
-                      className={`px-3 py-1.5 text-sm font-medium transition-all ${
+                      className={`px-2.5 py-1 text-xs font-medium transition-all ${
                         usernameStyle === 'random' 
                           ? 'bg-primary text-primary-foreground' 
                           : 'bg-card hover:bg-secondary text-muted-foreground'
@@ -510,24 +507,21 @@ const EmailGenerator = () => {
                   </div>
                 </div>
 
-                {/* Domain Selector Card */}
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-secondary/30 border border-border/50">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Mail className="w-4 h-4 text-primary" />
-                    <span>Domain:</span>
-                  </div>
+                {/* Domain Selector */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30 border border-border/50">
+                  <Mail className="w-3.5 h-3.5 text-primary shrink-0" />
                   <Select 
                     value={currentDomain?.id || ""} 
                     onValueChange={changeDomain}
                     disabled={isGenerating}
                   >
-                    <SelectTrigger className="w-44 bg-card border-border/50 text-sm h-8">
-                      <SelectValue placeholder="Select domain" />
+                    <SelectTrigger className="w-32 sm:w-40 bg-card border-border/50 text-xs h-7">
+                      <SelectValue placeholder="Domain" />
                     </SelectTrigger>
                     <SelectContent>
                       {domains.map((domain) => (
                         <SelectItem key={domain.id} value={domain.id}>
-                          {domain.name} {domain.is_premium && "⭐"} {domain.is_custom && "🔧"}
+                          {domain.name} {domain.is_premium && "⭐"}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -537,10 +531,10 @@ const EmailGenerator = () => {
                       variant="ghost"
                       size="icon"
                       onClick={() => setCustomDomainDialog(true)}
-                      className="h-8 w-8"
+                      className="h-7 w-7"
                       title="Add custom domain"
                     >
-                      <Plus className="w-4 h-4" />
+                      <Plus className="w-3.5 h-3.5" />
                     </Button>
                   )}
                 </div>

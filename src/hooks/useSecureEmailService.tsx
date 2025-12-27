@@ -4,7 +4,9 @@ import { useAuth } from './useSupabaseAuth';
 import { toast } from 'sonner';
 import { storage } from '@/lib/storage';
 import { parseEmailCreationError } from '@/lib/emailErrorHandler';
-import { generateUsername } from '@/lib/usernameGenerator';
+import { generateUsername, UsernameStyle } from '@/lib/usernameGenerator';
+
+const USERNAME_STYLE_KEY = 'nullsto_username_style';
 
 export interface Domain {
   id: string;
@@ -93,6 +95,25 @@ export const useSecureEmailService = () => {
   const [emailHistory, setEmailHistory] = useState<TempEmail[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Username style preference: 'human' (default) or 'random'
+  const [usernameStyle, setUsernameStyleState] = useState<UsernameStyle>(() => {
+    try {
+      const stored = localStorage.getItem(USERNAME_STYLE_KEY);
+      return (stored === 'random' ? 'random' : 'human') as UsernameStyle;
+    } catch {
+      return 'human';
+    }
+  });
+  
+  const setUsernameStyle = useCallback((style: UsernameStyle) => {
+    setUsernameStyleState(style);
+    try {
+      localStorage.setItem(USERNAME_STYLE_KEY, style);
+    } catch {
+      // ignore
+    }
+  }, []);
   
   // Debug / instance identity (helps verify there is only one provider instance)
   const instanceIdRef = useRef(`${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -210,11 +231,11 @@ export const useSecureEmailService = () => {
         return;
       }
 
-      // Generate human-like username if not provided
-      // Uses names + numbers format like "john.smith42" for better deliverability
+      // Generate username if not provided based on user preference
+      // Default is 'human' style (e.g., "john.smith42") for better deliverability
       let username = customUsername;
       if (!username) {
-        username = generateUsername('human');
+        username = generateUsername(usernameStyle);
       }
       const address = username + selectedDomain.name;
 
@@ -658,6 +679,8 @@ export const useSecureEmailService = () => {
     emailHistory,
     isLoading,
     isGenerating,
+    usernameStyle,
+    setUsernameStyle,
     generateEmail,
     generateCustomEmail,
     changeDomain,

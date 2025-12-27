@@ -9,6 +9,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAppearanceSettings } from "@/hooks/useAppearanceSettings";
 import { useGeneralSettings } from "@/hooks/useGeneralSettings";
 import AnnouncementBar from "./AnnouncementBar";
+import SEOHead from "./SEOHead";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
@@ -170,6 +171,9 @@ const Header = () => {
 
   return (
     <>
+      {/* Global SEO Head - applies to all pages */}
+      <SEOHead />
+
       {/* Mobile Menu Overlay */}
       <AnimatePresence>
         {mobileMenuOpen && (

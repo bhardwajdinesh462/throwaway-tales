@@ -57,16 +57,18 @@ const sitePages = [
   { path: '/pricing', name: 'Pricing', description: 'Pricing plans' },
   { path: '/blog', name: 'Blog', description: 'Blog listing page' },
   { path: '/contact', name: 'Contact', description: 'Contact form page' },
-  { path: '/privacy-policy', name: 'Privacy Policy', description: 'Privacy policy page' },
-  { path: '/terms-of-service', name: 'Terms of Service', description: 'Terms and conditions' },
-  { path: '/cookie-policy', name: 'Cookie Policy', description: 'Cookie policy page' },
+  { path: '/privacy', name: 'Privacy Policy', description: 'Privacy policy page' },
+  { path: '/terms', name: 'Terms of Service', description: 'Terms and conditions' },
+  { path: '/cookies', name: 'Cookie Policy', description: 'Cookie policy page' },
   { path: '/status', name: 'Status', description: 'Service status page' },
   { path: '/dashboard', name: 'Dashboard', description: 'User dashboard' },
   { path: '/auth', name: 'Auth', description: 'Login/Register page' },
   { path: '/profile', name: 'Profile', description: 'User profile page' },
   { path: '/history', name: 'History', description: 'Email history page' },
-  { path: '/premium-features', name: 'Premium Features', description: 'Premium features showcase' },
+  { path: '/features', name: 'Premium Features', description: 'Premium features showcase' },
   { path: '/changelog', name: 'Changelog', description: 'Version history' },
+  { path: '/api-access', name: 'API Access', description: 'API documentation' },
+  { path: '/billing', name: 'Billing History', description: 'Payment history' },
 ];
 
 const defaultPageSEO: PageSEO = {

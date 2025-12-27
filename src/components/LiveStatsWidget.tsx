@@ -194,7 +194,7 @@ const LiveStatsWidget = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
     };
   }, [updateStats]);
 

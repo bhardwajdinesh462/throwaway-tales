@@ -129,7 +129,7 @@ export const useSEOSettings = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
     };
   }, [fetchSettings]);
 

@@ -114,6 +114,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // CRITICAL: Skip ALL cross-origin requests (Supabase API, external resources)
+  // This prevents the SW from interfering with backend API calls
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
   // CRITICAL: Never cache app_settings, subscription_tiers, banners - always network only
   if (shouldNeverCache(url.pathname) || shouldNeverCache(url.href)) {
     event.respondWith(networkOnly(request));

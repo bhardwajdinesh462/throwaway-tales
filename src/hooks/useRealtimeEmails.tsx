@@ -180,7 +180,7 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
 
     return () => {
       console.log('[useRealtimeEmails] Cleaning up subscription');
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
     };
   }, [tempEmailId, onNewEmail, showToast, playSoundCallback, showPushNotification]);
 

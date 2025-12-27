@@ -74,7 +74,7 @@ export function usePricingContent() {
     window.addEventListener('focus', handleFocus);
 
     return () => {
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
       window.removeEventListener('focus', handleFocus);
     };
   }, [fetchContent]);

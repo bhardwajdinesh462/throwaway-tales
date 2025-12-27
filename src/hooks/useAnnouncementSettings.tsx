@@ -73,7 +73,7 @@ export const useAnnouncementSettings = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
     };
   }, []);
 

@@ -179,7 +179,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
     };
   }, []);
 

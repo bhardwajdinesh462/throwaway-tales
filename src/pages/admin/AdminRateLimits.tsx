@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { Gauge, Save, RefreshCw, Trash2, RotateCcw, AlertTriangle, Users } from "lucide-react";
+import { Gauge, Save, RefreshCw, Trash2, RotateCcw, AlertTriangle, Users, User } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
@@ -31,6 +31,8 @@ import {
 interface RateLimitSettings {
   max_requests: number;
   window_minutes: number;
+  guest_max_requests: number;
+  guest_window_minutes: number;
 }
 
 interface RateLimitRecord {
@@ -43,8 +45,10 @@ interface RateLimitRecord {
 
 const AdminRateLimits = () => {
   const [settings, setSettings] = useState<RateLimitSettings>({
-    max_requests: 10,
+    max_requests: 30,
     window_minutes: 60,
+    guest_max_requests: 10,
+    guest_window_minutes: 60,
   });
   const [rateLimits, setRateLimits] = useState<RateLimitRecord[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -67,8 +71,10 @@ const AdminRateLimits = () => {
     if (!error && data?.value && typeof data.value === 'object' && !Array.isArray(data.value)) {
       const value = data.value as Record<string, unknown>;
       setSettings({
-        max_requests: typeof value.max_requests === 'number' ? value.max_requests : 10,
+        max_requests: typeof value.max_requests === 'number' ? value.max_requests : 30,
         window_minutes: typeof value.window_minutes === 'number' ? value.window_minutes : 60,
+        guest_max_requests: typeof value.guest_max_requests === 'number' ? value.guest_max_requests : 10,
+        guest_window_minutes: typeof value.guest_window_minutes === 'number' ? value.guest_window_minutes : 60,
       });
     }
     setIsLoading(false);
@@ -97,7 +103,12 @@ const AdminRateLimits = () => {
       .single();
 
     let error;
-    const jsonValue = { max_requests: settings.max_requests, window_minutes: settings.window_minutes };
+    const jsonValue = { 
+      max_requests: settings.max_requests, 
+      window_minutes: settings.window_minutes,
+      guest_max_requests: settings.guest_max_requests,
+      guest_window_minutes: settings.guest_window_minutes,
+    };
     
     if (existing) {
       const result = await supabase
@@ -259,27 +270,60 @@ const AdminRateLimits = () => {
         </CardContent>
       </Card>
 
+      {/* What is Rate Limiting Explanation */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-primary" />
+            What is Rate Limiting?
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            <strong>Rate limiting</strong> prevents abuse by restricting how many emails a user or guest can create within a time window. 
+            This protects your service from spam, bots, and excessive resource usage.
+          </p>
+          <div className="grid md:grid-cols-2 gap-4 text-sm">
+            <div className="p-3 bg-background rounded-lg border">
+              <p className="font-medium mb-1">🔐 Registered Users</p>
+              <p className="text-muted-foreground">Tracked by their user ID. Higher limits recommended for trusted users.</p>
+            </div>
+            <div className="p-3 bg-background rounded-lg border">
+              <p className="font-medium mb-1">👤 Guest Users</p>
+              <p className="text-muted-foreground">Tracked by device fingerprint (localStorage). Lower limits to prevent abuse.</p>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            <strong>Note:</strong> Changes apply in real-time. When you save settings, all connected clients will automatically use the new limits.
+          </p>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 md:grid-cols-2">
+        {/* Registered Users Settings */}
         <Card>
           <CardHeader>
-            <CardTitle>Temp Email Creation Limits</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <User className="w-5 h-5" />
+              Registered User Limits
+            </CardTitle>
             <CardDescription>
-              Control how many temp emails can be created per user/IP
+              Rate limits for logged-in users (tracked by user ID)
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="max_requests">Max Requests</Label>
+              <Label htmlFor="max_requests">Max Emails</Label>
               <Input
                 id="max_requests"
                 type="number"
                 min={1}
                 max={1000}
                 value={settings.max_requests}
-                onChange={(e) => setSettings({ ...settings, max_requests: parseInt(e.target.value) || 10 })}
+                onChange={(e) => setSettings({ ...settings, max_requests: parseInt(e.target.value) || 30 })}
               />
               <p className="text-xs text-muted-foreground">
-                Maximum number of temp emails a user/IP can create within the time window
+                Maximum temp emails a registered user can create
               </p>
             </div>
             <div className="space-y-2">
@@ -293,34 +337,96 @@ const AdminRateLimits = () => {
                 onChange={(e) => setSettings({ ...settings, window_minutes: parseInt(e.target.value) || 60 })}
               />
               <p className="text-xs text-muted-foreground">
-                Time period in minutes for the rate limit window
+                Time period for the rate limit window
               </p>
             </div>
-            <div className="pt-4 p-4 bg-secondary/30 rounded-lg space-y-3">
-              <p className="text-sm">
-                <strong>Current Setting:</strong> {settings.max_requests} emails per {settings.window_minutes} minutes per user/IP
-              </p>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="resetOnSave"
-                  checked={resetOnSave}
-                  onCheckedChange={(checked) => setResetOnSave(checked === true)}
-                />
-                <label
-                  htmlFor="resetOnSave"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-2"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  Reset all rate limits on save
-                </label>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                When enabled, saving settings will clear all existing rate limit records, allowing blocked users to immediately create emails again.
+            <div className="p-3 bg-secondary/30 rounded-lg">
+              <p className="text-sm font-medium">
+                ✅ {settings.max_requests} emails per {settings.window_minutes} min
               </p>
             </div>
           </CardContent>
         </Card>
 
+        {/* Guest Users Settings */}
+        <Card className="border-orange-500/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-orange-600">
+              <Users className="w-5 h-5" />
+              Guest User Limits
+            </CardTitle>
+            <CardDescription>
+              Rate limits for anonymous/guest users (tracked by device ID)
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="guest_max_requests">Max Emails</Label>
+              <Input
+                id="guest_max_requests"
+                type="number"
+                min={1}
+                max={100}
+                value={settings.guest_max_requests}
+                onChange={(e) => setSettings({ ...settings, guest_max_requests: parseInt(e.target.value) || 10 })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Maximum temp emails a guest can create (keep lower to prevent abuse)
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="guest_window_minutes">Time Window (minutes)</Label>
+              <Input
+                id="guest_window_minutes"
+                type="number"
+                min={1}
+                max={1440}
+                value={settings.guest_window_minutes}
+                onChange={(e) => setSettings({ ...settings, guest_window_minutes: parseInt(e.target.value) || 60 })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Time period for the guest rate limit window
+              </p>
+            </div>
+            <div className="p-3 bg-orange-500/10 rounded-lg border border-orange-500/30">
+              <p className="text-sm font-medium text-orange-600">
+                ⚠️ {settings.guest_max_requests} emails per {settings.guest_window_minutes} min
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Guest users are not logged in and may include bots
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Save Options */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Save Options</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="resetOnSave"
+              checked={resetOnSave}
+              onCheckedChange={(checked) => setResetOnSave(checked === true)}
+            />
+            <label
+              htmlFor="resetOnSave"
+              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-2"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Reset all rate limits on save (recommended when increasing limits)
+            </label>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            When enabled, saving will clear all existing rate limit records, immediately allowing all blocked users to create emails again.
+          </p>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Rate Limit Management</CardTitle>
@@ -329,7 +435,7 @@ const AdminRateLimits = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button variant="outline" onClick={loadRateLimits}>
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Refresh

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles, User, Shuffle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,13 @@ import { useRecaptcha } from "@/hooks/useRecaptcha";
 import { supabase } from "@/integrations/supabase/client";
 import { tooltips } from "@/lib/tooltips";
 
+interface RateLimitSettings {
+  max_requests: number;
+  window_minutes: number;
+  guest_max_requests?: number;
+  guest_window_minutes?: number;
+}
+
 const EmailGenerator = () => {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -52,6 +59,62 @@ const EmailGenerator = () => {
   const [customUsername, setCustomUsername] = useState("");
   const [selectedCustomDomain, setSelectedCustomDomain] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
+  const [rateLimitSettings, setRateLimitSettings] = useState<RateLimitSettings>({
+    max_requests: 30,
+    window_minutes: 60,
+    guest_max_requests: 10,
+    guest_window_minutes: 60,
+  });
+
+  // Load rate limit settings from admin config
+  const loadRateLimitSettings = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "rate_limit_temp_email_create")
+        .single();
+
+      if (!error && data?.value && typeof data.value === 'object' && !Array.isArray(data.value)) {
+        const value = data.value as Record<string, unknown>;
+        setRateLimitSettings({
+          max_requests: typeof value.max_requests === 'number' ? value.max_requests : 30,
+          window_minutes: typeof value.window_minutes === 'number' ? value.window_minutes : 60,
+          guest_max_requests: typeof value.guest_max_requests === 'number' ? value.guest_max_requests : (typeof value.max_requests === 'number' ? value.max_requests : 10),
+          guest_window_minutes: typeof value.guest_window_minutes === 'number' ? value.guest_window_minutes : (typeof value.window_minutes === 'number' ? value.window_minutes : 60),
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load rate limit settings:', err);
+    }
+  }, []);
+
+  // Load settings on mount and subscribe to real-time changes
+  useEffect(() => {
+    loadRateLimitSettings();
+
+    // Subscribe to real-time changes in rate limit settings
+    const channel = supabase
+      .channel('rate_limit_settings')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'app_settings',
+          filter: 'key=eq.rate_limit_temp_email_create'
+        },
+        () => {
+          console.log('Rate limit settings changed, reloading...');
+          loadRateLimitSettings();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadRateLimitSettings]);
 
   const verifyCaptcha = async (action: string): Promise<boolean> => {
     if (!captchaEnabled || !captchaSettings.enableOnEmailGen) {
@@ -123,13 +186,19 @@ const EmailGenerator = () => {
       identifier = deviceId;
     }
     
-    const maxRequests = user ? 30 : 10;
+    // Use dynamic rate limit settings from admin config
+    const maxRequests = user 
+      ? rateLimitSettings.max_requests 
+      : (rateLimitSettings.guest_max_requests || rateLimitSettings.max_requests);
+    const windowMinutes = user 
+      ? rateLimitSettings.window_minutes 
+      : (rateLimitSettings.guest_window_minutes || rateLimitSettings.window_minutes);
     
     const { data: rateLimitOk, error: rateLimitError } = await supabase.rpc('check_rate_limit', {
       p_identifier: identifier,
       p_action_type: 'generate_email',
       p_max_requests: maxRequests,
-      p_window_minutes: 10
+      p_window_minutes: windowMinutes
     });
     
     if (rateLimitError) {
@@ -137,7 +206,8 @@ const EmailGenerator = () => {
     }
     
     if (rateLimitOk === false) {
-      toast.error("You're creating emails too fast. Please wait a moment.");
+      const waitTime = windowMinutes >= 60 ? `${Math.round(windowMinutes / 60)} hour(s)` : `${windowMinutes} minute(s)`;
+      toast.error(`Rate limit exceeded. You can create ${maxRequests} emails per ${waitTime}. Please wait.`);
       return;
     }
     

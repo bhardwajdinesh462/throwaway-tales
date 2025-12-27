@@ -18,44 +18,48 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get today's date range
+    // Get rolling 24-hour window (not calendar day which resets at UTC midnight)
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+    const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
     // Fetch stats in parallel
     const [
-      { count: totalEmailsToday },
-      { count: totalEmails },
-      { count: activeAddresses },
-      { count: totalDomains },
-      { data: emailStatsData }
+      emailsLast24hResult,
+      totalEmailsReceivedResult,
+      activeAddressesResult,
+      totalInboxesCreatedResult,
+      totalDomainsResult,
+      emailStatsDataResult
     ] = await Promise.all([
-      // Emails received today
+      // Emails received in last 24 hours (rolling window)
       supabase
         .from('received_emails')
         .select('*', { count: 'exact', head: true })
-        .gte('received_at', todayStart)
-        .lt('received_at', todayEnd),
+        .gte('received_at', last24Hours),
       
-      // Total emails received all time
+      // Total emails received all time (monotonic)
       supabase
         .from('received_emails')
         .select('*', { count: 'exact', head: true }),
       
-      // Active temp addresses
+      // Currently active temp addresses
       supabase
         .from('temp_emails')
         .select('*', { count: 'exact', head: true })
         .eq('is_active', true),
       
-      // Total domains
+      // Total inboxes ever created (monotonic) - all temp_emails regardless of status
+      supabase
+        .from('temp_emails')
+        .select('*', { count: 'exact', head: true }),
+      
+      // Total active domains
       supabase
         .from('domains')
         .select('*', { count: 'exact', head: true })
         .eq('is_active', true),
       
-      // Get permanent email count from email_stats table
+      // Get permanent email generation count from email_stats table
       supabase
         .from('email_stats')
         .select('stat_value')
@@ -63,14 +67,26 @@ serve(async (req) => {
         .maybeSingle(),
     ]);
 
-    // Use the permanent counter from email_stats - use ?? to preserve 0 values
-    const totalEmailsGenerated = emailStatsData?.stat_value ?? 0;
+    // Use ?? to preserve 0 values (|| would treat 0 as falsy)
+    const emailsLast24h = emailsLast24hResult.count ?? 0;
+    const totalEmailsReceived = totalEmailsReceivedResult.count ?? 0;
+    const activeAddresses = activeAddressesResult.count ?? 0;
+    const totalInboxesCreated = totalInboxesCreatedResult.count ?? 0;
+    const activeDomains = totalDomainsResult.count ?? 0;
+    const totalEmailsGenerated = emailStatsDataResult.data?.stat_value ?? 0;
 
     const stats = {
-      emailsToday: totalEmailsToday ?? 0,
-      totalEmails: totalEmails ?? 0,
-      activeAddresses: activeAddresses ?? 0,
-      activeDomains: totalDomains ?? 0,
+      // Rolling 24h window - can naturally go up or down
+      emailsToday: emailsLast24h,
+      // All-time received emails (monotonic)
+      totalEmails: totalEmailsReceived,
+      // Currently active inboxes (can go down as they expire)
+      activeAddresses: activeAddresses,
+      // Total inboxes ever created (monotonic) - for display as "Inboxes Created"
+      totalInboxesCreated: totalInboxesCreated,
+      // Active domains
+      activeDomains: activeDomains,
+      // Permanent counter from email_stats (monotonic)
       totalEmailsGenerated: Number(totalEmailsGenerated),
       updatedAt: new Date().toISOString(),
     };
@@ -89,6 +105,7 @@ serve(async (req) => {
       emailsToday: 0,
       totalEmails: 0,
       activeAddresses: 0,
+      totalInboxesCreated: 0,
       activeDomains: 0,
       totalEmailsGenerated: 0,
     }), {

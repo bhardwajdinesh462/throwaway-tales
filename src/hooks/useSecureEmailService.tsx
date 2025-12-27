@@ -4,6 +4,7 @@ import { useAuth } from './useSupabaseAuth';
 import { toast } from 'sonner';
 import { storage } from '@/lib/storage';
 import { parseEmailCreationError } from '@/lib/emailErrorHandler';
+import { generateUsername } from '@/lib/usernameGenerator';
 
 export interface Domain {
   id: string;
@@ -209,14 +210,11 @@ export const useSecureEmailService = () => {
         return;
       }
 
-      // Generate random username if not provided
+      // Generate human-like username if not provided
+      // Uses names + numbers format like "john.smith42" for better deliverability
       let username = customUsername;
       if (!username) {
-        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-        username = '';
-        for (let i = 0; i < 10; i++) {
-          username += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
+        username = generateUsername('human');
       }
       const address = username + selectedDomain.name;
 

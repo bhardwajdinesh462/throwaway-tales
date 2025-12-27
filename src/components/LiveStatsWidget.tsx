@@ -8,11 +8,12 @@ import { tooltips } from "@/lib/tooltips";
 const STATS_STORAGE_KEY = 'trashmails_live_stats';
 
 interface Stats {
-  emailsToday: number;
-  totalEmails: number;
-  activeAddresses: number;
+  emailsToday: number;        // Rolling 24h - can fluctuate
+  totalEmails: number;        // All-time received (monotonic)
+  activeAddresses: number;    // Currently active (can fluctuate)
+  totalInboxesCreated: number; // All-time inboxes (monotonic)
   activeDomains: number;
-  totalEmailsGenerated: number;
+  totalEmailsGenerated: number; // Monotonic counter
 }
 
 // Helper to parse stat values safely
@@ -22,6 +23,7 @@ const parseStatValue = (val: unknown): number => {
     const parsed = parseInt(val, 10);
     return isNaN(parsed) ? 0 : parsed;
   }
+  if (typeof val === 'bigint') return Number(val);
   return 0;
 };
 
@@ -35,6 +37,7 @@ const loadCachedStats = (): Stats => {
         emailsToday: parseStatValue(parsed.emailsToday),
         totalEmails: parseStatValue(parsed.totalEmails),
         activeAddresses: parseStatValue(parsed.activeAddresses),
+        totalInboxesCreated: parseStatValue(parsed.totalInboxesCreated),
         activeDomains: parseStatValue(parsed.activeDomains),
         totalEmailsGenerated: parseStatValue(parsed.totalEmailsGenerated),
       };
@@ -42,7 +45,14 @@ const loadCachedStats = (): Stats => {
   } catch {
     // ignore parse errors
   }
-  return { emailsToday: 0, totalEmails: 0, activeAddresses: 0, activeDomains: 0, totalEmailsGenerated: 0 };
+  return { 
+    emailsToday: 0, 
+    totalEmails: 0, 
+    activeAddresses: 0, 
+    totalInboxesCreated: 0, 
+    activeDomains: 0, 
+    totalEmailsGenerated: 0 
+  };
 };
 
 // Save stats to localStorage
@@ -83,14 +93,21 @@ const LiveStatsWidget = () => {
   const [animatingIndex, setAnimatingIndex] = useState<number | null>(null);
   const initialLoadRef = useRef(true);
 
-  // Update stats with clamping to prevent decreases
+  // Update stats - only clamp monotonic counters (totalEmails, totalInboxesCreated, totalEmailsGenerated)
   const updateStats = useCallback((incoming: Partial<Stats>) => {
     setStats(prev => {
       const next: Stats = {
-        emailsToday: Math.max(prev.emailsToday, parseStatValue(incoming.emailsToday ?? prev.emailsToday)),
+        // Rolling 24h - allow natural fluctuation
+        emailsToday: parseStatValue(incoming.emailsToday ?? prev.emailsToday),
+        // Monotonic - only increase
         totalEmails: Math.max(prev.totalEmails, parseStatValue(incoming.totalEmails ?? prev.totalEmails)),
-        activeAddresses: Math.max(prev.activeAddresses, parseStatValue(incoming.activeAddresses ?? prev.activeAddresses)),
-        activeDomains: parseStatValue(incoming.activeDomains ?? prev.activeDomains), // domains can change
+        // Active count - allow natural fluctuation as inboxes expire
+        activeAddresses: parseStatValue(incoming.activeAddresses ?? prev.activeAddresses),
+        // Monotonic - total ever created, only increase
+        totalInboxesCreated: Math.max(prev.totalInboxesCreated, parseStatValue(incoming.totalInboxesCreated ?? prev.totalInboxesCreated)),
+        // Domains can change
+        activeDomains: parseStatValue(incoming.activeDomains ?? prev.activeDomains),
+        // Monotonic - only increase
         totalEmailsGenerated: Math.max(prev.totalEmailsGenerated, parseStatValue(incoming.totalEmailsGenerated ?? prev.totalEmailsGenerated)),
       };
       saveCachedStats(next);
@@ -108,6 +125,7 @@ const LiveStatsWidget = () => {
             emailsToday: data.emailsToday,
             totalEmails: data.totalEmails,
             activeAddresses: data.activeAddresses,
+            totalInboxesCreated: data.totalInboxesCreated,
             activeDomains: data.activeDomains,
             totalEmailsGenerated: data.totalEmailsGenerated,
           });
@@ -161,16 +179,16 @@ const LiveStatsWidget = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [updateStats]);
 
   const statItems = [
     {
       icon: Mail,
-      label: "Emails Today",
+      label: "Emails (24h)",
       value: stats.emailsToday,
       color: "text-primary",
       bgColor: "bg-primary/20",
-      tooltip: tooltips.stats.emailsToday,
+      tooltip: "Emails received in the last 24 hours",
     },
     {
       icon: Zap,
@@ -182,11 +200,11 @@ const LiveStatsWidget = () => {
     },
     {
       icon: Users,
-      label: "Active Inboxes",
-      value: stats.activeAddresses,
+      label: "Inboxes Created",
+      value: stats.totalInboxesCreated,
       color: "text-green-500",
       bgColor: "bg-green-500/20",
-      tooltip: tooltips.stats.activeInboxes,
+      tooltip: "Total temporary inboxes created",
     },
     {
       icon: Globe,

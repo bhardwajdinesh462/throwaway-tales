@@ -472,18 +472,19 @@ serve(async (req: Request): Promise<Response> => {
           continue;
         }
 
-        // Fetch body (bigger)
-        const bodyResponse = await sendCommand(`FETCH ${msgId} (BODY[TEXT])`, tagNum++);
+        // Fetch FULL message body (BODY[] not BODY[TEXT]) to get complete MIME structure including HTML
+        const bodyResponse = await sendCommand(`FETCH ${msgId} (BODY[])`, tagNum++);
 
-        // Extract body content from BODY[TEXT] {n}\r\n... using the IMAP byte count
+        // Extract body content from BODY[] {n}\r\n... using the IMAP byte count
         let rawBody = '';
-        const bodyMarker = /BODY\[TEXT\]\s*\{(\d+)\}\r?\n/i.exec(bodyResponse);
+        const bodyMarker = /BODY\[\]\s*\{(\d+)\}\r?\n/i.exec(bodyResponse);
 
         if (bodyMarker && typeof bodyMarker.index === 'number') {
           const bodyLength = parseInt(bodyMarker[1], 10);
           const bodyStartIndex = bodyMarker.index + bodyMarker[0].length;
           rawBody = bodyResponse.slice(bodyStartIndex, bodyStartIndex + bodyLength);
         } else {
+          // Fallback: try to find content after double CRLF
           const bodyStart = bodyResponse.lastIndexOf('\r\n\r\n');
           rawBody = bodyStart > -1 ? bodyResponse.substring(bodyStart + 4) : bodyResponse;
         }
@@ -495,8 +496,32 @@ serve(async (req: Request): Promise<Response> => {
         let finalTextBody = text;
         let finalHtmlBody = html;
 
+        // If we have HTML but no text, extract text from HTML
         if (!finalTextBody && finalHtmlBody) {
           finalTextBody = extractTextFromHtml(finalHtmlBody);
+        }
+
+        // If we only have plain text, generate a basic HTML version for rich display
+        if (finalTextBody && !finalHtmlBody) {
+          // Convert plain text to HTML with proper line breaks and link detection
+          const escapedText = finalTextBody
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/\n/g, '<br>\n');
+          
+          // Detect and linkify URLs
+          const linkedText = escapedText.replace(
+            /(https?:\/\/[^\s<]+)/gi,
+            '<a href="$1" target="_blank" rel="noopener noreferrer" style="color: #3b82f6; text-decoration: underline;">$1</a>'
+          );
+          
+          finalHtmlBody = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><style>body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; padding: 16px; color: #333; }</style></head>
+<body>${linkedText}</body>
+</html>`;
         }
 
         if (!finalTextBody && !finalHtmlBody) {

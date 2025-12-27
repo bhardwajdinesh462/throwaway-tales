@@ -15,6 +15,120 @@ interface ChangelogEntry {
 
 const changelogs: ChangelogEntry[] = [
   {
+    date: "December 27, 2024",
+    title: "SEO & Analytics Injection",
+    changes: [
+      {
+        type: "feature",
+        description: "Added complete SEO injection for Google Analytics, Tag Manager, Facebook Pixel from admin settings"
+      },
+      {
+        type: "feature",
+        description: "Header and footer code injection with proper script execution"
+      },
+      {
+        type: "improvement",
+        description: "Custom CSS and JavaScript injection from admin SEO settings"
+      },
+      {
+        type: "fix",
+        description: "Fixed admin SEO page paths mapping (privacy, terms, etc.)"
+      },
+      {
+        type: "feature",
+        description: "Added username style selector - choose between human-like or random usernames"
+      }
+    ]
+  },
+  {
+    date: "December 26, 2024",
+    title: "Email Parsing & Stats",
+    changes: [
+      {
+        type: "feature",
+        description: "Rich HTML email parsing and display with proper sanitization"
+      },
+      {
+        type: "improvement",
+        description: "Stabilized live stats counter to prevent flickering"
+      },
+      {
+        type: "fix",
+        description: "Fixed email body rendering for complex HTML emails"
+      },
+      {
+        type: "improvement",
+        description: "Better email preview with truncation and formatting"
+      }
+    ]
+  },
+  {
+    date: "December 25, 2024",
+    title: "SMTP Failover System",
+    changes: [
+      {
+        type: "feature",
+        description: "Automatic SMTP mailbox rotation when sending fails"
+      },
+      {
+        type: "improvement",
+        description: "Mailbox health tracking with automatic cooldown after errors"
+      },
+      {
+        type: "feature",
+        description: "Support for encrypted SMTP passwords in database"
+      },
+      {
+        type: "fix",
+        description: "Fixed verification email delivery with proper failover"
+      }
+    ]
+  },
+  {
+    date: "December 24, 2024",
+    title: "Admin Dashboard Improvements",
+    changes: [
+      {
+        type: "feature",
+        description: "Email logs with detailed sending status and error tracking"
+      },
+      {
+        type: "improvement",
+        description: "Mailbox management with priority ordering"
+      },
+      {
+        type: "design",
+        description: "Improved admin sidebar navigation with icons"
+      },
+      {
+        type: "feature",
+        description: "Subscription stats widget showing tier breakdown"
+      }
+    ]
+  },
+  {
+    date: "December 23, 2024",
+    title: "Email Verification System",
+    changes: [
+      {
+        type: "feature",
+        description: "Secure email verification with hashed tokens"
+      },
+      {
+        type: "improvement",
+        description: "Customizable email templates for verification and password reset"
+      },
+      {
+        type: "feature",
+        description: "Resend verification email functionality"
+      },
+      {
+        type: "fix",
+        description: "Fixed verification link generation with correct site URL"
+      }
+    ]
+  },
+  {
     date: "December 20, 2024",
     title: "Layout & Spacing Optimization",
     changes: [

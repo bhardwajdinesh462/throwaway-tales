@@ -35,43 +35,29 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Get all available mailboxes for failover
-async function getAllMailboxes(supabase: any): Promise<MailboxConfig[]> {
-  const { data, error } = await supabase
-    .from('mailboxes')
-    .select('id, smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, last_error, last_error_at, emails_sent_this_hour, hourly_limit, emails_sent_today, daily_limit')
-    .eq('is_active', true)
-    .not('smtp_host', 'is', null)
-    .not('smtp_user', 'is', null)
-    .not('smtp_password', 'is', null)
-    .order('priority', { ascending: true });
-
-  if (error || !data) {
-    console.log('[create-verification-and-send] No mailboxes found:', error?.message);
-    return [];
-  }
-
-  // Filter out mailboxes with recent errors or at limit
-  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+// Get next available mailbox using RPC (handles encryption + limits + errors)
+async function getNextMailbox(supabase: any): Promise<MailboxConfig | null> {
+  const { data, error } = await supabase.rpc('select_available_mailbox');
   
-  return data
-    .filter((mb: any) => {
-      // Check if at hourly/daily limit
-      if (mb.emails_sent_this_hour >= (mb.hourly_limit || 50)) return false;
-      if (mb.emails_sent_today >= (mb.daily_limit || 500)) return false;
-      // If no recent error, include it
-      if (!mb.last_error_at) return true;
-      // If error was more than 30 mins ago, include it (allow retry)
-      return mb.last_error_at < thirtyMinutesAgo;
-    })
-    .map((mb: any) => ({
-      mailbox_id: mb.id,
-      smtp_host: mb.smtp_host,
-      smtp_port: mb.smtp_port || 587,
-      smtp_user: mb.smtp_user,
-      smtp_password: mb.smtp_password,
-      smtp_from: mb.smtp_from || mb.smtp_user,
-    }));
+  if (error) {
+    console.log('[create-verification-and-send] select_available_mailbox error:', error.message);
+    return null;
+  }
+  
+  if (!data || data.length === 0) {
+    console.log('[create-verification-and-send] No available mailboxes from RPC');
+    return null;
+  }
+  
+  const mb = data[0];
+  return {
+    mailbox_id: mb.mailbox_id,
+    smtp_host: mb.smtp_host,
+    smtp_port: mb.smtp_port || 587,
+    smtp_user: mb.smtp_user,
+    smtp_password: mb.smtp_password,
+    smtp_from: mb.smtp_from || mb.smtp_user,
+  };
 }
 
 // Check if error is permanent (don't retry with same mailbox)
@@ -246,36 +232,30 @@ This link will expire in 24 hours.
 
 If you didn't create an account with ${siteName}, you can safely ignore this email.`;
 
-    // Get all available mailboxes for failover
-    const mailboxes = await getAllMailboxes(supabase);
-    console.log(`[create-verification-and-send] Found ${mailboxes.length} available mailboxes`);
-
-    // Also check for env fallback
-    const envHost = Deno.env.get("SMTP_HOST");
-    const envPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
-    const envUser = Deno.env.get("SMTP_USER");
-    const envPass = Deno.env.get("SMTP_PASSWORD");
-    const envFrom = Deno.env.get("SMTP_FROM") || envUser;
-    const hasEnvFallback = envHost && envUser && envPass;
-
-    if (mailboxes.length === 0 && !hasEnvFallback) {
-      console.error("[create-verification-and-send] SMTP not configured - skipping email send");
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          warning: "Verification created but email not sent (SMTP not configured)",
-          token: rawToken
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Try each mailbox with failover
-    let lastError: string | null = null;
+    // Track used mailbox IDs to avoid retrying the same one
+    const usedMailboxIds = new Set<string>();
+    const MAX_ATTEMPTS = 5;
     let attemptCount = 0;
+    let lastError: string | null = null;
 
-    for (const mailbox of mailboxes) {
+    // Try mailboxes with proper failover using RPC
+    while (attemptCount < MAX_ATTEMPTS) {
       attemptCount++;
+      
+      const mailbox = await getNextMailbox(supabase);
+      
+      if (!mailbox) {
+        console.log(`[create-verification-and-send] Attempt ${attemptCount}: No more mailboxes available from RPC`);
+        break;
+      }
+      
+      // Skip if we've already tried this mailbox
+      if (usedMailboxIds.has(mailbox.mailbox_id)) {
+        console.log(`[create-verification-and-send] Attempt ${attemptCount}: Skipping already-tried mailbox ${mailbox.mailbox_id}`);
+        continue;
+      }
+      
+      usedMailboxIds.add(mailbox.mailbox_id);
       console.log(`[create-verification-and-send] Attempt ${attemptCount}: Trying mailbox ${mailbox.smtp_from} via ${mailbox.smtp_host}`);
 
       const result = await trySendEmail(
@@ -297,7 +277,7 @@ If you didn't create an account with ${siteName}, you can safely ignore this ema
       if (result.success) {
         // Increment mailbox usage
         await supabase.rpc('increment_mailbox_usage', { p_mailbox_id: mailbox.mailbox_id });
-        console.log(`[create-verification-and-send] Email sent successfully via ${mailbox.smtp_from}`);
+        console.log(`[create-verification-and-send] Email sent successfully via ${mailbox.smtp_from} on attempt ${attemptCount}`);
 
         return new Response(
           JSON.stringify({ success: true, message: "Verification email sent" }),
@@ -305,22 +285,28 @@ If you didn't create an account with ${siteName}, you can safely ignore this ema
         );
       }
 
-      // Failed - log and mark unhealthy if permanent error
+      // Failed - record error so this mailbox is excluded from next select_available_mailbox call
       lastError = result.error || 'Unknown error';
-      console.error(`[create-verification-and-send] Mailbox ${mailbox.smtp_from} failed: ${lastError}`);
+      console.error(`[create-verification-and-send] Attempt ${attemptCount}: Mailbox ${mailbox.smtp_from} failed: ${lastError}`);
 
-      if (isPermanentError(lastError)) {
-        await supabase.rpc('record_mailbox_error', { 
-          p_mailbox_id: mailbox.mailbox_id, 
-          p_error: lastError 
-        });
-      }
+      // Record error - this makes the mailbox unavailable for the cooldown period
+      await supabase.rpc('record_mailbox_error', { 
+        p_mailbox_id: mailbox.mailbox_id, 
+        p_error: lastError 
+      });
 
       // Small delay before next attempt
-      await sleep(500);
+      await sleep(300);
     }
 
     // All database mailboxes failed - try env fallback
+    const envHost = Deno.env.get("SMTP_HOST");
+    const envPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
+    const envUser = Deno.env.get("SMTP_USER");
+    const envPass = Deno.env.get("SMTP_PASSWORD");
+    const envFrom = Deno.env.get("SMTP_FROM") || envUser;
+    const hasEnvFallback = envHost && envUser && envPass;
+
     if (hasEnvFallback) {
       attemptCount++;
       console.log(`[create-verification-and-send] Attempt ${attemptCount}: Trying env fallback ${envHost}`);
@@ -354,17 +340,16 @@ If you didn't create an account with ${siteName}, you can safely ignore this ema
       console.error(`[create-verification-and-send] Env fallback failed: ${lastError}`);
     }
 
-    // All attempts failed - return with warning but success (verification was created)
+    // All attempts failed - return failure (verification was created but email not sent)
     console.error(`[create-verification-and-send] All ${attemptCount} SMTP attempts failed`);
     
     return new Response(
       JSON.stringify({ 
-        success: true, 
-        warning: `Verification created but email failed to send after ${attemptCount} attempts`,
-        error: lastError,
-        token: rawToken
+        success: false, 
+        error: `Verification created but email failed to send after ${attemptCount} attempts. Last error: ${lastError}`,
+        verificationCreated: true
       }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error: any) {

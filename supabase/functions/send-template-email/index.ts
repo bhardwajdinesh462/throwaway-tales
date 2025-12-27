@@ -52,45 +52,29 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Get all available mailboxes for failover
-async function getAllMailboxes(supabase: any): Promise<MailboxConfig[]> {
-  const { data, error } = await supabase
-    .from('mailboxes')
-    .select('id, smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, last_error, last_error_at')
-    .eq('is_active', true)
-    .not('smtp_host', 'is', null)
-    .order('priority', { ascending: true });
-
-  if (error || !data) {
-    console.log('[send-template-email] No mailboxes found:', error?.message);
-    return [];
-  }
-
-  // Filter out mailboxes with recent errors (within 30 minutes)
-  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+// Get next available mailbox using RPC (handles encryption + limits + errors)
+async function getNextMailbox(supabase: any): Promise<MailboxConfig | null> {
+  const { data, error } = await supabase.rpc('select_available_mailbox');
   
-  return data
-    .filter((mb: any) => {
-      if (!mb.last_error_at) return true;
-      return mb.last_error_at < thirtyMinutesAgo;
-    })
-    .map((mb: any) => ({
-      mailbox_id: mb.id,
-      smtp_host: mb.smtp_host,
-      smtp_port: mb.smtp_port,
-      smtp_user: mb.smtp_user,
-      smtp_password: mb.smtp_password,
-      smtp_from: mb.smtp_from || mb.smtp_user,
-    }));
-}
-
-// Mark a mailbox as unhealthy
-async function markMailboxUnhealthy(supabase: any, mailboxId: string, errorMessage: string) {
-  console.log(`[send-template-email] Marking mailbox ${mailboxId} as unhealthy: ${errorMessage}`);
-  await supabase.rpc('record_mailbox_error', { 
-    p_mailbox_id: mailboxId, 
-    p_error: errorMessage 
-  });
+  if (error) {
+    console.log('[send-template-email] select_available_mailbox error:', error.message);
+    return null;
+  }
+  
+  if (!data || data.length === 0) {
+    console.log('[send-template-email] No available mailboxes from RPC');
+    return null;
+  }
+  
+  const mb = data[0];
+  return {
+    mailbox_id: mb.mailbox_id,
+    smtp_host: mb.smtp_host,
+    smtp_port: mb.smtp_port || 587,
+    smtp_user: mb.smtp_user,
+    smtp_password: mb.smtp_password,
+    smtp_from: mb.smtp_from || mb.smtp_user,
+  };
 }
 
 // Log email attempt
@@ -122,12 +106,6 @@ async function logEmailAttempt(supabase: any, params: {
   } catch (err) {
     console.error('[send-template-email] Failed to log email attempt:', err);
   }
-}
-
-// Check if error is permanent (don't retry with same mailbox)
-function isPermanentError(errorMessage: string): boolean {
-  const permanentErrors = ['535', '550', '551', '552', '553', '554', 'Authentication', 'auth failed', 'suspicious', 'blocked', 'blacklisted'];
-  return permanentErrors.some(e => errorMessage.includes(e));
 }
 
 // Try to send email with a specific mailbox config
@@ -236,15 +214,21 @@ serve(async (req: Request): Promise<Response> => {
 
     const template = templates[0];
 
-    // Fetch general settings for site name
-    const { data: settingsData } = await supabase
-      .from('app_settings')
-      .select('value')
-      .eq('key', 'general_settings')
-      .single();
+    // Fetch general settings for site name - check both keys
+    let siteName = 'Nullsto Temp Mail';
+    let siteUrl = 'https://nullsto.edu.pl';
 
-    const siteName = settingsData?.value?.siteName || 'Nullsto Temp Mail';
-    const siteUrl = settingsData?.value?.siteUrl || 'https://nullsto.edu.pl';
+    const { data: appSettings } = await supabase
+      .from('app_settings')
+      .select('key, value')
+      .in('key', ['general', 'general_settings']);
+
+    if (appSettings && appSettings.length > 0) {
+      for (const setting of appSettings) {
+        if (setting.value?.siteName) siteName = setting.value.siteName;
+        if (setting.value?.siteUrl) siteUrl = setting.value.siteUrl;
+      }
+    }
 
     // Replace template variables
     const replaceVariables = (text: string): string => {
@@ -303,32 +287,30 @@ serve(async (req: Request): Promise<Response> => {
       </html>
     `;
 
-    // Get all available mailboxes for failover
-    const mailboxes = await getAllMailboxes(supabase);
-    console.log(`[send-template-email] Found ${mailboxes.length} available mailboxes`);
-
-    // Check for env fallback
-    const envHost = Deno.env.get("SMTP_HOST");
-    const envPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
-    const envUser = Deno.env.get("SMTP_USER");
-    const envPass = Deno.env.get("SMTP_PASSWORD");
-    const envFrom = Deno.env.get("SMTP_FROM") || envUser;
-    const hasEnvFallback = envHost && envUser && envPass;
-
-    if (mailboxes.length === 0 && !hasEnvFallback) {
-      console.error('[send-template-email] No SMTP configuration available');
-      return new Response(
-        JSON.stringify({ success: false, error: "SMTP configuration incomplete. Please configure a mailbox in Admin > Mailboxes." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Try each mailbox with failover
-    let lastError: string | null = null;
+    // Track used mailbox IDs to avoid retrying the same one
+    const usedMailboxIds = new Set<string>();
+    const MAX_ATTEMPTS = 5;
     let attemptCount = 0;
+    let lastError: string | null = null;
 
-    for (const mailbox of mailboxes) {
+    // Try mailboxes with proper failover using RPC
+    while (attemptCount < MAX_ATTEMPTS) {
       attemptCount++;
+      
+      const mailbox = await getNextMailbox(supabase);
+      
+      if (!mailbox) {
+        console.log(`[send-template-email] Attempt ${attemptCount}: No more mailboxes available from RPC`);
+        break;
+      }
+      
+      // Skip if we've already tried this mailbox
+      if (usedMailboxIds.has(mailbox.mailbox_id)) {
+        console.log(`[send-template-email] Attempt ${attemptCount}: Skipping already-tried mailbox ${mailbox.mailbox_id}`);
+        continue;
+      }
+      
+      usedMailboxIds.add(mailbox.mailbox_id);
       console.log(`[send-template-email] Attempt ${attemptCount}: Trying mailbox ${mailbox.smtp_from} via ${mailbox.smtp_host}`);
 
       const result = await trySendEmail(
@@ -363,7 +345,7 @@ serve(async (req: Request): Promise<Response> => {
           attemptCount,
         });
 
-        console.log(`[send-template-email] Email sent successfully via ${mailbox.smtp_from}`);
+        console.log(`[send-template-email] Email sent successfully via ${mailbox.smtp_from} on attempt ${attemptCount}`);
 
         return new Response(
           JSON.stringify({ 
@@ -376,13 +358,15 @@ serve(async (req: Request): Promise<Response> => {
         );
       }
 
-      // Failed - log and mark unhealthy if permanent error
+      // Failed - record error so this mailbox is excluded from next select_available_mailbox call
       lastError = result.error || 'Unknown error';
-      console.error(`[send-template-email] Mailbox ${mailbox.smtp_from} failed: ${lastError}`);
+      console.error(`[send-template-email] Attempt ${attemptCount}: Mailbox ${mailbox.smtp_from} failed: ${lastError}`);
 
-      if (isPermanentError(lastError)) {
-        await markMailboxUnhealthy(supabase, mailbox.mailbox_id, lastError);
-      }
+      // Record error - this makes the mailbox unavailable for the cooldown period
+      await supabase.rpc('record_mailbox_error', { 
+        p_mailbox_id: mailbox.mailbox_id, 
+        p_error: lastError 
+      });
 
       // Log failed attempt
       await logEmailAttempt(supabase, {
@@ -398,10 +382,17 @@ serve(async (req: Request): Promise<Response> => {
       });
 
       // Small delay before next attempt
-      await sleep(500);
+      await sleep(300);
     }
 
     // All database mailboxes failed - try env fallback
+    const envHost = Deno.env.get("SMTP_HOST");
+    const envPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
+    const envUser = Deno.env.get("SMTP_USER");
+    const envPass = Deno.env.get("SMTP_PASSWORD");
+    const envFrom = Deno.env.get("SMTP_FROM") || envUser;
+    const hasEnvFallback = envHost && envUser && envPass;
+
     if (hasEnvFallback) {
       attemptCount++;
       console.log(`[send-template-email] Attempt ${attemptCount}: Trying env fallback ${envHost}`);

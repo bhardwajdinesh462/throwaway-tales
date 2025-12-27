@@ -89,20 +89,27 @@ export const useAppearanceSettings = () => {
     };
   }, []);
 
-  // Apply favicon dynamically
+  // Apply favicon dynamically with cache busting
   useEffect(() => {
     if (settings.faviconUrl) {
-      let faviconLink = document.querySelector('link[rel="icon"]') as HTMLLinkElement;
-      if (!faviconLink) {
-        faviconLink = document.createElement('link');
-        faviconLink.rel = 'icon';
-        document.head.appendChild(faviconLink);
-      }
-      faviconLink.href = settings.faviconUrl;
+      // Remove all existing favicon links
+      const existingLinks = document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"]');
+      existingLinks.forEach(link => link.remove());
+      
+      // Create new favicon link with cache busting
+      const faviconLink = document.createElement('link');
+      faviconLink.rel = 'icon';
+      faviconLink.type = 'image/x-icon';
+      // Add cache buster to force reload
+      const cacheBuster = `?v=${Date.now()}`;
+      faviconLink.href = settings.faviconUrl.includes('?') 
+        ? settings.faviconUrl + '&t=' + Date.now()
+        : settings.faviconUrl + cacheBuster;
+      document.head.appendChild(faviconLink);
     }
   }, [settings.faviconUrl]);
 
-  return { settings, isLoading };
+  return { settings, isLoading, refetch: () => {} };
 };
 
 export default useAppearanceSettings;

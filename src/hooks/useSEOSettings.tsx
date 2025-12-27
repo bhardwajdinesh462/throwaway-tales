@@ -133,8 +133,30 @@ export const useSEOSettings = () => {
     };
   }, [fetchSettings]);
 
+  // Path compatibility mapping for old vs new routes
+  const PATH_COMPAT_MAP: Record<string, string> = {
+    '/privacy': '/privacy-policy',
+    '/terms': '/terms-of-service',
+    '/cookies': '/cookie-policy',
+    '/features': '/premium-features',
+  };
+
   const getPageSEO = useCallback((path: string): PageSEO => {
-    return settings.pages[path] || { ...defaultPageSEO };
+    // Try direct path first
+    if (settings.pages[path]) {
+      return settings.pages[path];
+    }
+    // Try compat mapping (old path might have settings saved)
+    const compatPath = PATH_COMPAT_MAP[path];
+    if (compatPath && settings.pages[compatPath]) {
+      return settings.pages[compatPath];
+    }
+    // Try reverse compat (new path might have settings, looking up old)
+    const reverseEntry = Object.entries(PATH_COMPAT_MAP).find(([_, v]) => v === path);
+    if (reverseEntry && settings.pages[reverseEntry[0]]) {
+      return settings.pages[reverseEntry[0]];
+    }
+    return { ...defaultPageSEO };
   }, [settings.pages]);
 
   return { settings, isLoading, getPageSEO, defaultPageSEO, refetch: fetchSettings };

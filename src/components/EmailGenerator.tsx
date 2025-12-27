@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles } from "lucide-react";
+import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles, User, Shuffle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -40,6 +40,8 @@ const EmailGenerator = () => {
     generateCustomEmail,
     changeDomain,
     addCustomDomain,
+    usernameStyle,
+    setUsernameStyle,
   } = useEmailService();
   const { executeRecaptcha, isEnabled: captchaEnabled, isReady: captchaReady, loadError: captchaError, settings: captchaSettings } = useRecaptcha();
   const [copied, setCopied] = useState(false);
@@ -265,8 +267,42 @@ const EmailGenerator = () => {
                 </div>
               </motion.div>
               
-              {/* Domain Selector */}
+              {/* Domain Selector + Username Style Toggle */}
               <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-2">
+                {/* Username Style Toggle */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div>
+                      <Select 
+                        value={usernameStyle} 
+                        onValueChange={(value) => setUsernameStyle(value as 'human' | 'random')}
+                      >
+                        <SelectTrigger className="w-32 bg-card border-accent/30 text-sm shadow-lg">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="human">
+                            <span className="flex items-center gap-2">
+                              <User className="w-3 h-3" />
+                              Human-like
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="random">
+                            <span className="flex items-center gap-2">
+                              <Shuffle className="w-3 h-3" />
+                              Random
+                            </span>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Username style: Human-like (e.g., john.smith42) or Random (e.g., x8k3m2)</p>
+                  </TooltipContent>
+                </Tooltip>
+
+                {/* Domain Selector */}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div>

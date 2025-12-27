@@ -95,6 +95,7 @@ const AdminSidebar = () => {
   ];
 
   const contentMenuItems: MenuItem[] = [
+    { title: "Homepage", url: "/admin/homepage", icon: LayoutDashboard },
     { title: t('blogs'), url: "/admin/blogs", icon: Newspaper },
     { title: t('pages'), url: "/admin/pages", icon: FileText },
     { title: "Email Templates", url: "/admin/email-templates", icon: MailOpen },

@@ -2,10 +2,12 @@ import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Shield, Zap } from "lucide-react";
-import { useSettings } from "@/contexts/SettingsContext";
+import { useHomepageContent } from "@/hooks/useHomepageContent";
 
 const CTASection = () => {
-  const { general } = useSettings();
+  const { cta, isSectionEnabled } = useHomepageContent();
+
+  if (!isSectionEnabled("cta")) return null;
 
   return (
     <section className="py-12 relative overflow-hidden">
@@ -32,31 +34,36 @@ const CTASection = () => {
           </div>
 
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4 text-foreground">
-            Ready to Protect Your
-            <span className="gradient-text"> Privacy?</span>
+            {cta.headline.includes(' Privacy') ? (
+              <>
+                {cta.headline.split(' Privacy')[0]}
+                <span className="gradient-text"> Privacy{cta.headline.split(' Privacy')[1] || '?'}</span>
+              </>
+            ) : (
+              cta.headline
+            )}
           </h2>
 
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
-            Join over 1 million users who trust {general.siteName} for their temporary email needs. 
-            Start generating disposable emails today – it's completely free!
+            {cta.subtitle}
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/auth">
+            <Link to={cta.primaryButton.link}>
               <Button variant="hero" size="xl">
-                Generate Free Email
+                {cta.primaryButton.text}
                 <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
-            <Link to="/pricing">
+            <Link to={cta.secondaryButton.link}>
               <Button variant="glass" size="xl">
-                View Pricing
+                {cta.secondaryButton.text}
               </Button>
             </Link>
           </div>
 
           <p className="text-sm text-muted-foreground mt-6">
-            No credit card required • Unlimited free emails • Instant setup
+            {cta.footerText}
           </p>
         </motion.div>
       </div>

@@ -114,6 +114,7 @@ const AdminStatusSettings = lazyWithRetry(() => import("./pages/admin/AdminStatu
 const AdminFriendlyWebsites = lazyWithRetry(() => import("./pages/admin/AdminFriendlyWebsites"));
 const AdminBackup = lazyWithRetry(() => import("./pages/admin/AdminBackup"));
 const AdminPricing = lazyWithRetry(() => import("./pages/admin/AdminPricing"));
+const AdminHomepage = lazyWithRetry(() => import("./pages/admin/AdminHomepage"));
 
 // Redirect www to non-www
 if (typeof window !== 'undefined' && window.location.hostname.startsWith('www.')) {

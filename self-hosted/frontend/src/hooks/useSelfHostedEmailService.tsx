@@ -8,6 +8,7 @@ interface EmailServiceState {
   inbox: ReceivedEmail[];
   isLoading: boolean;
   error: string | null;
+  isConnected: boolean;
   pagination: {
     page: number;
     limit: number;
@@ -30,7 +31,8 @@ interface UseEmailServiceReturn extends EmailServiceState {
 }
 
 const STORAGE_KEY = 'temp_email_data';
-const POLL_INTERVAL = 2000; // 2 seconds for instant email delivery
+const POLL_INTERVAL = 5000; // Fallback polling interval (5 seconds)
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 export function useEmailService(): UseEmailServiceReturn {
   const [state, setState] = useState<EmailServiceState>({
@@ -40,6 +42,7 @@ export function useEmailService(): UseEmailServiceReturn {
     inbox: [],
     isLoading: true,
     error: null,
+    isConnected: false,
     pagination: {
       page: 1,
       limit: 20,
@@ -49,6 +52,8 @@ export function useEmailService(): UseEmailServiceReturn {
   });
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load domains on mount
   useEffect(() => {
@@ -56,21 +61,24 @@ export function useEmailService(): UseEmailServiceReturn {
     loadStoredEmail();
 
     return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
+      stopPolling();
+      disconnectSSE();
     };
   }, []);
 
-  // Start polling when we have a valid email
+  // Start real-time connection when we have a valid email
   useEffect(() => {
     if (state.currentEmail?.token) {
-      startPolling();
+      connectSSE();
     } else {
+      disconnectSSE();
       stopPolling();
     }
 
-    return () => stopPolling();
+    return () => {
+      disconnectSSE();
+      stopPolling();
+    };
   }, [state.currentEmail?.token]);
 
   const loadDomains = async () => {
@@ -143,6 +151,62 @@ export function useEmailService(): UseEmailServiceReturn {
         error: error instanceof Error ? error.message : 'Failed to fetch inbox',
       }));
     }
+  };
+
+  // Connect to SSE for real-time updates
+  const connectSSE = () => {
+    if (!state.currentEmail?.token) return;
+    
+    disconnectSSE();
+    
+    const sseUrl = `${API_BASE}/emails/websocket.php?token=${encodeURIComponent(state.currentEmail.token)}`;
+    console.log('[SSE] Connecting to:', sseUrl);
+    
+    const eventSource = new EventSource(sseUrl);
+    eventSourceRef.current = eventSource;
+
+    eventSource.addEventListener('connected', () => {
+      console.log('[SSE] Connected');
+      setState(prev => ({ ...prev, isConnected: true }));
+      stopPolling(); // Stop polling when SSE is connected
+    });
+
+    eventSource.addEventListener('new_email', (event: MessageEvent) => {
+      try {
+        const email = JSON.parse(event.data);
+        console.log('[SSE] New email:', email);
+        // Refresh inbox to get full email data
+        if (state.currentEmail?.token) {
+          fetchInbox(state.currentEmail.token, state.currentEmail.email, 1);
+        }
+      } catch (e) {
+        console.error('[SSE] Parse error:', e);
+      }
+    });
+
+    eventSource.onerror = () => {
+      console.log('[SSE] Connection error, falling back to polling');
+      setState(prev => ({ ...prev, isConnected: false }));
+      disconnectSSE();
+      startPolling(); // Fallback to polling
+    };
+
+    eventSource.addEventListener('reconnect', () => {
+      disconnectSSE();
+      setTimeout(connectSSE, 1000);
+    });
+  };
+
+  const disconnectSSE = () => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    setState(prev => ({ ...prev, isConnected: false }));
   };
 
   const startPolling = () => {

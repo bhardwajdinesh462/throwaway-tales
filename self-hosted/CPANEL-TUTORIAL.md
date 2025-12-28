@@ -1,303 +1,441 @@
-# cPanel Deployment Tutorial Script
+# cPanel Deployment Tutorial
 
-## Video Tutorial: Deploy Self-Hosted Temp Email on cPanel
+## Deploy Self-Hosted Temp Email on cPanel
 
-**Duration:** ~15 minutes
+**Duration:** ~20 minutes  
 **Difficulty:** Beginner-friendly
 
 ---
 
-## INTRO (0:00 - 0:30)
+## INTRO
 
-**[Screen: Title card with logo]**
-
-**Narrator:**
-"Welcome! In this tutorial, I'll show you exactly how to deploy your self-hosted temporary email system on any shared hosting with cPanel. By the end, you'll have a fully working temp email service on your own domain. Let's get started!"
-
----
-
-## PART 1: REQUIREMENTS CHECK (0:30 - 1:30)
-
-**[Screen: cPanel dashboard]**
-
-**Narrator:**
-"First, let's make sure your hosting meets the requirements. Log into your cPanel and check these things:"
-
-**[Show: PHP Selector]**
-
-1. "Go to 'Select PHP Version' - you need PHP 8.0 or higher. I recommend PHP 8.1."
-2. "Make sure these extensions are enabled: pdo_mysql, openssl, json, mbstring, imap, and curl."
-3. "Click 'Save' if you made any changes."
-
-**[Show: MySQL version in phpMyAdmin]**
-
-4. "Your hosting should have MySQL 8.0. Most modern hosts do."
+This guide walks you through deploying your self-hosted temporary email system on any shared hosting with cPanel. By the end, you'll have a fully working temp email service with:
+- **Instant email delivery** via webhooks (recommended)
+- **Real-time updates** via Server-Sent Events
+- **Fallback polling** via IMAP
 
 ---
 
-## PART 2: DATABASE SETUP (1:30 - 4:00)
+## PART 1: REQUIREMENTS CHECK
 
-**[Screen: cPanel > MySQL Databases]**
+**Navigate to cPanel and verify:**
 
-**Narrator:**
-"Now let's create the database. Go to 'MySQL Databases' in cPanel."
+### PHP Version
+1. Go to **Select PHP Version**
+2. Select **PHP 8.1** or higher (8.2 recommended)
+3. Enable these extensions:
+   - `pdo_mysql` (required)
+   - `openssl` (required)
+   - `json` (required)
+   - `mbstring` (required)
+   - `curl` (required)
+   - `imap` (optional - for IMAP polling fallback)
+4. Click **Save**
 
-**Step 1: Create Database**
-- "Type a name for your database, like 'tempemail'"
-- "Click 'Create Database'"
-
-**Step 2: Create User**
-- "Scroll down to 'MySQL Users'"
-- "Enter a username and generate a strong password"
-- "Click 'Create User'"
-- "IMPORTANT: Copy this password - you'll need it later!"
-
-**Step 3: Add User to Database**
-- "In 'Add User to Database', select your user and database"
-- "Click 'Add'"
-- "Check 'ALL PRIVILEGES' and click 'Make Changes'"
-
-**[Screen: phpMyAdmin]**
-
-**Step 4: Import Schema**
-- "Now open phpMyAdmin from cPanel"
-- "Click on your database on the left"
-- "Go to the 'Import' tab"
-- "Click 'Choose File' and select `schema.mysql.sql` from the self-hosted/database folder"
-- "Click 'Go' at the bottom"
-- "Wait for the import to complete - you should see a success message"
-
-**Step 5: Import Seed Data**
-- "Click 'Import' again"
-- "This time, import `seed-data.sql`"
-- "This adds your default domains and settings"
+### MySQL Version
+- Verify MySQL 8.0+ in phpMyAdmin (most modern hosts have this)
 
 ---
 
-## PART 3: UPLOAD FILES (4:00 - 6:00)
+## PART 2: DATABASE SETUP
 
-**[Screen: cPanel > File Manager]**
+### Step 1: Create Database
+1. Open **MySQL Databases** in cPanel
+2. Create a new database (e.g., `yourusername_tempemail`)
+3. Create a new user with a strong password
+4. Add the user to the database with **ALL PRIVILEGES**
 
-**Narrator:**
-"Time to upload the files. Open 'File Manager' in cPanel."
+### Step 2: Import Schema
+1. Open **phpMyAdmin**
+2. Select your new database
+3. Go to **Import** tab
+4. Import these files in order:
 
-**Step 1: Navigate to public_html**
-- "Click on 'public_html' - this is your website's root folder"
+**First:** `database/schema.mysql.sql` (main schema)
+```
+This creates all tables, triggers, and events
+```
 
-**Step 2: Upload API Files**
-- "Create a new folder called 'api'"
-- "Open the 'api' folder"
-- "Click 'Upload' and upload all files from `self-hosted/api/`"
-- "Make sure to preserve the folder structure - upload the entire contents"
+**Second:** `database/seed-data.sql` (default data)
+```
+This adds default domains and settings
+```
 
-**Step 3: Upload Uploads Folder**
-- "Go back to public_html"
-- "Create folder 'uploads'"
-- "Inside uploads, create 'attachments', 'avatars', and 'backups' folders"
+**Third:** `database/optimize.sql` (performance + webhooks)
+```
+This adds webhook tables, indexes, and stored procedures
+```
 
-**Step 4: Configure API**
-- "In the api folder, find 'config.example.php'"
-- "Right-click and select 'Copy'"
-- "Name the copy 'config.php'"
-- "Right-click 'config.php' and click 'Edit'"
-
-**[Screen: Editing config.php]**
-
-"Update these settings:
-- Database host: usually 'localhost'
-- Database name: your database name
-- Database username: the user you created
-- Database password: the password you saved
-- App URL: your domain like 'https://yourdomain.com'
-- Generate a random JWT secret - I use a password generator
-- Generate another random encryption key
-- Update IMAP settings with your email server details"
-
-"Save and close the file."
+### Step 3: Enable Event Scheduler
+In phpMyAdmin SQL tab, run:
+```sql
+SET GLOBAL event_scheduler = ON;
+```
+> Note: Some shared hosts may not allow this. The system will still work, but automatic cleanup won't run.
 
 ---
 
-## PART 4: BUILD & UPLOAD FRONTEND (6:00 - 8:30)
+## PART 3: UPLOAD FILES
 
-**[Screen: Terminal/VS Code]**
+### Step 1: Upload API Files
+1. Open **File Manager** in cPanel
+2. Navigate to `public_html`
+3. Create folder: `api`
+4. Upload all contents from `self-hosted/api/` to `public_html/api/`
+5. Preserve folder structure (auth/, core/, emails/, cron/, etc.)
 
-**Narrator:**
-"Now let's build the frontend. Open the self-hosted/frontend folder in your terminal."
+### Step 2: Create Uploads Directory
+```
+public_html/
+├── api/
+└── uploads/
+    ├── attachments/
+    ├── avatars/
+    └── backups/
+```
 
+### Step 3: Upload .htaccess
+Upload `self-hosted/.htaccess` to `public_html/`
+
+---
+
+## PART 4: CONFIGURE API
+
+### Step 1: Create Config File
+1. In `public_html/api/`, copy `config.example.php` to `config.php`
+2. Edit `config.php` with your settings:
+
+```php
+return [
+    // DATABASE
+    'database' => [
+        'host' => 'localhost',
+        'port' => 3306,
+        'name' => 'yourusername_tempemail',
+        'username' => 'your_db_user',
+        'password' => 'your_db_password',
+        'charset' => 'utf8mb4',
+    ],
+
+    // APPLICATION
+    'app' => [
+        'name' => 'Temp Email',
+        'url' => 'https://yourdomain.com',
+        'debug' => false,  // Set true temporarily if debugging
+        'timezone' => 'UTC',
+    ],
+
+    // SECURITY (Generate these: openssl rand -hex 32)
+    'security' => [
+        'jwt_secret' => 'GENERATE_RANDOM_64_CHAR_STRING',
+        'jwt_expiry_hours' => 24,
+        'encryption_key' => 'GENERATE_ANOTHER_RANDOM_STRING',
+        'allowed_origins' => [
+            'https://yourdomain.com',
+        ],
+    ],
+
+    // WEBHOOKS (for instant email delivery - RECOMMENDED)
+    'webhooks' => [
+        'enabled' => true,
+        'secrets' => [
+            // Add your provider's secret here
+            // 'mailgun' => 'your-mailgun-api-key',
+            // 'sendgrid' => 'your-sendgrid-webhook-secret',
+            // 'postmark' => 'your-postmark-server-token',
+            // 'custom' => 'your-custom-secret',
+        ],
+    ],
+
+    // IMAP (fallback if webhooks not available)
+    'imap' => [
+        'enabled' => true,
+        'host' => 'mail.yourdomain.com',
+        'port' => 993,
+        'username' => 'catchall@yourdomain.com',
+        'password' => 'your_imap_password',
+        'encryption' => 'ssl',
+        'folder' => 'INBOX',
+        'poll_interval' => 120,
+        'max_emails_per_poll' => 50,
+    ],
+
+    // SMTP (for sending verification emails)
+    'smtp' => [
+        'enabled' => true,
+        'host' => 'mail.yourdomain.com',
+        'port' => 587,
+        'username' => 'noreply@yourdomain.com',
+        'password' => 'your_smtp_password',
+        'encryption' => 'tls',
+        'from_email' => 'noreply@yourdomain.com',
+        'from_name' => 'Temp Email',
+    ],
+
+    // RATE LIMITING
+    'rate_limits' => [
+        'emails_per_hour' => 20,
+        'api_per_minute' => 60,
+        'webhook_per_minute' => 100,
+        'login_attempts' => 5,
+        'lockout_minutes' => 15,
+    ],
+];
+```
+
+---
+
+## PART 5: BUILD & UPLOAD FRONTEND
+
+### On Your Local Machine
 ```bash
+cd self-hosted/frontend
+
 # Install dependencies
 npm install
 
-# Create .env file
+# Create environment file
 cp .env.example .env
 
-# Edit .env - set VITE_API_URL=/api
+# Edit .env
+VITE_API_URL=/api
 
 # Build for production
 npm run build
 ```
 
-**[Screen: cPanel File Manager]**
+### Upload to cPanel
+1. Upload contents of `dist/` folder to `public_html/`:
+   - `index.html`
+   - `assets/` folder
+   - Any other generated files
 
-"The build creates a 'dist' folder. Upload everything inside 'dist' to your public_html folder."
-
-- "Upload index.html"
-- "Upload the assets folder"
-- "Upload any other files in dist"
-
-**Step 5: Upload .htaccess**
-- "From self-hosted folder, upload the .htaccess file to public_html"
-- "This handles routing for the React app"
-
----
-
-## PART 5: SET PERMISSIONS (8:30 - 9:30)
-
-**[Screen: cPanel File Manager]**
-
-**Narrator:**
-"Let's set the correct file permissions."
-
-**For uploads folder:**
-- "Right-click the 'uploads' folder"
-- "Select 'Change Permissions'"
-- "Set to 755 for the folder"
-- "The api/config.php should be 644 - readable but not publicly accessible"
-
-**Verify .htaccess:**
-- "Make sure the .htaccess file in the api folder is uploaded"
-- "This protects your config.php from direct access"
-
----
-
-## PART 6: SETUP CRON JOB (9:30 - 11:00)
-
-**[Screen: cPanel > Cron Jobs]**
-
-**Narrator:**
-"The cron job is what fetches emails from your mail server. Go to 'Cron Jobs' in cPanel."
-
-**Add IMAP Polling Cron:**
-- "Set timing to 'Every 2 minutes': put `*/2` in minute, and `*` in all others"
-- "For the command, enter:"
-
+2. Your final structure should be:
 ```
-/usr/bin/php /home/YOURUSERNAME/public_html/api/imap/poll.php >> /home/YOURUSERNAME/logs/imap.log 2>&1
-```
-
-- "Replace YOURUSERNAME with your actual cPanel username"
-- "Click 'Add New Cron Job'"
-
-**Add Cleanup Cron:**
-- "Add another cron for daily cleanup at 3 AM:"
-- "Set minute to 0, hour to 3, and `*` for day, month, weekday"
-
-```
-/usr/bin/php /home/YOURUSERNAME/public_html/api/cron/cleanup.php >> /home/YOURUSERNAME/logs/cleanup.log 2>&1
+public_html/
+├── index.html
+├── assets/
+├── api/
+│   ├── config.php
+│   ├── auth/
+│   ├── core/
+│   ├── emails/
+│   ├── cron/
+│   └── ...
+├── uploads/
+└── .htaccess
 ```
 
 ---
 
-## PART 7: EMAIL SERVER SETUP (11:00 - 13:00)
+## PART 6: SET PERMISSIONS
 
-**[Screen: cPanel > Email Accounts]**
+### File Manager Permissions
+| Path | Permission |
+|------|------------|
+| `uploads/` | 755 |
+| `uploads/attachments/` | 755 |
+| `uploads/avatars/` | 755 |
+| `uploads/backups/` | 755 |
+| `api/config.php` | 644 |
 
-**Narrator:**
-"For receiving emails, you need to set up a catch-all email."
-
-**Option A: Use cPanel Email (Simple)**
-
-1. "Go to 'Email Accounts' and create an email like `catchall@yourdomain.com`"
-2. "Go to 'Default Address' (Email Routing)"
-3. "Set it to forward all unrouted emails to your catchall account"
-4. "Update your config.php with the IMAP settings:
-   - Host: mail.yourdomain.com
-   - Port: 993
-   - Username: catchall@yourdomain.com
-   - Password: the email account password"
-
-**Option B: Use External Service (Advanced)**
-
-"Alternatively, use a service like Mailgun or SendGrid with webhooks for instant delivery."
+### Verify .htaccess Protection
+The `.htaccess` in `api/` folder blocks direct access to `config.php`:
+```apache
+<Files "config.php">
+    Order Allow,Deny
+    Deny from all
+</Files>
+```
 
 ---
 
-## PART 8: TEST YOUR SETUP (13:00 - 14:30)
+## PART 7: EMAIL DELIVERY SETUP
 
-**[Screen: Browser showing the website]**
+You have two options for receiving emails:
 
-**Narrator:**
-"Let's test everything!"
+### Option A: Webhooks (RECOMMENDED - Instant Delivery)
 
-1. "Visit your domain - you should see the temp email homepage"
-2. "Click 'Generate Email' - a new temporary email should be created"
-3. "Copy that email address"
-4. "Send a test email to it from your personal email"
-5. "Wait 2-3 minutes for the cron job to run"
-6. "Refresh the inbox - your email should appear!"
+Configure your email provider to send webhooks to:
+```
+https://yourdomain.com/api/emails/webhook.php
+```
 
-**If something doesn't work:**
-- "Check the cron logs in your logs folder"
-- "Enable debug mode in config.php to see detailed errors"
-- "Verify your IMAP credentials are correct"
+**Supported Providers:**
+- **Mailgun**: Settings → Webhooks → Add inbound webhook
+- **SendGrid**: Settings → Inbound Parse → Add Host & URL
+- **Postmark**: Servers → Inbound → Set webhook URL
+- **ForwardEmail.net**: Domain settings → Add webhook
+- **Custom**: Any service that POSTs email data
 
----
+See `WEBHOOK-SETUP.md` for detailed provider instructions.
 
-## PART 9: FIRST ADMIN SETUP (14:30 - 15:00)
+### Option B: IMAP Polling (Fallback - 2 min delay)
 
-**[Screen: Website registration page]**
+If webhooks aren't available, set up IMAP polling:
 
-**Narrator:**
-"Finally, let's set up your admin account."
+1. Create catch-all email in cPanel (**Email** → **Default Address**)
+2. Set up cron job in cPanel (**Cron Jobs**):
 
-1. "Register a new account on your site"
-2. "Go to phpMyAdmin"
-3. "Find the user_roles table"
-4. "Insert a new row with your user_id and role 'admin'"
-5. "Now you have full admin access!"
+**IMAP Poll (every 2 minutes):**
+```
+*/2 * * * * /usr/bin/php /home/YOURUSERNAME/public_html/api/imap/poll.php >> /home/YOURUSERNAME/logs/imap.log 2>&1
+```
 
----
+**Daily Cleanup (3 AM):**
+```
+0 3 * * * /usr/bin/php /home/YOURUSERNAME/public_html/api/cron/cleanup.php >> /home/YOURUSERNAME/logs/cleanup.log 2>&1
+```
 
-## OUTRO (15:00 - 15:30)
+**Session Cleanup (every hour):**
+```
+0 * * * * /usr/bin/php /home/YOURUSERNAME/public_html/api/cron/sessions.php >> /home/YOURUSERNAME/logs/sessions.log 2>&1
+```
 
-**[Screen: Completed website]**
-
-**Narrator:**
-"Congratulations! You now have a fully self-hosted temporary email service running on your own domain. 
-
-Here's what to do next:
-- Add more domains in the admin panel
-- Customize the appearance
-- Set up SSL if you haven't already
-- Consider upgrading to a VPS for higher traffic
-
-Thanks for watching! If you found this helpful, give it a thumbs up and subscribe for more tutorials."
+> Replace `YOURUSERNAME` with your cPanel username
 
 ---
 
-## TROUBLESHOOTING APPENDIX
+## PART 8: TEST YOUR SETUP
 
-**Common Issues:**
+### Basic Tests
+1. Visit `https://yourdomain.com` - homepage should load
+2. Click **Generate Email** - a temp address should appear
+3. Copy the email address
 
-1. **500 Error on API calls**
-   - Check PHP error logs in cPanel
-   - Verify config.php syntax is correct
-   - Ensure all required PHP extensions are enabled
+### Test Email Delivery
 
-2. **Emails not appearing**
-   - Check cron job is running (look for recent log entries)
-   - Verify IMAP credentials in config.php
-   - Make sure catch-all is properly configured
+**If using webhooks:**
+```bash
+# Test webhook endpoint
+curl -X POST https://yourdomain.com/api/emails/webhook.php \
+  -H "Content-Type: application/json" \
+  -H "X-Webhook-Secret: your-secret" \
+  -d '{
+    "recipient": "test@yourdomain.com",
+    "from": "sender@example.com",
+    "subject": "Test Email",
+    "body_plain": "This is a test"
+  }'
+```
 
-3. **"Class not found" errors**
-   - File paths may be wrong - check they match your folder structure
-   - PHP version might be too old - upgrade to 8.0+
+**If using IMAP:**
+1. Send an email to the generated address
+2. Wait 2-3 minutes for cron to run
+3. Refresh inbox
 
-4. **CORS errors in browser**
-   - Check .htaccess files are uploaded correctly
-   - Verify API URL in frontend .env matches your setup
+### Check Webhook Logs (Admin Panel)
+Navigate to **Admin → Webhooks** to see incoming webhook activity.
 
-5. **Can't login**
-   - Clear browser cache and cookies
-   - Check sessions table in database
-   - Verify JWT secret in config.php is set
+### Real-Time Updates
+The inbox should update automatically without refreshing when new emails arrive (via SSE).
+
+---
+
+## PART 9: ADMIN SETUP
+
+### Create Admin Account
+1. Register a new account on your site
+2. Open **phpMyAdmin**
+3. Navigate to the `user_roles` table
+4. Find your user in the `users` table, copy the `id`
+5. Insert a new row:
+   - `id`: (auto-generated)
+   - `user_id`: your user ID
+   - `role`: `admin`
+   - `granted_at`: (current timestamp)
+
+### Access Admin Panel
+Navigate to `https://yourdomain.com/admin`
+
+---
+
+## CONGRATULATIONS!
+
+Your self-hosted temp email system is now running with:
+- ✅ Instant webhook email delivery
+- ✅ Real-time browser updates
+- ✅ Optimized database
+- ✅ Automatic cleanup
+
+### Next Steps
+- Add more domains in Admin → Domains
+- Configure appearance in Admin → Appearance
+- Set up Stripe payments in Admin → Payments (optional)
+- Review webhook logs in Admin → Webhooks
+
+---
+
+## TROUBLESHOOTING
+
+### 500 Error on API Calls
+- Check PHP error logs in cPanel → Errors
+- Verify `config.php` syntax: `php -l api/config.php`
+- Ensure all required PHP extensions are enabled
+- Check file permissions
+
+### Emails Not Appearing
+
+**Webhook issues:**
+```sql
+-- Check webhook logs
+SELECT * FROM webhook_logs ORDER BY created_at DESC LIMIT 20;
+```
+
+**IMAP issues:**
+- Check cron log: `tail -f ~/logs/imap.log`
+- Verify IMAP credentials
+- Test IMAP connection manually
+
+### Real-Time Updates Not Working
+- SSE requires `keep-alive` connections
+- Some shared hosts may timeout long connections
+- Check browser console for SSE errors
+- Falls back to polling automatically
+
+### "Class not found" Errors
+- Verify file structure matches expected paths
+- Check PHP version (8.0+ required)
+- Ensure all files were uploaded
+
+### CORS Errors
+- Verify `allowed_origins` in `config.php`
+- Check `.htaccess` is uploaded
+- Ensure `https://` matches your actual URL
+
+### Can't Login
+- Clear browser cache
+- Check `sessions` table in database
+- Verify `jwt_secret` is set
+
+### Database Errors
+```sql
+-- Check for missing tables
+SHOW TABLES;
+
+-- Repair if needed
+REPAIR TABLE received_emails;
+ANALYZE TABLE received_emails;
+```
+
+### Performance Issues
+```sql
+-- Run optimization
+SOURCE database/optimize.sql;
+
+-- Check slow queries
+SHOW PROCESSLIST;
+```
+
+---
+
+## SECURITY CHECKLIST
+
+- [ ] Changed default admin password
+- [ ] Generated unique `jwt_secret` (64 chars)
+- [ ] Generated unique `encryption_key` (64 chars)
+- [ ] SSL/HTTPS enabled
+- [ ] `config.php` is not web-accessible
+- [ ] Webhook secrets configured
+- [ ] Rate limiting enabled
+- [ ] Regular backups scheduled

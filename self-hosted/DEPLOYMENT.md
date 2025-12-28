@@ -3,10 +3,10 @@
 ## Quick Start
 
 ### 1. Server Requirements
-- PHP 8.0+ with extensions: `pdo_mysql`, `openssl`, `imap`, `json`, `mbstring`, `curl`
+- PHP 8.0+ with extensions: `pdo_mysql`, `openssl`, `json`, `mbstring`, `curl`, `imap` (optional)
 - MySQL 8.0+
 - Apache with `mod_rewrite` enabled
-- SSL certificate (strongly recommended)
+- SSL certificate (required for production)
 
 ### 2. Database Setup
 
@@ -18,10 +18,11 @@ GRANT ALL PRIVILEGES ON temp_email.* TO 'tempemail'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-2. Import schema:
+2. Import schema files (in order):
 ```bash
 mysql -u tempemail -p temp_email < database/schema.mysql.sql
 mysql -u tempemail -p temp_email < database/seed-data.sql
+mysql -u tempemail -p temp_email < database/optimize.sql
 ```
 
 ### 3. Configure API
@@ -35,7 +36,9 @@ cp api/config.example.php api/config.php
 - Database credentials
 - JWT secret (generate: `openssl rand -hex 32`)
 - Encryption key (generate: `openssl rand -hex 32`)
-- SMTP/IMAP settings
+- Webhook secrets (for instant email delivery)
+- IMAP settings (fallback if webhooks unavailable)
+- SMTP settings (for verification emails)
 - Stripe keys (if using payments)
 
 ### 4. Build Frontend
@@ -43,6 +46,8 @@ cp api/config.example.php api/config.php
 ```bash
 cd frontend
 npm install
+cp .env.example .env
+# Edit .env: VITE_API_URL=/api
 npm run build
 ```
 
@@ -61,25 +66,42 @@ public_html/
 
 ```bash
 chmod 755 api/
-chmod 777 uploads/
-chmod 777 uploads/attachments/
-chmod 777 uploads/backups/
+chmod 755 uploads/
+chmod 755 uploads/attachments/
+chmod 755 uploads/backups/
+chmod 644 api/config.php
 ```
 
-### 7. Setup Cron Job (cPanel)
+### 7. Setup Email Delivery
 
+#### Option A: Webhooks (Recommended - Instant Delivery)
+Configure your email provider to POST to:
+```
+https://yourdomain.com/api/emails/webhook.php
+```
+
+See `WEBHOOK-SETUP.md` for detailed provider instructions.
+
+#### Option B: IMAP Polling (Fallback - 2 min delay)
 Add cron job for IMAP polling (every 2 minutes):
 ```
-*/2 * * * * /usr/bin/php /home/username/public_html/api/imap/poll.php >> /home/username/logs/imap.log 2>&1
+*/2 * * * * /usr/bin/php /path/to/api/imap/poll.php >> /path/to/logs/imap.log 2>&1
+```
+
+Add cron job for cleanup (daily at 3 AM):
+```
+0 3 * * * /usr/bin/php /path/to/api/cron/cleanup.php >> /path/to/logs/cleanup.log 2>&1
 ```
 
 ### 8. First Login
 
 - URL: `https://yourdomain.com/auth`
-- Email: `admin@yourdomain.com`
-- Password: `Admin123!`
-
-**⚠️ CHANGE THE ADMIN PASSWORD IMMEDIATELY!**
+- Register a new account
+- Assign admin role in database:
+```sql
+INSERT INTO user_roles (user_id, role) 
+SELECT id, 'admin' FROM users WHERE email = 'your@email.com';
+```
 
 ---
 
@@ -91,6 +113,7 @@ Add cron job for IMAP polling (every 2 minutes):
 - Check PHP error logs
 - Verify `.htaccess` is enabled
 - Check file permissions
+- Validate `config.php` syntax
 
 **Database Connection Failed**
 - Verify credentials in `config.php`
@@ -98,22 +121,29 @@ Add cron job for IMAP polling (every 2 minutes):
 - Test connection: `mysql -u user -p database`
 
 **Emails Not Receiving**
-- Check IMAP credentials
+- Check webhook logs: `SELECT * FROM webhook_logs ORDER BY created_at DESC`
+- Check IMAP credentials (if using polling)
 - Verify cron job is running
 - Check `cron_runs` table for errors
 
 **CORS Errors**
-- Update `ALLOWED_ORIGINS` in `config.php`
+- Update `allowed_origins` in `config.php`
+
+**Real-Time Updates Not Working**
+- SSE requires persistent connections
+- Some shared hosts timeout long connections
+- System falls back to polling automatically
 
 ---
 
 ## Security Checklist
 
 - [ ] Changed default admin password
-- [ ] Set strong JWT secret
-- [ ] Set strong encryption key
+- [ ] Set strong JWT secret (64 characters)
+- [ ] Set strong encryption key (64 characters)
 - [ ] Enabled SSL/HTTPS
 - [ ] Disabled directory listing
 - [ ] Set proper file permissions
+- [ ] Configured webhook signature verification
 - [ ] Configured rate limiting
 - [ ] Set up regular backups

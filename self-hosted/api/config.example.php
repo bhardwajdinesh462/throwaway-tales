@@ -3,6 +3,7 @@
  * Self-Hosted Temp Email - Configuration
  * 
  * Copy this file to config.php and update with your settings
+ * Generate secrets: openssl rand -hex 32
  */
 
 return [
@@ -47,8 +48,40 @@ return [
     ],
 
     // ===========================================
-    // EMAIL / IMAP
+    // WEBHOOKS (Instant Email Delivery)
     // ===========================================
+    // Configure your email provider to POST to:
+    // https://yourdomain.com/api/emails/webhook.php
+    'webhooks' => [
+        'enabled' => true,
+        
+        // Provider signature secrets for verification
+        // Leave empty to disable verification (not recommended)
+        'secrets' => [
+            // 'mailgun' => 'your-mailgun-api-key',
+            // 'sendgrid' => 'your-sendgrid-webhook-signing-secret',
+            // 'postmark' => 'your-postmark-server-token',
+            // 'forwardemail' => 'your-forwardemail-secret',
+            // 'custom' => 'your-custom-X-Webhook-Secret-header-value',
+        ],
+        
+        // Rate limiting for webhook endpoint
+        'rate_limit_per_minute' => 100,
+    ],
+
+    // ===========================================
+    // REAL-TIME UPDATES (Server-Sent Events)
+    // ===========================================
+    'realtime' => [
+        'enabled' => true,
+        'poll_interval_ms' => 3000, // How often SSE checks for new emails
+        'connection_timeout' => 30, // Max SSE connection time in seconds
+    ],
+
+    // ===========================================
+    // EMAIL / IMAP (Fallback polling)
+    // ===========================================
+    // Only needed if webhooks are not available
     'imap' => [
         'enabled' => true,
         'host' => 'mail.yourdomain.com',
@@ -90,6 +123,7 @@ return [
     'rate_limits' => [
         'emails_per_hour' => 20,
         'api_per_minute' => 60,
+        'webhook_per_minute' => 100,
         'login_attempts' => 5,
         'lockout_minutes' => 15,
     ],

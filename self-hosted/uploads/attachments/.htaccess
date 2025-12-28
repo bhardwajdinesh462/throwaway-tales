@@ -1,0 +1,10 @@
+# Deny direct access to attachments
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+# For older Apache versions
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+</IfModule>

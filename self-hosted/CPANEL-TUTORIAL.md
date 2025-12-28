@@ -436,7 +436,7 @@ Navigate to `https://yourdomain.com/admin`
 Your self-hosted temp email system is now running with:
 - ✅ SSL/HTTPS encryption
 - ✅ Instant webhook email delivery
-- ✅ Real-time browser updates
+- ✅ Real-time browser updates (SSE)
 - ✅ Optimized database
 - ✅ Automatic cleanup
 
@@ -445,7 +445,102 @@ Your self-hosted temp email system is now running with:
 - Configure appearance in Admin → Appearance
 - Set up Stripe payments in Admin → Payments (optional)
 - Review webhook logs in Admin → Webhooks
-- Set up automated backups
+- **Set up automated backups** - See `BACKUP.md`
+
+---
+
+## PART 11: AUTOMATED BACKUPS
+
+Set up daily automatic backups to protect your data.
+
+### Step 1: Create Backup Script
+
+In cPanel File Manager, create `~/backup.sh`:
+
+```bash
+#!/bin/bash
+DB_USER="your_db_user"
+DB_PASS="your_db_password"
+DB_NAME="your_database"
+BACKUP_DIR="/home/YOURUSERNAME/backups"
+WEB_DIR="/home/YOURUSERNAME/public_html"
+
+mkdir -p $BACKUP_DIR
+TIMESTAMP=$(date +%Y%m%d)
+
+# Backup database
+mysqldump -u $DB_USER -p$DB_PASS $DB_NAME | gzip > $BACKUP_DIR/db_$TIMESTAMP.sql.gz
+
+# Backup config and uploads
+tar -czf $BACKUP_DIR/files_$TIMESTAMP.tar.gz -C $WEB_DIR api/config.php uploads/
+
+# Keep only last 30 days
+find $BACKUP_DIR -name "*.gz" -mtime +30 -delete
+
+echo "Backup completed: $TIMESTAMP"
+```
+
+### Step 2: Make Executable
+
+```bash
+chmod +x ~/backup.sh
+```
+
+### Step 3: Add Cron Job
+
+In cPanel **Cron Jobs**, add:
+```
+0 2 * * * /home/YOURUSERNAME/backup.sh >> /home/YOURUSERNAME/logs/backup.log 2>&1
+```
+
+This runs daily at 2 AM.
+
+> 📖 See `BACKUP.md` for complete backup and restore procedures.
+
+---
+
+## PART 12: REAL-TIME VERIFICATION
+
+Verify real-time updates are working correctly.
+
+### Test 1: Browser Console Check
+
+1. Open browser Developer Tools (F12)
+2. Go to **Console** tab
+3. Look for SSE connection messages:
+   ```
+   [SSE] Connecting to: /api/emails/websocket.php?token=xxx
+   [SSE] Connected
+   ```
+
+### Test 2: Network Tab Check
+
+1. Open Developer Tools → **Network** tab
+2. Filter by "websocket" or "eventsource"
+3. You should see an open SSE connection
+
+### Test 3: Send Test Email
+
+With the inbox open:
+1. Send an email to your generated address
+2. Watch for:
+   - Toast notification appearing
+   - Email appearing in inbox WITHOUT refreshing
+   - Sound playing (if enabled)
+
+### Fallback Behavior
+
+If SSE fails, the system automatically falls back to polling:
+- Console shows: `[SSE] Connection error, falling back to polling`
+- Inbox updates every 5 seconds instead of instantly
+
+### Common SSE Issues
+
+| Issue | Solution |
+|-------|----------|
+| Connection times out | Normal - reconnects automatically |
+| Falls back to polling | Check PHP execution limits |
+| No connection at all | Check API URL in .env |
 
 ---
 
@@ -474,7 +569,15 @@ SELECT * FROM webhook_logs ORDER BY created_at DESC LIMIT 20;
 - SSE requires `keep-alive` connections
 - Some shared hosts may timeout long connections
 - Check browser console for SSE errors
-- Falls back to polling automatically
+- Falls back to polling automatically (5s interval)
+
+**Fix for LiteSpeed servers:**
+Add to `.htaccess`:
+```apache
+<IfModule LiteSpeed>
+  RewriteRule ^api/emails/websocket\.php - [E=noabort:1]
+</IfModule>
+```
 
 ### "Class not found" Errors
 - Verify file structure matches expected paths
@@ -521,4 +624,45 @@ SHOW PROCESSLIST;
 - [ ] `config.php` is not web-accessible
 - [ ] Webhook secrets configured
 - [ ] Rate limiting enabled
-- [ ] Regular backups scheduled
+- [ ] Automated backups configured
+
+---
+
+## ADDITIONAL RESOURCES
+
+| Guide | Description |
+|-------|-------------|
+| `BACKUP.md` | Complete backup and restore procedures |
+| `UPGRADE.md` | Version migration instructions |
+| `WEBHOOK-SETUP.md` | Email provider webhook configuration |
+| `DEPLOYMENT.md` | Quick deployment reference |
+
+---
+
+## FEATURE COMPARISON
+
+Your self-hosted installation includes all features of the cloud version:
+
+| Feature | Cloud | Self-Hosted |
+|---------|-------|-------------|
+| Instant email (webhooks) | ✅ | ✅ |
+| Real-time updates (SSE) | ✅ Supabase | ✅ SSE |
+| Push notifications | ✅ | ✅ |
+| Email encryption | ✅ | ✅ |
+| 2FA authentication | ✅ | ✅ |
+| Webhook testing UI | ✅ | ✅ |
+| Admin dashboard | ✅ | ✅ |
+| Stripe payments | ✅ | ✅ |
+| Custom domains | ✅ | ✅ |
+| Email forwarding | ✅ | ✅ |
+| File attachments | ✅ | ✅ |
+
+---
+
+## SUPPORT
+
+If you encounter issues:
+1. Check the troubleshooting section above
+2. Review PHP error logs in cPanel
+3. Check database for missing tables
+4. Open an issue on GitHub with server details

@@ -634,21 +634,19 @@ function runInstallation(array $data): array {
         $stmt->execute([$data['admin_email']]);
         $adminId = $stmt->fetchColumn();
         
-        // Create admin role
-        $pdo->exec("
-            CREATE TABLE IF NOT EXISTS user_roles (
-                id CHAR(36) PRIMARY KEY,
-                user_id CHAR(36) NOT NULL,
-                role ENUM('user', 'moderator', 'admin', 'super_admin') DEFAULT 'user',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY unique_user_role (user_id, role)
-            )
-        ");
-        
+        // Create admin role (table already exists from schema, just insert)
         $stmt = $pdo->prepare("
-            INSERT INTO user_roles (id, user_id, role, created_at)
-            VALUES (UUID(), ?, 'super_admin', NOW())
-            ON DUPLICATE KEY UPDATE role = 'super_admin'
+            INSERT INTO user_roles (id, user_id, role, created_at, updated_at)
+            VALUES (UUID(), ?, 'super_admin', NOW(), NOW())
+            ON DUPLICATE KEY UPDATE role = 'super_admin', updated_at = NOW()
+        ");
+        $stmt->execute([$adminId]);
+        
+        // Create admin profile
+        $stmt = $pdo->prepare("
+            INSERT INTO profiles (id, user_id, display_name, full_name, created_at, updated_at)
+            VALUES (UUID(), ?, 'Admin', 'System Administrator', NOW(), NOW())
+            ON DUPLICATE KEY UPDATE display_name = 'Admin', updated_at = NOW()
         ");
         $stmt->execute([$adminId]);
         

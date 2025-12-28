@@ -9,6 +9,7 @@
 require_once dirname(__DIR__) . '/core/database.php';
 require_once dirname(__DIR__) . '/core/auth.php';
 require_once dirname(__DIR__) . '/core/response.php';
+require_once dirname(__DIR__) . '/core/mailer.php';
 
 Response::setCorsHeaders();
 Response::requireMethod('POST');
@@ -41,7 +42,9 @@ try {
         
         // Always return success to prevent email enumeration
         if (!$user) {
-            Response::success(null, 'If an account exists with this email, a reset link will be sent.');
+            Response::success([
+                'message' => 'If an account exists with this email, a reset link will be sent.'
+            ], 'Password reset requested');
         }
         
         // Generate reset token
@@ -51,7 +54,7 @@ try {
         // Delete old reset tokens
         Database::delete('password_resets', 'user_id = ?', [$user['id']]);
         
-        // Store reset token
+        // Store reset token (store hash, not plain token)
         Database::insert('password_resets', [
             'id' => Database::generateUUID(),
             'user_id' => $user['id'],
@@ -60,16 +63,17 @@ try {
             'created_at' => date('Y-m-d H:i:s')
         ]);
         
-        // TODO: Send password reset email via SMTP
-        // For development, return the token (remove in production!)
-        $config = Database::getConfig();
-        $resetUrl = $config['app']['url'] . '/reset-password?token=' . $token;
+        // Send password reset email
+        $emailSent = Mailer::sendPasswordResetEmail(
+            $user['email'],
+            $user['name'] ?: explode('@', $user['email'])[0],
+            $token
+        );
         
         Response::success([
-            'message' => 'Password reset email sent',
-            // Remove this in production:
-            'debug_reset_url' => $config['app']['debug'] ? $resetUrl : null
-        ], 'If an account exists with this email, a reset link will be sent.');
+            'message' => 'If an account exists with this email, a reset link will be sent.',
+            'email_sent' => $emailSent
+        ], 'Password reset requested');
         
     } elseif ($action === 'reset') {
         // Reset password with token
@@ -96,6 +100,12 @@ try {
         if (!$reset) {
             Response::error('Invalid or expired reset token', 400);
         }
+        
+        // Get user for welcome back email
+        $user = Database::fetchOne(
+            "SELECT email, name FROM users WHERE id = ?",
+            [$reset['user_id']]
+        );
         
         Database::beginTransaction();
         
@@ -125,7 +135,9 @@ try {
         
         Database::commit();
         
-        Response::success(null, 'Password reset successfully. Please login with your new password.');
+        Response::success([
+            'message' => 'Password reset successfully. Please login with your new password.'
+        ], 'Password reset successful');
         
     } else {
         Response::error('Invalid action');

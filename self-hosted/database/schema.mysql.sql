@@ -720,56 +720,28 @@ CREATE INDEX `received_emails_temp_read_idx` ON `received_emails` (`temp_email_i
 CREATE INDEX `user_subscriptions_user_status_idx` ON `user_subscriptions` (`user_id`, `status`);
 
 -- =====================================================
--- TRIGGERS
+-- NOTE: TRIGGERS AND EVENTS (OPTIONAL)
 -- =====================================================
-
--- Auto-generate UUID on insert if not provided
-DELIMITER //
-
--- Update email stats on new received email
-CREATE TRIGGER `update_email_stats_on_insert`
-AFTER INSERT ON `received_emails`
-FOR EACH ROW
-BEGIN
-  INSERT INTO `email_stats` (`date`, `emails_received`)
-  VALUES (DATE(NEW.received_at), 1)
-  ON DUPLICATE KEY UPDATE `emails_received` = `emails_received` + 1;
-END//
-
--- Cleanup expired sessions
-CREATE EVENT IF NOT EXISTS `cleanup_expired_sessions`
-ON SCHEDULE EVERY 1 HOUR
-DO
-BEGIN
-  DELETE FROM `sessions` WHERE `expires_at` < NOW();
-END//
-
--- Cleanup expired temp emails (runs daily)
-CREATE EVENT IF NOT EXISTS `cleanup_expired_temp_emails`
-ON SCHEDULE EVERY 1 DAY
-DO
-BEGIN
-  UPDATE `temp_emails` SET `is_active` = 0 WHERE `expires_at` < NOW() AND `is_active` = 1;
-END//
-
--- Cleanup old rate limit records
-CREATE EVENT IF NOT EXISTS `cleanup_rate_limits`
-ON SCHEDULE EVERY 1 HOUR
-DO
-BEGIN
-  DELETE FROM `rate_limits` 
-  WHERE `window_start` < DATE_SUB(NOW(), INTERVAL `window_seconds` SECOND);
-END//
-
-DELIMITER ;
-
+-- Most shared hosting providers don't allow triggers/events.
+-- The following features are handled by PHP instead:
+-- - Email stats updates (handled in webhook.php)
+-- - Session cleanup (handled by cron/sessions.php)  
+-- - Temp email expiry (handled by cron/cleanup.php)
+-- - Rate limit cleanup (handled by cron/cleanup.php)
+--
+-- If your hosting DOES support triggers, you can run:
+-- self-hosted/database/optional-triggers.sql
 -- =====================================================
--- ENABLE EVENTS SCHEDULER
--- =====================================================
--- Run this as MySQL root: SET GLOBAL event_scheduler = ON;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- =====================================================
 -- SCHEMA COMPLETE
+-- =====================================================
+-- 
+-- Next steps:
+-- 1. Import this schema into your MySQL database
+-- 2. Run seed-data.sql to add default domains and settings
+-- 3. Optionally run optimize.sql for performance indexes
+-- 4. Set up cron jobs as described in CRON-SETUP.md
 -- =====================================================

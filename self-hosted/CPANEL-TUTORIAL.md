@@ -53,25 +53,40 @@ This guide walks you through deploying your self-hosted temporary email system o
 
 **First:** `database/schema.mysql.sql` (main schema)
 ```
-This creates all tables, triggers, and events
+Creates all tables and indexes
+Note: Ignore any warnings about triggers/events - these are handled by PHP cron jobs instead
 ```
 
 **Second:** `database/seed-data.sql` (default data)
 ```
-This adds default domains and settings
+Adds default domains, settings, and admin user
 ```
 
-**Third:** `database/optimize.sql` (performance + webhooks)
+**Third (optional):** `database/optimize.sql` (performance indexes + views)
 ```
-This adds webhook tables, indexes, and stored procedures
+Adds extra performance indexes and summary views
+Note: Ignore any warnings - stored procedures are optional on shared hosting
 ```
 
-### Step 3: Enable Event Scheduler
-In phpMyAdmin SQL tab, run:
-```sql
-SET GLOBAL event_scheduler = ON;
-```
-> Note: Some shared hosts may not allow this. The system will still work, but automatic cleanup won't run.
+### ⚠️ Common Import Errors (Don't Worry!)
+
+If you see these errors during import, they can be **safely ignored**:
+
+| Error | Reason | Impact |
+|-------|--------|--------|
+| `TRIGGER command denied` | Shared hosting limitation | PHP handles stats updates instead |
+| `CREATE ROUTINE denied` | Shared hosting limitation | PHP handles queries instead |
+| `CREATE EVENT denied` | Shared hosting limitation | Cron jobs handle cleanup instead |
+| `ALTER ROUTINE denied` | Shared hosting limitation | Can be ignored |
+
+**These features are all handled by PHP cron jobs instead of MySQL triggers/events!**
+
+### Step 3: Verify Tables Created
+In phpMyAdmin, you should see these tables:
+- `users`, `sessions`, `profiles`
+- `temp_emails`, `received_emails`, `email_attachments`
+- `domains`, `mailboxes`, `app_settings`
+- Plus many more (~30 tables total)
 
 ---
 

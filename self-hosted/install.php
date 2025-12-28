@@ -440,15 +440,55 @@ function verifyDomain(string $domain, bool $skipDnsCheck = false): array {
     ];
 }
 
+function getInstallLogPath(): string {
+    return __DIR__ . '/uploads/install.log';
+}
+
+function normalizeSqlForLog(string $sql): string {
+    $sql = trim($sql);
+    $sql = preg_replace('/\s+/', ' ', $sql);
+    return $sql;
+}
+
+function installerLog(string $event, array $context = []): void {
+    $path = getInstallLogPath();
+    $dir = dirname($path);
+
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+
+    $line = '[' . date('c') . '] ' . $event;
+    if (!empty($context)) {
+        $line .= ' ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+    $line .= "\n";
+
+    $fh = @fopen($path, 'ab');
+    if (!$fh) {
+        return;
+    }
+
+    @flock($fh, LOCK_EX);
+    @fwrite($fh, $line);
+    @flock($fh, LOCK_UN);
+    @fclose($fh);
+}
+
 function executeSqlFile(PDO $pdo, string $filePath): array {
     $content = file_get_contents($filePath);
     $errors = [];
     $executedCount = 0;
-    
+
+    installerLog('schema_file_start', [
+        'file' => basename($filePath),
+        'bytes' => strlen($content),
+    ]);
+
     // Disable foreign key checks for schema creation
     $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
     $pdo->exec("SET SQL_MODE = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'");
-    
+
     // Robust SQL statement parser that handles edge cases
     $statements = [];
     $current = '';
@@ -457,11 +497,11 @@ function executeSqlFile(PDO $pdo, string $filePath): array {
     $inComment = false;
     $commentType = '';
     $len = strlen($content);
-    
+
     for ($i = 0; $i < $len; $i++) {
         $char = $content[$i];
         $nextChar = ($i + 1 < $len) ? $content[$i + 1] : '';
-        
+
         // Handle single-line comments (-- or #)
         if (!$inString && !$inComment) {
             if (($char === '-' && $nextChar === '-') || $char === '#') {
@@ -477,25 +517,25 @@ function executeSqlFile(PDO $pdo, string $filePath): array {
                 continue;
             }
         }
-        
+
         // End of single-line comment
         if ($inComment && $commentType === 'single' && ($char === "\n" || $char === "\r")) {
             $inComment = false;
             continue;
         }
-        
+
         // End of multi-line comment
         if ($inComment && $commentType === 'multi' && $char === '*' && $nextChar === '/') {
             $inComment = false;
             $i++; // Skip next char
             continue;
         }
-        
+
         // Skip comment content
         if ($inComment) {
             continue;
         }
-        
+
         // Handle string literals (skip escaped quotes)
         if (($char === "'" || $char === '"') && ($i === 0 || $content[$i - 1] !== '\\')) {
             if (!$inString) {
@@ -505,7 +545,7 @@ function executeSqlFile(PDO $pdo, string $filePath): array {
                 $inString = false;
             }
         }
-        
+
         // Check for statement terminator
         if ($char === ';' && !$inString) {
             $stmt = trim($current);
@@ -517,43 +557,65 @@ function executeSqlFile(PDO $pdo, string $filePath): array {
             $current .= $char;
         }
     }
-    
+
     // Add final statement if exists (without semicolon)
     $finalStmt = trim($current);
     if (!empty($finalStmt)) {
         $statements[] = $finalStmt;
     }
-    
-    // Execute each statement
+
+    // Execute each statement (with timing log)
     foreach ($statements as $stmt) {
-        // Skip empty or whitespace-only statements
         if (empty(trim($stmt))) {
             continue;
         }
-        
+
+        $sqlForLog = normalizeSqlForLog($stmt);
+        $t0 = microtime(true);
+
         try {
             $pdo->exec($stmt);
             $executedCount++;
+
+            installerLog('sql_ok', [
+                'ms' => (int)round((microtime(true) - $t0) * 1000),
+                'sql' => $sqlForLog,
+            ]);
         } catch (PDOException $e) {
             $errorMsg = $e->getMessage();
+
+            installerLog('sql_error', [
+                'ms' => (int)round((microtime(true) - $t0) * 1000),
+                'error' => $errorMsg,
+                'sql' => $sqlForLog,
+            ]);
+
             // Ignore "already exists" and "duplicate" errors for idempotency
-            if (strpos($errorMsg, 'already exists') === false && 
+            if (
+                strpos($errorMsg, 'already exists') === false &&
                 strpos($errorMsg, 'Duplicate') === false &&
-                strpos($errorMsg, 'doesn\'t exist') === false) {
+                strpos($errorMsg, 'doesn\'t exist') === false
+            ) {
                 $errors[] = [
-                    'statement' => mb_substr($stmt, 0, 150) . (strlen($stmt) > 150 ? '...' : ''),
-                    'error' => $errorMsg
+                    'statement' => mb_substr($sqlForLog, 0, 150) . (strlen($sqlForLog) > 150 ? '...' : ''),
+                    'error' => $errorMsg,
                 ];
             }
         }
     }
-    
+
     // Re-enable foreign key checks
     $pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
-    
+
+    installerLog('schema_file_end', [
+        'file' => basename($filePath),
+        'executed' => $executedCount,
+        'errors' => count($errors),
+    ]);
+
     return [
         'executed' => $executedCount,
-        'errors' => $errors
+        'errors' => $errors,
     ];
 }
 

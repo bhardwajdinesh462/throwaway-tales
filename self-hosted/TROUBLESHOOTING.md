@@ -76,17 +76,17 @@ WHERE u.email = 'admin@yourdomain.com';
 If no admin exists:
 ```sql
 -- Password: Admin123! (change immediately after first login!)
-INSERT INTO users (id, email, password_hash, email_verified, is_active) VALUES
-(UUID(), 'admin@yourdomain.com', '$2y$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4FJziNwLc5DnHKim', 1, 1);
+INSERT INTO users (id, email, password_hash, email_verified, email_verified_at, created_at, updated_at) VALUES
+(UUID(), 'admin@yourdomain.com', '$2y$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4FJziNwLc5DnHKim', 1, NOW(), NOW(), NOW());
 
 -- Get the user ID
 SET @admin_id = (SELECT id FROM users WHERE email = 'admin@yourdomain.com');
 
 -- Add profile
-INSERT INTO profiles (id, user_id, display_name) VALUES (UUID(), @admin_id, 'Administrator');
+INSERT INTO profiles (id, user_id, display_name, created_at, updated_at) VALUES (UUID(), @admin_id, 'Administrator', NOW(), NOW());
 
 -- Grant admin role
-INSERT INTO user_roles (id, user_id, role) VALUES (UUID(), @admin_id, 'admin');
+INSERT INTO user_roles (id, user_id, role, created_at, updated_at) VALUES (UUID(), @admin_id, 'admin', NOW(), NOW());
 ```
 
 #### 3. Check sessions table exists

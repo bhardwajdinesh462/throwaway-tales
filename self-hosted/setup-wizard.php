@@ -42,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     exit;
                 }
                 
-                $stmt = $db->prepare("INSERT INTO domains (id, domain_name, is_active, created_at) VALUES (UUID(), ?, 1, NOW())");
+                $stmt = $db->prepare("INSERT INTO domains (id, domain, is_active, created_at, updated_at) VALUES (UUID(), ?, 1, NOW(), NOW())");
                 $stmt->execute([$domain]);
                 echo json_encode(['success' => true, 'message' => "Domain '$domain' added successfully"]);
                 break;
@@ -71,7 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
                 
                 // Add admin role
-                $stmt = $db->prepare("INSERT INTO user_roles (id, user_id, role) VALUES (UUID(), ?, 'admin') ON DUPLICATE KEY UPDATE role = 'admin'");
+                $stmt = $db->prepare("INSERT INTO user_roles (id, user_id, role, created_at, updated_at) VALUES (UUID(), ?, 'admin', NOW(), NOW()) ON DUPLICATE KEY UPDATE role = 'admin', updated_at = NOW()");
                 $stmt->execute([$userId]);
                 echo json_encode(['success' => true, 'message' => 'User promoted to admin']);
                 break;
@@ -86,13 +86,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $username = 'test_' . bin2hex(random_bytes(4));
                 $email = $username . '@' . $domain;
                 $token = bin2hex(random_bytes(32));
+                $tokenHash = hash('sha256', $token);
                 $expiresAt = date('Y-m-d H:i:s', strtotime('+1 hour'));
                 
                 $stmt = $db->prepare("
-                    INSERT INTO temporary_emails (id, email_address, token, expires_at, is_active, created_at) 
-                    VALUES (UUID(), ?, ?, ?, 1, NOW())
+                    INSERT INTO temp_emails (id, email_address, token, token_hash, expires_at, is_active, created_at, updated_at) 
+                    VALUES (UUID(), ?, ?, ?, ?, 1, NOW(), NOW())
                 ");
-                $stmt->execute([$email, hash('sha256', $token), $expiresAt]);
+                $stmt->execute([$email, $token, $tokenHash, $expiresAt]);
                 
                 echo json_encode([
                     'success' => true, 
@@ -111,8 +112,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     exit;
                 }
                 
-                $stmt = $db->prepare("INSERT INTO app_settings (id, setting_key, setting_value, created_at) VALUES (UUID(), ?, ?, NOW()) ON DUPLICATE KEY UPDATE setting_value = ?");
-                $stmt->execute([$key, $value, $value]);
+                $stmt = $db->prepare("INSERT INTO app_settings (id, `key`, `value`, created_at, updated_at) VALUES (UUID(), ?, ?, NOW(), NOW()) ON DUPLICATE KEY UPDATE `value` = ?");
+                $stmt->execute([$key, json_encode($value), json_encode($value)]);
                 echo json_encode(['success' => true, 'message' => "Setting '$key' saved"]);
                 break;
                 
@@ -202,7 +203,7 @@ if ($db) {
         
         // Get settings
         if (in_array('app_settings', $allTables)) {
-            $stmt = $db->query("SELECT setting_key, setting_value FROM app_settings LIMIT 50");
+            $stmt = $db->query("SELECT `key`, `value` FROM app_settings LIMIT 50");
             $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
         }
         
@@ -459,7 +460,7 @@ $webhookUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' 
                 </thead>
                 <tbody>
                     <?php 
-                    $requiredTables = ['users', 'domains', 'temporary_emails', 'emails', 'app_settings', 'user_roles'];
+                    $requiredTables = ['users', 'domains', 'temp_emails', 'received_emails', 'app_settings', 'user_roles'];
                     foreach ($requiredTables as $reqTable): 
                     ?>
                     <tr>
@@ -479,7 +480,7 @@ $webhookUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' 
             <p class="text-sm text-muted mt-2">
                 Total tables: <?= count($tables) ?> | 
                 Total users: <?= $tables['users'] ?? 0 ?> | 
-                Total emails: <?= $tables['temporary_emails'] ?? 0 ?>
+                Total emails: <?= $tables['temp_emails'] ?? 0 ?>
             </p>
         </div>
         
@@ -506,17 +507,17 @@ $webhookUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' 
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($domains as $domain): ?>
+                    <?php foreach ($domains as $d): ?>
                     <tr>
-                        <td><?= htmlspecialchars($domain['domain_name'] ?? $domain['name'] ?? 'Unknown') ?></td>
+                        <td><?= htmlspecialchars($d['domain'] ?? 'Unknown') ?></td>
                         <td>
-                            <?php if ($domain['is_active'] ?? false): ?>
+                            <?php if ($d['is_active'] ?? false): ?>
                                 <span class="badge badge-success">Active</span>
                             <?php else: ?>
                                 <span class="badge badge-danger">Inactive</span>
                             <?php endif; ?>
                         </td>
-                        <td><?= $domain['created_at'] ?? '-' ?></td>
+                        <td><?= $d['created_at'] ?? '-' ?></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -608,9 +609,9 @@ $webhookUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' 
             <div class="input-group">
                 <select id="test-domain">
                     <option value="">Select a domain...</option>
-                    <?php foreach ($domains as $domain): ?>
-                    <option value="<?= htmlspecialchars($domain['domain_name'] ?? $domain['name'] ?? '') ?>">
-                        <?= htmlspecialchars($domain['domain_name'] ?? $domain['name'] ?? 'Unknown') ?>
+                    <?php foreach ($domains as $d): ?>
+                    <option value="<?= htmlspecialchars($d['domain'] ?? '') ?>">
+                        <?= htmlspecialchars($d['domain'] ?? 'Unknown') ?>
                     </option>
                     <?php endforeach; ?>
                 </select>

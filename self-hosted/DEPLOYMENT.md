@@ -99,8 +99,8 @@ Add cron job for cleanup (daily at 3 AM):
 - Register a new account
 - Assign admin role in database:
 ```sql
-INSERT INTO user_roles (user_id, role) 
-SELECT id, 'admin' FROM users WHERE email = 'your@email.com';
+INSERT INTO user_roles (id, user_id, role, created_at, updated_at) 
+SELECT UUID(), id, 'admin', NOW(), NOW() FROM users WHERE email = 'your@email.com';
 ```
 
 ---

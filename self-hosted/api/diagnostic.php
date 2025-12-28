@@ -106,8 +106,8 @@ $diagnostic = [
         'active_domains' => 0,
         'users' => 0,
         'admins' => 0,
-        'temporary_emails' => 0,
-        'emails' => 0,
+        'temp_emails' => 0,
+        'received_emails' => 0,
         'settings' => 0,
     ],
     
@@ -125,7 +125,7 @@ if ($dbConnected) {
         $diagnostic['database']['tables'] = $tables;
         
         // Get row counts for important tables
-        $importantTables = ['users', 'domains', 'temporary_emails', 'emails', 'app_settings', 'user_roles', 'email_attachments'];
+        $importantTables = ['users', 'domains', 'temp_emails', 'received_emails', 'app_settings', 'user_roles', 'email_attachments'];
         foreach ($importantTables as $table) {
             if (in_array($table, $tables)) {
                 $countStmt = $db->query("SELECT COUNT(*) FROM `$table`");
@@ -135,8 +135,8 @@ if ($dbConnected) {
                 // Update features
                 if ($table === 'domains') $diagnostic['features']['domains'] = $count;
                 if ($table === 'users') $diagnostic['features']['users'] = $count;
-                if ($table === 'temporary_emails') $diagnostic['features']['temporary_emails'] = $count;
-                if ($table === 'emails') $diagnostic['features']['emails'] = $count;
+                if ($table === 'temp_emails') $diagnostic['features']['temp_emails'] = $count;
+                if ($table === 'received_emails') $diagnostic['features']['received_emails'] = $count;
                 if ($table === 'app_settings') $diagnostic['features']['settings'] = $count;
             }
         }
@@ -154,7 +154,7 @@ if ($dbConnected) {
         }
         
         // Check for missing required tables
-        $requiredTables = ['users', 'domains', 'temporary_emails', 'emails', 'app_settings'];
+        $requiredTables = ['users', 'domains', 'temp_emails', 'received_emails', 'app_settings'];
         foreach ($requiredTables as $reqTable) {
             if (!in_array($reqTable, $tables)) {
                 $diagnostic['issues'][] = "Missing required table: $reqTable";

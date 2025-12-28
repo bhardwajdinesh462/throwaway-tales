@@ -7,6 +7,21 @@ RewriteBase /
 RewriteCond %{REQUEST_URI} ^/api/
 RewriteRule ^api/(.*)$ api/router.php [L,QSA]
 
+# Allow direct access to PHP files (prevents redirect loop)
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteCond %{REQUEST_URI} \.php$
+RewriteRule ^ - [L]
+
+# Allow direct access to specific admin PHP files
+RewriteRule ^install\.php$ - [L]
+RewriteRule ^setup-wizard\.php$ - [L]
+RewriteRule ^health-dashboard\.php$ - [L]
+RewriteRule ^settings\.php$ - [L]
+RewriteRule ^analytics\.php$ - [L]
+RewriteRule ^cron-manager\.php$ - [L]
+RewriteRule ^admin-users\.php$ - [L]
+RewriteRule ^admin-domains\.php$ - [L]
+
 # Handle SPA routing for React frontend
 # Don't rewrite files or directories that exist
 RewriteCond %{REQUEST_FILENAME} !-f
@@ -14,6 +29,9 @@ RewriteCond %{REQUEST_FILENAME} !-d
 
 # Don't rewrite API calls
 RewriteCond %{REQUEST_URI} !^/api/
+
+# Don't rewrite PHP files
+RewriteCond %{REQUEST_URI} !\.php$
 
 # Serve index.html for all other requests (SPA routing)
 RewriteRule . /index.html [L]

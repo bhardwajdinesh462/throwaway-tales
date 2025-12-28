@@ -96,7 +96,33 @@ try {
     );
     echo "Cleaned " . $verifications->rowCount() . " email verifications\n";
     
-    // 8. Clean up empty directories in uploads
+    // 8. Clean up old webhook logs (keep 7 days)
+    try {
+        $webhookLogs = Database::query(
+            "DELETE FROM webhook_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 7 DAY)"
+        );
+        echo "Cleaned " . $webhookLogs->rowCount() . " webhook logs\n";
+    } catch (Exception $e) {
+        // Table may not exist yet
+    }
+    
+    // 9. Clean up old email notifications (keep 1 hour)
+    try {
+        $notifications = Database::query(
+            "DELETE FROM email_notifications WHERE created_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)"
+        );
+        echo "Cleaned " . $notifications->rowCount() . " email notifications\n";
+    } catch (Exception $e) {
+        // Table may not exist yet
+    }
+    
+    // 10. Clean up expired sessions
+    $sessions = Database::query(
+        "DELETE FROM sessions WHERE expires_at < NOW()"
+    );
+    echo "Cleaned " . $sessions->rowCount() . " expired sessions\n";
+    
+    // 11. Clean up empty directories in uploads
     cleanEmptyDirectories($uploadPath . '/attachments');
     
 } catch (Exception $e) {

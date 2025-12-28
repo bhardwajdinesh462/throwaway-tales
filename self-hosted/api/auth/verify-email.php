@@ -8,6 +8,7 @@
 require_once dirname(__DIR__) . '/core/database.php';
 require_once dirname(__DIR__) . '/core/auth.php';
 require_once dirname(__DIR__) . '/core/response.php';
+require_once dirname(__DIR__) . '/core/mailer.php';
 
 Response::setCorsHeaders();
 
@@ -32,6 +33,12 @@ if ($method === 'GET') {
             Response::error('Invalid or expired verification token', 400);
         }
         
+        // Get user info for welcome email
+        $user = Database::fetchOne(
+            "SELECT email, name FROM users WHERE id = ?",
+            [$verification['user_id']]
+        );
+        
         Database::beginTransaction();
         
         // Mark email as verified
@@ -51,6 +58,14 @@ if ($method === 'GET') {
         );
         
         Database::commit();
+        
+        // Send welcome email
+        if ($user) {
+            Mailer::sendWelcomeEmail(
+                $user['email'],
+                $user['name'] ?: explode('@', $user['email'])[0]
+            );
+        }
         
         Response::success(['verified' => true], 'Email verified successfully');
         
@@ -89,9 +104,18 @@ if ($method === 'GET') {
             'created_at' => date('Y-m-d H:i:s')
         ]);
         
-        // TODO: Send verification email via SMTP
+        // Send verification email
+        $emailSent = Mailer::sendVerificationEmail(
+            $user['email'],
+            $user['name'] ?: explode('@', $user['email'])[0],
+            $token
+        );
         
-        Response::success(null, 'Verification email sent');
+        if ($emailSent) {
+            Response::success(['email_sent' => true], 'Verification email sent');
+        } else {
+            Response::error('Failed to send verification email. Please try again.', 500);
+        }
         
     } catch (Exception $e) {
         error_log("Resend verification error: " . $e->getMessage());

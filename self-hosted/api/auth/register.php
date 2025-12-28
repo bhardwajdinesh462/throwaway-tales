@@ -7,6 +7,7 @@
 require_once dirname(__DIR__) . '/core/database.php';
 require_once dirname(__DIR__) . '/core/auth.php';
 require_once dirname(__DIR__) . '/core/response.php';
+require_once dirname(__DIR__) . '/core/mailer.php';
 
 Response::setCorsHeaders();
 Response::requireMethod('POST');
@@ -90,6 +91,9 @@ try {
     
     Database::commit();
     
+    // Send verification email
+    $emailSent = Mailer::sendVerificationEmail($email, $name ?: explode('@', $email)[0], $verificationToken);
+    
     // Generate auth token
     $user = [
         'id' => $userId,
@@ -99,9 +103,6 @@ try {
     
     $token = Auth::createSession($user);
     
-    // TODO: Send verification email via SMTP
-    // For now, return success with token
-    
     Response::success([
         'user' => [
             'id' => $userId,
@@ -110,7 +111,10 @@ try {
             'email_verified' => false
         ],
         'token' => $token,
-        'message' => 'Registration successful. Please verify your email.'
+        'verification_email_sent' => $emailSent,
+        'message' => $emailSent 
+            ? 'Registration successful. Please check your email to verify your account.'
+            : 'Registration successful. Please verify your email.'
     ], 'Registration successful', 201);
     
 } catch (Exception $e) {

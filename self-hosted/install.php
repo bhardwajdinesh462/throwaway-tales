@@ -98,7 +98,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 break;
                 
             case 'verify_domain':
-                $result = verifyDomain($_POST['domain'] ?? '');
+                $skipDns = isset($_POST['skip_dns']) && ($_POST['skip_dns'] === 'true' || $_POST['skip_dns'] === '1');
+                $result = verifyDomain($_POST['domain'] ?? '', $skipDns);
                 break;
                 
             case 'run_installation':
@@ -322,7 +323,7 @@ function testSmtpConnection(array $data): array {
     }
 }
 
-function verifyDomain(string $domain): array {
+function verifyDomain(string $domain, bool $skipDnsCheck = false): array {
     $domain = trim(strtolower($domain));
     
     if (empty($domain)) {
@@ -338,6 +339,7 @@ function verifyDomain(string $domain): array {
         'dns_exists' => false,
         'has_mx' => false,
         'mx_records' => [],
+        'skipped' => false,
     ];
     
     // Validate format
@@ -345,9 +347,48 @@ function verifyDomain(string $domain): array {
         $checks['valid_format'] = true;
     }
     
-    // Check DNS
+    // If skip DNS check is enabled (same-server installation)
+    if ($skipDnsCheck) {
+        $checks['skipped'] = true;
+        $checks['dns_exists'] = true; // Assume valid for self-hosted
+        return [
+            'success' => $checks['valid_format'],
+            'message' => $checks['valid_format'] ? 'Domain format valid (DNS check skipped for same-server installation)' : 'Invalid domain format',
+            'domain' => $domain,
+            'checks' => $checks,
+        ];
+    }
+    
+    // Try multiple DNS resolvers for reliability
+    $dnsChecked = false;
+    
+    // First try PHP's built-in DNS functions
     if (checkdnsrr($domain, 'A') || checkdnsrr($domain, 'AAAA')) {
         $checks['dns_exists'] = true;
+        $dnsChecked = true;
+    }
+    
+    // Fallback: Try external DNS via socket (Google DNS 8.8.8.8)
+    if (!$dnsChecked) {
+        $externalCheck = @dns_get_record($domain, DNS_A);
+        if ($externalCheck && count($externalCheck) > 0) {
+            $checks['dns_exists'] = true;
+            $dnsChecked = true;
+        }
+    }
+    
+    // For same-server hosting, DNS might not resolve externally - give a warning but allow
+    if (!$dnsChecked) {
+        // Check if we can connect to the domain via HTTP (it might be on same server)
+        $context = stream_context_create([
+            'http' => ['timeout' => 3, 'ignore_errors' => true],
+            'ssl' => ['verify_peer' => false, 'verify_peer_name' => false]
+        ]);
+        $headers = @get_headers("http://{$domain}", 0, $context);
+        if ($headers && count($headers) > 0) {
+            $checks['dns_exists'] = true;
+            $checks['same_server_detected'] = true;
+        }
     }
     
     // Check MX records
@@ -361,10 +402,141 @@ function verifyDomain(string $domain): array {
     
     return [
         'success' => $allPassed,
-        'message' => $allPassed ? 'Domain verified!' : 'Domain verification failed',
+        'message' => $allPassed ? 'Domain verified!' : 'Domain verification failed. Try enabling "Skip DNS check" if you are hosting on the same server.',
         'domain' => $domain,
         'checks' => $checks,
     ];
+}
+
+function executeSqlFile(PDO $pdo, string $filePath): array {
+    $content = file_get_contents($filePath);
+    $errors = [];
+    $executedCount = 0;
+    
+    // Disable foreign key checks for schema creation
+    $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
+    $pdo->exec("SET SQL_MODE = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'");
+    
+    // Robust SQL statement parser that handles edge cases
+    $statements = [];
+    $current = '';
+    $inString = false;
+    $stringChar = '';
+    $inComment = false;
+    $commentType = '';
+    $len = strlen($content);
+    
+    for ($i = 0; $i < $len; $i++) {
+        $char = $content[$i];
+        $nextChar = ($i + 1 < $len) ? $content[$i + 1] : '';
+        
+        // Handle single-line comments (-- or #)
+        if (!$inString && !$inComment) {
+            if (($char === '-' && $nextChar === '-') || $char === '#') {
+                $inComment = true;
+                $commentType = 'single';
+                continue;
+            }
+            // Handle multi-line comments /* */
+            if ($char === '/' && $nextChar === '*') {
+                $inComment = true;
+                $commentType = 'multi';
+                $i++; // Skip next char
+                continue;
+            }
+        }
+        
+        // End of single-line comment
+        if ($inComment && $commentType === 'single' && ($char === "\n" || $char === "\r")) {
+            $inComment = false;
+            continue;
+        }
+        
+        // End of multi-line comment
+        if ($inComment && $commentType === 'multi' && $char === '*' && $nextChar === '/') {
+            $inComment = false;
+            $i++; // Skip next char
+            continue;
+        }
+        
+        // Skip comment content
+        if ($inComment) {
+            continue;
+        }
+        
+        // Handle string literals (skip escaped quotes)
+        if (($char === "'" || $char === '"') && ($i === 0 || $content[$i - 1] !== '\\')) {
+            if (!$inString) {
+                $inString = true;
+                $stringChar = $char;
+            } elseif ($char === $stringChar) {
+                $inString = false;
+            }
+        }
+        
+        // Check for statement terminator
+        if ($char === ';' && !$inString) {
+            $stmt = trim($current);
+            if (!empty($stmt)) {
+                $statements[] = $stmt;
+            }
+            $current = '';
+        } else {
+            $current .= $char;
+        }
+    }
+    
+    // Add final statement if exists (without semicolon)
+    $finalStmt = trim($current);
+    if (!empty($finalStmt)) {
+        $statements[] = $finalStmt;
+    }
+    
+    // Execute each statement
+    foreach ($statements as $stmt) {
+        // Skip empty or whitespace-only statements
+        if (empty(trim($stmt))) {
+            continue;
+        }
+        
+        try {
+            $pdo->exec($stmt);
+            $executedCount++;
+        } catch (PDOException $e) {
+            $errorMsg = $e->getMessage();
+            // Ignore "already exists" and "duplicate" errors for idempotency
+            if (strpos($errorMsg, 'already exists') === false && 
+                strpos($errorMsg, 'Duplicate') === false &&
+                strpos($errorMsg, 'doesn\'t exist') === false) {
+                $errors[] = [
+                    'statement' => mb_substr($stmt, 0, 150) . (strlen($stmt) > 150 ? '...' : ''),
+                    'error' => $errorMsg
+                ];
+            }
+        }
+    }
+    
+    // Re-enable foreign key checks
+    $pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
+    
+    return [
+        'executed' => $executedCount,
+        'errors' => $errors
+    ];
+}
+
+function verifyRequiredTables(PDO $pdo): array {
+    $requiredTables = ['users', 'domains', 'temp_emails', 'received_emails', 'app_settings', 'sessions', 'profiles'];
+    $missingTables = [];
+    
+    foreach ($requiredTables as $table) {
+        $result = $pdo->query("SHOW TABLES LIKE '{$table}'")->fetch();
+        if (!$result) {
+            $missingTables[] = $table;
+        }
+    }
+    
+    return $missingTables;
 }
 
 function runInstallation(array $data): array {
@@ -395,32 +567,43 @@ function runInstallation(array $data): array {
         $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
         $pdo->exec("USE `{$dbName}`");
         
-        // Run schema
+        // Run schema using improved parser
         $schemaFile = __DIR__ . '/database/schema.mysql.sql';
         if (!file_exists($schemaFile)) {
             return ['success' => false, 'error' => 'Schema file not found: database/schema.mysql.sql'];
         }
         
-        $schema = file_get_contents($schemaFile);
+        $schemaResult = executeSqlFile($pdo, $schemaFile);
         
-        // Split and execute statements
-        $statements = array_filter(
-            array_map('trim', preg_split('/;(?=\s*(?:--|\/\*|CREATE|ALTER|INSERT|UPDATE|DELETE|DROP|SET|$))/i', $schema)),
-            function($s) { return !empty($s) && !preg_match('/^(--|#|\/\*)/', trim($s)); }
-        );
-        
-        foreach ($statements as $stmt) {
-            if (!empty(trim($stmt))) {
-                try {
-                    $pdo->exec($stmt);
-                } catch (PDOException $e) {
-                    // Ignore duplicate key errors for idempotency
-                    if (strpos($e->getMessage(), 'Duplicate') === false && 
-                        strpos($e->getMessage(), 'already exists') === false) {
-                        // Log but continue
-                    }
-                }
+        // Check for critical errors
+        if (!empty($schemaResult['errors'])) {
+            // Only fail if there are real errors (not just "already exists")
+            $criticalErrors = array_filter($schemaResult['errors'], function($e) {
+                return strpos($e['error'], 'syntax') !== false || 
+                       strpos($e['error'], 'Access denied') !== false;
+            });
+            
+            if (!empty($criticalErrors)) {
+                $errorDetails = array_map(function($e) {
+                    return $e['error'] . ' (SQL: ' . $e['statement'] . ')';
+                }, array_slice($criticalErrors, 0, 3));
+                
+                return ['success' => false, 'error' => 'Schema errors: ' . implode('; ', $errorDetails)];
             }
+        }
+        
+        // Verify critical tables were created
+        $missingTables = verifyRequiredTables($pdo);
+        if (!empty($missingTables)) {
+            return [
+                'success' => false, 
+                'error' => 'Required tables not created: ' . implode(', ', $missingTables) . 
+                          '. Please check the database/schema.mysql.sql file and try running it manually in phpMyAdmin.',
+                'debug' => [
+                    'executed_statements' => $schemaResult['executed'],
+                    'errors' => $schemaResult['errors']
+                ]
+            ];
         }
         
         // Generate security keys
@@ -1257,6 +1440,16 @@ $maxSteps = 5;
                     <span class="hint">Domain for temporary emails (e.g., user@tempmail.com)</span>
                 </div>
                 
+                <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                    <input type="checkbox" id="skip_dns" name="skip_dns" style="width: auto;">
+                    <label for="skip_dns" style="margin-bottom: 0; font-weight: normal;">
+                        Skip DNS verification (use if hosting domain on same server)
+                    </label>
+                </div>
+                <span class="hint" style="display: block; margin-top: -0.5rem; margin-bottom: 1rem;">
+                    Enable this if DNS lookups fail because your domain is hosted on the same server.
+                </span>
+                
                 <div id="domainTestResult" class="test-result"></div>
         </div>
         
@@ -1620,8 +1813,29 @@ $maxSteps = 5;
     
     async function verifyDomain() {
         const domain = document.getElementById('domain').value;
-        const result = await postAjax('verify_domain', { domain });
-        showResult('domainTestResult', result);
+        const skipDns = document.getElementById('skip_dns')?.checked ? 'true' : 'false';
+        const result = await postAjax('verify_domain', { domain, skip_dns: skipDns });
+        
+        // Show result with appropriate styling for skipped check
+        const el = document.getElementById('domainTestResult');
+        el.style.display = 'block';
+        
+        if (result.success) {
+            if (result.checks?.skipped) {
+                el.className = 'test-result warning';
+                el.innerHTML = '⚠️ ' + result.message + '<br><small>DNS verification was skipped. Make sure your domain is properly configured.</small>';
+            } else {
+                el.className = 'test-result success';
+                let html = '✅ ' + result.message;
+                if (result.checks?.same_server_detected) {
+                    html += '<br><small>Same-server hosting detected - domain accessible locally.</small>';
+                }
+                el.innerHTML = html;
+            }
+        } else {
+            el.className = 'test-result error';
+            el.innerHTML = '❌ ' + (result.message || result.error);
+        }
     }
     
     async function testSmtp() {

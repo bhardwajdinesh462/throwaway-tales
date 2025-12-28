@@ -80,38 +80,70 @@ if ($isInstalled && !isset($_GET['force'])) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
     header('Content-Type: application/json');
-    
+
+    $hasResponse = false;
+
+    // If PHP fatals (timeouts, parse errors, memory, etc.), return JSON instead of hanging.
+    register_shutdown_function(function () use (&$hasResponse) {
+        if ($hasResponse) {
+            return;
+        }
+        $err = error_get_last();
+        if (!$err) {
+            return;
+        }
+        $fatalTypes = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR];
+        if (!in_array($err['type'], $fatalTypes, true)) {
+            return;
+        }
+
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Installation failed: ' . ($err['message'] ?? 'Fatal error'),
+        ]);
+    });
+
     try {
         $action = $_POST['ajax_action'];
-        
+
+        // Installation can take longer than default shared-hosting limits.
+        if ($action === 'run_installation') {
+            @ignore_user_abort(true);
+            @set_time_limit(300);
+            @ini_set('max_execution_time', '300');
+        }
+
         switch ($action) {
             case 'test_database':
                 $result = testDatabaseConnection($_POST);
                 break;
-                
+
             case 'test_imap':
                 $result = testImapConnection($_POST);
                 break;
-                
+
             case 'test_smtp':
                 $result = testSmtpConnection($_POST);
                 break;
-                
+
             case 'verify_domain':
                 $skipDns = isset($_POST['skip_dns']) && ($_POST['skip_dns'] === 'true' || $_POST['skip_dns'] === '1');
                 $result = verifyDomain($_POST['domain'] ?? '', $skipDns);
                 break;
-                
+
             case 'run_installation':
                 $result = runInstallation($_POST);
                 break;
-                
+
             default:
                 $result = ['success' => false, 'error' => 'Unknown action'];
         }
-        
+
+        $hasResponse = true;
         echo json_encode($result);
     } catch (Exception $e) {
+        $hasResponse = true;
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
     exit;
@@ -541,8 +573,13 @@ function verifyRequiredTables(PDO $pdo): array {
 
 function runInstallation(array $data): array {
     global $configFile, $lockFile;
-    
+
     try {
+        // Installation can take a while on shared hosting.
+        @ignore_user_abort(true);
+        @set_time_limit(300);
+        @ini_set('max_execution_time', '300');
+
         // Validate required fields
         $required = ['db_host', 'db_name', 'db_user', 'site_url', 'admin_email', 'admin_pass', 'domain'];
         foreach ($required as $field) {
@@ -1749,20 +1786,34 @@ $maxSteps = 5;
     // Store form data in session between steps
     const installData = <?= json_encode($_SESSION['install'] ?? []) ?>;
     
-    async function postAjax(action, data = {}) {
+async function postAjax(action, data = {}, options = {}) {
+        const { timeoutMs = 20000 } = options;
+
         const formData = new FormData();
         formData.append('ajax_action', action);
-        
+
         for (const [key, value] of Object.entries(data)) {
             formData.append(key, value);
         }
-        
-        const response = await fetch('', {
-            method: 'POST',
-            body: formData
-        });
-        
-        return response.json();
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+        try {
+            const response = await fetch('', {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal,
+            });
+            return await response.json();
+        } catch (err) {
+            const message = err?.name === 'AbortError'
+                ? `Request timed out after ${Math.round(timeoutMs / 1000)}s. Please try again.`
+                : (err?.message || 'Network error. Please try again.');
+            return { success: false, error: message };
+        } finally {
+            clearTimeout(timer);
+        }
     }
     
     function showResult(elementId, result) {
@@ -1876,15 +1927,16 @@ $maxSteps = 5;
         btn.textContent = 'Test IMAP';
     }
     
-    async function runInstall() {
+async function runInstall() {
         const btn = document.getElementById('installBtn');
         const text = document.getElementById('installText');
-        
+
         btn.disabled = true;
         text.innerHTML = '<span class="spinner"></span> Installing...';
-        
-        const result = await postAjax('run_installation', installData);
-        
+
+        // Schema creation can take time on shared hosting.
+        const result = await postAjax('run_installation', installData, { timeoutMs: 300000 });
+
         if (result.success) {
             showResult('installResult', result);
             setTimeout(() => {

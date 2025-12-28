@@ -1,0 +1,19 @@
+# Backups Directory
+# Deny ALL access - backups should only be accessed via PHP
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+</IfModule>
+
+# Disable script execution
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+
+# Prevent directory listing
+Options -Indexes

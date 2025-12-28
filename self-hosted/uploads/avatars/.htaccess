@@ -1,0 +1,28 @@
+# Avatars Directory
+# Allow image access but block scripts
+
+<IfModule mod_authz_core.c>
+    Require all granted
+</IfModule>
+
+# Only allow image files
+<FilesMatch "\.(?i:jpg|jpeg|png|gif|webp|svg)$">
+    <IfModule mod_authz_core.c>
+        Require all granted
+    </IfModule>
+</FilesMatch>
+
+# Block all other file types
+<FilesMatch "\.(?i:php|phtml|php3|php4|php5|php7|phps|cgi|pl|py|sh|bash|exe|bat|cmd)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+</FilesMatch>
+
+# Disable script execution
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+
+# Prevent directory listing
+Options -Indexes

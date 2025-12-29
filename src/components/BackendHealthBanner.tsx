@@ -112,13 +112,9 @@ const BackendHealthBanner = () => {
     };
   }, [checkHealth]);
 
-  // Only show banner if there's an issue AND user is admin
-  const hasIssue = health.database === "down" || health.realtime === "down";
-  const isChecking = health.database === "checking" || health.realtime === "checking";
-
-  // Don't show to non-admins
-  if (adminLoading || !isAdmin) return null;
-  if (!hasIssue && !isChecking) return null;
+  // Show banner to everyone when there's an issue; keep "checking" state admin-only
+  const canShow = hasIssue || (isChecking && isAdmin);
+  if (!canShow) return null;
 
   return (
     <AnimatePresence>
@@ -172,7 +168,7 @@ const BackendHealthBanner = () => {
               </div>
             </div>
 
-            {hasIssue && (
+            {hasIssue && isAdmin && (
               <Button
                 variant="outline"
                 size="sm"

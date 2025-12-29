@@ -381,46 +381,57 @@ const EmailGenerator = () => {
       }
       identifier = deviceId;
     }
-    
+
+    // Domains not available (backend down or still loading)
+    if (!domains || domains.length === 0) {
+      toast.error("Domains are not loading right now. Please try again in a moment.");
+      return;
+    }
+
     // Use dynamic rate limit settings from admin config
-    const maxRequests = user 
-      ? rateLimitSettings.max_requests 
+    const maxRequests = user
+      ? rateLimitSettings.max_requests
       : (rateLimitSettings.guest_max_requests || rateLimitSettings.max_requests);
-    const windowMinutes = user 
-      ? rateLimitSettings.window_minutes 
+    const windowMinutes = user
+      ? rateLimitSettings.window_minutes
       : (rateLimitSettings.guest_window_minutes || rateLimitSettings.window_minutes);
-    
+
     const { data: rateLimitOk, error: rateLimitError } = await supabase.rpc('check_rate_limit', {
       p_identifier: identifier,
       p_action_type: 'generate_email',
       p_max_requests: maxRequests,
       p_window_minutes: windowMinutes
     });
-    
+
     if (rateLimitError) {
       console.error('Rate limit check error:', rateLimitError);
     }
-    
+
     if (rateLimitOk === false) {
       const waitTime = windowMinutes >= 60 ? `${Math.round(windowMinutes / 60)} hour(s)` : `${windowMinutes} minute(s)`;
       toast.error(`Rate limit exceeded. You can create ${maxRequests} emails per ${waitTime}. Please wait.`);
       return;
     }
-    
+
     // Verify captcha before generating new email
     if (!await verifyCaptcha('generate_email')) {
       return;
     }
+
     const currentDomainId = currentEmail?.domain_id || domains[0]?.id;
-    await generateEmail(currentDomainId);
-    
+    const success = await generateEmail(currentDomainId);
+    if (!success) {
+      // generateEmail already shows a toast; just stop here to avoid false "success" state
+      return;
+    }
+
     // Immediately update usage after generating (don't wait for realtime)
     setEmailUsage(prev => ({
       ...prev,
       used: prev.used + 1,
       remaining: prev.limit === -1 ? 9999 : Math.max(0, prev.remaining - 1)
     }));
-    
+
     toast.success("New email generated!");
   };
 

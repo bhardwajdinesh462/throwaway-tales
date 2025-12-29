@@ -20,8 +20,18 @@ export const parseEdgeFunctionError = (error: any): ParsedError => {
     errorMessage.includes('<!DOCTYPE html>') ||
     errorMessage.includes('<html');
   
+  // Check for timeout/connection errors
+  const isTimeoutError = 
+    errorMessage.includes('timeout') ||
+    errorMessage.includes('Timeout') ||
+    errorMessage.includes('abort') ||
+    errorMessage.includes('AbortError') ||
+    errorMessage.includes('Connection terminated') ||
+    errorMessage.includes('connection timeout');
+
   // Check for common transient errors
   const isTransientError = 
+    isTimeoutError ||
     errorMessage.includes('500') ||
     errorMessage.includes('502') ||
     errorMessage.includes('503') ||
@@ -29,7 +39,17 @@ export const parseEdgeFunctionError = (error: any): ParsedError => {
     errorMessage.includes('Internal server error') ||
     errorMessage.includes('ECONNRESET') ||
     errorMessage.includes('ETIMEDOUT') ||
-    errorMessage.includes('network');
+    errorMessage.includes('network') ||
+    errorMessage.includes('Failed to fetch');
+
+  // Handle timeout errors specifically
+  if (isTimeoutError) {
+    return {
+      message: 'Connection timed out. The server is slow - please try again.',
+      isRetryable: true,
+      isHtmlError: false,
+    };
+  }
 
   // Parse specific error types
   if (isHtmlError || isTransientError) {

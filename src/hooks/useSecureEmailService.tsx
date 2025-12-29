@@ -42,11 +42,33 @@ export interface ReceivedEmail {
 const TOKEN_STORAGE_KEY = 'nullsto_email_tokens';
 const CURRENT_EMAIL_ID_KEY = 'nullsto_current_email_id';
 const EMAIL_CREATION_COUNT_KEY = 'nullsto_email_creation_count';
+const CACHED_DOMAINS_KEY = 'nullsto_cached_domains';
 
 interface EmailCreationCount {
   date: string;
   count: number;
 }
+
+// Cache domains to localStorage for fallback during outages
+const getCachedDomains = (): Domain[] => {
+  try {
+    const cached = localStorage.getItem(CACHED_DOMAINS_KEY);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+};
+
+const setCachedDomains = (domains: Domain[]) => {
+  try {
+    localStorage.setItem(CACHED_DOMAINS_KEY, JSON.stringify(domains));
+  } catch {
+    // ignore
+  }
+};
 
 const getEmailCreationCount = (): number => {
   const today = new Date().toISOString().split('T')[0];
@@ -143,7 +165,7 @@ export const useSecureEmailService = () => {
     );
   }, [currentEmail?.id]);
 
-  // Load domains from Supabase with retry logic
+  // Load domains from Supabase with retry logic and local cache fallback
   useEffect(() => {
     let cancelled = false;
     let retryTimeout: NodeJS.Timeout | null = null;
@@ -152,27 +174,47 @@ export const useSecureEmailService = () => {
       if (cancelled) return;
       
       const maxRetries = 5;
-      const backoffMs = Math.min(2000 * Math.pow(1.5, attempt), 10000);
+      const backoffMs = Math.min(2000 * Math.pow(1.5, attempt), 15000);
 
       try {
         console.log(`[email-service] Loading domains (attempt ${attempt + 1})...`);
+        
+        // Create abort controller for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
         const { data, error } = await supabase
           .from('domains')
           .select('id, name, is_premium, is_active, created_at')
           .eq('is_active', true)
           .order('is_premium', { ascending: true })
-          .limit(20);
+          .limit(20)
+          .abortSignal(controller.signal);
+        
+        clearTimeout(timeoutId);
 
         if (cancelled) return;
 
         if (!error && data && data.length > 0) {
-          console.log(`[email-service] Loaded ${data.length} domains`);
+          console.log(`[email-service] Loaded ${data.length} domains from database`);
           setDomains(data);
+          setCachedDomains(data); // Cache for fallback
           return;
         }
         
         if (error) {
+          const isTimeout = error.message?.includes('abort') || error.message?.includes('timeout');
           console.error(`[email-service] Error loading domains (attempt ${attempt + 1}):`, error.message);
+          
+          // On timeout/connection error, try cached domains immediately
+          if (isTimeout && attempt === 0) {
+            const cached = getCachedDomains();
+            if (cached.length > 0) {
+              console.log(`[email-service] Using ${cached.length} cached domains during connection issue`);
+              setDomains(cached);
+              toast.info('Using cached data while reconnecting...', { duration: 3000 });
+            }
+          }
         }
         
         // Retry on any failure if we haven't exceeded max retries
@@ -181,10 +223,30 @@ export const useSecureEmailService = () => {
           retryTimeout = setTimeout(() => loadDomains(attempt + 1), backoffMs);
         } else {
           console.error('[email-service] Failed to load domains after max retries');
+          // Final fallback: use cached domains
+          const cached = getCachedDomains();
+          if (cached.length > 0 && domains.length === 0) {
+            console.log(`[email-service] Using cached domains as final fallback`);
+            setDomains(cached);
+            toast.error('Database temporarily unavailable. Using cached data.', { duration: 5000 });
+          } else if (cached.length === 0) {
+            toast.error('Unable to connect to database. Please try again later.', { duration: 5000 });
+          }
         }
       } catch (err: any) {
         if (cancelled) return;
+        const isAbort = err?.name === 'AbortError' || err?.message?.includes('abort');
         console.error(`[email-service] Error loading domains (attempt ${attempt + 1}):`, err?.message || err);
+        
+        // Use cached domains on network errors
+        if (attempt === 0) {
+          const cached = getCachedDomains();
+          if (cached.length > 0) {
+            console.log(`[email-service] Using cached domains during error`);
+            setDomains(cached);
+          }
+        }
+        
         if (attempt < maxRetries) {
           retryTimeout = setTimeout(() => loadDomains(attempt + 1), backoffMs);
         }

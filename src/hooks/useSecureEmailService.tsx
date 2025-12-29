@@ -307,26 +307,34 @@ export const useSecureEmailService = () => {
       }
       const address = username + selectedDomain.name;
 
-      // Timeout wrapper so UI never gets stuck on "Generating..."
-      const withTimeout = async <T,>(p: Promise<T>, ms: number): Promise<T> => {
-        return await Promise.race([
-          p,
-          new Promise<T>((_, reject) =>
-            setTimeout(() => reject(new Error("timeout")), ms)
-          ),
-        ]);
-      };
-
       // Use the SECURITY DEFINER function for reliable email creation
       // This bypasses RLS issues for both guests and authenticated users
-      const rpcPromise = supabase.rpc('create_temp_email', {
+      // Wrap in a Promise.race so UI never stays stuck on "Generating..." forever
+      const rpcCall = supabase.rpc('create_temp_email', {
         p_address: address,
         p_domain_id: selectedDomain.id,
         p_user_id: user?.id || null,
         p_expires_at: null, // Let the function calculate expiry based on user status
       });
 
-      const { data: result, error: rpcError } = await withTimeout(rpcPromise, 30000);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 30000)
+      );
+
+      let result: any;
+      let rpcError: any;
+      try {
+        const res = await Promise.race([rpcCall, timeoutPromise]);
+        result = (res as any).data;
+        rpcError = (res as any).error;
+      } catch (err: any) {
+        if (err?.message === 'timeout') {
+          toast.error('Connection timed out. Please try again in a moment.');
+          setIsGenerating(false);
+          return false;
+        }
+        throw err;
+      }
 
       if (rpcError) {
         console.error('Error creating temp email (RPC):', rpcError);

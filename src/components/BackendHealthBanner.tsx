@@ -112,8 +112,13 @@ const BackendHealthBanner = () => {
     };
   }, [checkHealth]);
 
+  // Compute status booleans
+  const hasIssue = health.database === "down" || health.realtime === "down";
+  const isChecking = health.database === "checking" || health.realtime === "checking";
+
   // Show banner to everyone when there's an issue; keep "checking" state admin-only
   const canShow = hasIssue || (isChecking && isAdmin);
+  if (adminLoading) return null;
   if (!canShow) return null;
 
   return (

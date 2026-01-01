@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAdminBlogs, useBlogMutations, adminQueryKeys } from "@/hooks/useAdminQueries";
@@ -125,15 +125,11 @@ const AdminBlogs = () => {
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = `blog-images/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from("banners")
-        .upload(filePath, file);
+      const { error: uploadError } = await api.storage.upload("banners", filePath, file);
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from("banners")
-        .getPublicUrl(filePath);
+      const publicUrl = api.storage.getPublicUrl("banners", filePath);
 
       setFormData({ ...formData, featured_image_url: publicUrl });
       toast.success("Image uploaded successfully");
@@ -157,45 +153,40 @@ const AdminBlogs = () => {
 
     try {
       if (editingBlog) {
-        const { error } = await supabase
-          .from("blogs")
-          .update({
-            title: formData.title,
-            slug,
-            excerpt: formData.excerpt || null,
-            content: formData.content,
-            featured_image_url: formData.featured_image_url || null,
-            meta_title: formData.meta_title || null,
-            meta_description: formData.meta_description || null,
-            tags,
-            category: formData.category,
-            author: formData.author,
-            reading_time: readingTime,
-            published: formData.published,
-            published_at: formData.published ? new Date().toISOString() : null,
-          })
-          .eq("id", editingBlog.id);
+        const { error } = await api.db.update("blogs", {
+          title: formData.title,
+          slug,
+          excerpt: formData.excerpt || null,
+          content: formData.content,
+          featured_image_url: formData.featured_image_url || null,
+          meta_title: formData.meta_title || null,
+          meta_description: formData.meta_description || null,
+          tags,
+          category: formData.category,
+          author: formData.author,
+          reading_time: readingTime,
+          published: formData.published,
+          published_at: formData.published ? new Date().toISOString() : null,
+        }, { id: editingBlog.id });
 
         if (error) throw error;
         toast.success("Blog post updated");
       } else {
-        const { error } = await supabase
-          .from("blogs")
-          .insert({
-            title: formData.title,
-            slug,
-            excerpt: formData.excerpt || null,
-            content: formData.content,
-            featured_image_url: formData.featured_image_url || null,
-            meta_title: formData.meta_title || null,
-            meta_description: formData.meta_description || null,
-            tags,
-            category: formData.category,
-            author: formData.author,
-            reading_time: readingTime,
-            published: formData.published,
-            published_at: formData.published ? new Date().toISOString() : null,
-          });
+        const { error } = await api.db.insert("blogs", {
+          title: formData.title,
+          slug,
+          excerpt: formData.excerpt || null,
+          content: formData.content,
+          featured_image_url: formData.featured_image_url || null,
+          meta_title: formData.meta_title || null,
+          meta_description: formData.meta_description || null,
+          tags,
+          category: formData.category,
+          author: formData.author,
+          reading_time: readingTime,
+          published: formData.published,
+          published_at: formData.published ? new Date().toISOString() : null,
+        });
 
         if (error) throw error;
         toast.success("Blog post created");

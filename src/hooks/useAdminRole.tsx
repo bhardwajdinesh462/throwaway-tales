@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useSupabaseAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 export const useAdminRole = () => {
   const { user } = useAuth();
@@ -18,19 +18,19 @@ export const useAdminRole = () => {
       }
 
       try {
-        const { data, error } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', user.id)
-          .single();
+        const { data, error } = await api.db.query<{role: string}[]>('user_roles', {
+          filter: { user_id: user.id },
+          limit: 1
+        });
 
         if (error) {
           console.error('Error checking user role:', error);
           setIsAdmin(false);
           setIsModerator(false);
         } else {
-          setIsAdmin(data?.role === 'admin');
-          setIsModerator(data?.role === 'moderator' || data?.role === 'admin');
+          const role = data?.[0]?.role;
+          setIsAdmin(role === 'admin');
+          setIsModerator(role === 'moderator' || role === 'admin');
         }
       } catch (err) {
         console.error('Error in useAdminRole:', err);

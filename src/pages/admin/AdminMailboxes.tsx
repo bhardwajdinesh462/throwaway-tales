@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -133,34 +133,31 @@ const AdminMailboxes = () => {
     try {
       if (editingMailbox.id) {
         // Update existing
-        const { error } = await supabase
-          .from("mailboxes")
-          .update({
-            name: editingMailbox.name,
-            smtp_host: editingMailbox.smtp_host || null,
-            smtp_port: editingMailbox.smtp_port,
-            smtp_user: editingMailbox.smtp_user || null,
-            smtp_password: editingMailbox.smtp_password || null,
-            smtp_from: editingMailbox.smtp_from || null,
-            imap_host: editingMailbox.imap_host || null,
-            imap_port: editingMailbox.imap_port,
-            imap_user: editingMailbox.imap_user || null,
-            imap_password: editingMailbox.imap_password || null,
-            receiving_email: editingMailbox.receiving_email || null,
-            hourly_limit: editingMailbox.hourly_limit,
-            daily_limit: editingMailbox.daily_limit,
-            auto_delete_after_store: editingMailbox.auto_delete_after_store,
-            is_active: editingMailbox.is_active,
-            priority: editingMailbox.priority,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", editingMailbox.id);
+        const { error } = await api.db.update("mailboxes", {
+          name: editingMailbox.name,
+          smtp_host: editingMailbox.smtp_host || null,
+          smtp_port: editingMailbox.smtp_port,
+          smtp_user: editingMailbox.smtp_user || null,
+          smtp_password: editingMailbox.smtp_password || null,
+          smtp_from: editingMailbox.smtp_from || null,
+          imap_host: editingMailbox.imap_host || null,
+          imap_port: editingMailbox.imap_port,
+          imap_user: editingMailbox.imap_user || null,
+          imap_password: editingMailbox.imap_password || null,
+          receiving_email: editingMailbox.receiving_email || null,
+          hourly_limit: editingMailbox.hourly_limit,
+          daily_limit: editingMailbox.daily_limit,
+          auto_delete_after_store: editingMailbox.auto_delete_after_store,
+          is_active: editingMailbox.is_active,
+          priority: editingMailbox.priority,
+          updated_at: new Date().toISOString(),
+        }, { id: editingMailbox.id });
 
         if (error) throw error;
         toast.success("Mailbox updated");
       } else {
         // Create new
-        const { error } = await supabase.from("mailboxes").insert({
+        const { error } = await api.db.insert("mailboxes", {
           name: editingMailbox.name,
           smtp_host: editingMailbox.smtp_host || null,
           smtp_port: editingMailbox.smtp_port,
@@ -209,7 +206,7 @@ const AdminMailboxes = () => {
 
     setIsTesting(mailbox.id);
     try {
-      const { data, error } = await supabase.functions.invoke("smtp-connectivity-test", {
+      const { data, error } = await api.functions.invoke<{success?: boolean; error?: string}>("smtp-connectivity-test", {
         body: {
           host: mailbox.smtp_host,
           port: mailbox.smtp_port,

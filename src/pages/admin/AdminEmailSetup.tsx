@@ -7,8 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import type { Json } from "@/integrations/supabase/types";
+import { api } from "@/lib/api";
+
 import {
   Wand2, Server, Mail, Shield, Globe, CheckCircle, XCircle,
   Copy, ExternalLink, Loader2, RefreshCw, AlertTriangle, Forward, Plus, Trash2
@@ -41,7 +41,7 @@ const AdminEmailSetup = () => {
   const fetchConfig = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('check-email-config');
+      const { data, error } = await api.functions.invoke<EmailConfig>('check-email-config');
       if (error) throw error;
       setConfig(data);
     } catch (error: any) {
@@ -54,14 +54,13 @@ const AdminEmailSetup = () => {
 
   const fetchForwardingRules = async () => {
     try {
-      const { data } = await supabase
-        .from("app_settings")
-        .select("value")
-        .eq("key", "email_forwarding_rules")
-        .single();
+      const { data } = await api.db.query<{value: ForwardingRule[]}[]>("app_settings", {
+        filter: { key: "email_forwarding_rules" },
+        limit: 1
+      });
       
-      if (data?.value) {
-        setForwardingRules(data.value as unknown as ForwardingRule[]);
+      if (data?.[0]?.value) {
+        setForwardingRules(data[0].value as ForwardingRule[]);
       }
     } catch (error) {
       console.error("Error fetching forwarding rules:", error);
@@ -105,9 +104,9 @@ const AdminEmailSetup = () => {
     const updatedRules = [...forwardingRules, rule];
     
     try {
-      const { error } = await supabase.from("app_settings").upsert(
-        [{ key: "email_forwarding_rules", value: updatedRules as unknown as Json }],
-        { onConflict: 'key' }
+      const { error } = await api.db.upsert("app_settings", 
+        { key: "email_forwarding_rules", value: updatedRules },
+        { onConflict: "key" }
       );
       if (error) throw error;
 
@@ -125,9 +124,9 @@ const AdminEmailSetup = () => {
     );
 
     try {
-      const { error } = await supabase.from("app_settings").upsert(
-        [{ key: "email_forwarding_rules", value: updatedRules as unknown as Json }],
-        { onConflict: 'key' }
+      const { error } = await api.db.upsert("app_settings",
+        { key: "email_forwarding_rules", value: updatedRules },
+        { onConflict: "key" }
       );
       if (error) throw error;
 
@@ -141,9 +140,9 @@ const AdminEmailSetup = () => {
     const updatedRules = forwardingRules.filter(rule => rule.id !== id);
 
     try {
-      const { error } = await supabase.from("app_settings").upsert(
-        [{ key: "email_forwarding_rules", value: updatedRules as unknown as Json }],
-        { onConflict: 'key' }
+      const { error } = await api.db.upsert("app_settings",
+        { key: "email_forwarding_rules", value: updatedRules },
+        { onConflict: "key" }
       );
       if (error) throw error;
 

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 import { 
   Mail, Search, RefreshCw, Loader2, CheckCircle, XCircle, AlertTriangle,
   ChevronLeft, ChevronRight, Filter, BarChart3, Clock, Server
@@ -31,7 +32,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 
 interface EmailLog {
@@ -83,14 +83,12 @@ const AdminEmailLogs = () => {
   const fetchLogs = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.rpc('get_email_logs', {
-        p_page: page,
-        p_page_size: pageSize,
-        p_status_filter: statusFilter === 'all' ? null : statusFilter,
-        p_search: search || null
+      const data = await api.admin('email-logs', {
+        page,
+        page_size: pageSize,
+        status: statusFilter === 'all' ? null : statusFilter,
+        search: search || null
       });
-
-      if (error) throw error;
 
       setLogs(data || []);
       if (data && data.length > 0) {
@@ -109,10 +107,7 @@ const AdminEmailLogs = () => {
   const fetchStats = async () => {
     setIsLoadingStats(true);
     try {
-      const { data, error } = await supabase.rpc('get_email_stats');
-
-      if (error) throw error;
-
+      const data = await api.admin('email-stats', {});
       if (data && data.length > 0) {
         setStats(data[0]);
       }
@@ -443,15 +438,13 @@ const AdminEmailLogs = () => {
                       onClick={() => setPage(p => p - 1)}
                     >
                       <ChevronLeft className="w-4 h-4" />
-                      Previous
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={page >= totalPages}
+                      disabled={page === totalPages}
                       onClick={() => setPage(p => p + 1)}
                     >
-                      Next
                       <ChevronRight className="w-4 h-4" />
                     </Button>
                   </div>

@@ -13,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { formatDistanceToNow, format } from "date-fns";
 import { toast } from "sonner";
 
@@ -43,48 +43,30 @@ const AdminAuditLogs = () => {
   const fetchLogs = async () => {
     setIsLoading(true);
     try {
-      // Try the new RPC function first for better data
-      const { data: rpcData, error: rpcError } = await supabase.rpc('get_admin_audit_logs', {
-        p_page: page,
-        p_page_size: pageSize,
-        p_action_filter: searchTerm || null
+      const data = await api.admin('audit-logs', {
+        page,
+        page_size: pageSize,
+        action: searchTerm || null
       });
 
-      if (!rpcError && rpcData) {
-        setLogs(rpcData.map((row: any) => ({
+      if (Array.isArray(data)) {
+        setLogs(data.map((row: any) => ({
           id: row.id,
-          admin_user_id: '',
+          admin_user_id: row.admin_user_id || '',
           admin_email: row.admin_email,
           admin_name: row.admin_name,
           action: row.action,
           table_name: row.table_name,
           record_id: row.record_id,
           details: row.details,
-          ip_address: null,
+          ip_address: row.ip_address,
           created_at: row.created_at
         })));
-        setTotalCount(Number(rpcData[0]?.total_count) || 0);
-        return;
+        setTotalCount(Number(data[0]?.total_count) || data.length);
+      } else {
+        setLogs([]);
+        setTotalCount(0);
       }
-
-      // Fallback to direct query
-      const { data, error } = await supabase
-        .from('admin_audit_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
-
-      if (error) {
-        if (error.code === 'PGRST116' || error.message.includes('permission')) {
-          toast.error('Access denied. Admin privileges required.');
-        } else {
-          throw error;
-        }
-        return;
-      }
-
-      setLogs(data || []);
-      setTotalCount(data?.length || 0);
     } catch (error) {
       console.error('Error fetching audit logs:', error);
       toast.error('Failed to fetch audit logs');
@@ -98,7 +80,6 @@ const AdminAuditLogs = () => {
   }, [page, searchTerm]);
 
   const filteredLogs = logs;
-
   const totalPages = Math.ceil(totalCount / pageSize);
 
   const getActionBadgeVariant = (action: string): "default" | "secondary" | "destructive" | "outline" => {
@@ -205,7 +186,7 @@ const AdminAuditLogs = () => {
                       <TableHead>Timestamp</TableHead>
                       <TableHead>Action</TableHead>
                       <TableHead>Table</TableHead>
-                      <TableHead>Admin ID</TableHead>
+                      <TableHead>Admin</TableHead>
                       <TableHead>Details</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -332,8 +313,8 @@ const AdminAuditLogs = () => {
                         <p className="font-mono text-foreground">{selectedLog.table_name}</p>
                       </div>
                       <div>
-                        <p className="text-sm text-muted-foreground">Admin ID</p>
-                        <p className="font-mono text-xs text-foreground">{selectedLog.admin_user_id}</p>
+                        <p className="text-sm text-muted-foreground">Admin</p>
+                        <p className="text-foreground">{selectedLog.admin_name || selectedLog.admin_email || 'Unknown'}</p>
                       </div>
                       <div>
                         <p className="text-sm text-muted-foreground">Timestamp</p>

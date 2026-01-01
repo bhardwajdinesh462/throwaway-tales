@@ -17,7 +17,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import {
   AreaChart,
   Area,
@@ -74,26 +74,29 @@ const AdminAnalytics = () => {
       const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
       
       // Fetch email statistics - use email_stats for permanent counter
-      const { data: emailStatsData } = await supabase
-        .from("email_stats")
-        .select("stat_value")
-        .eq("stat_key", "total_emails_generated")
-        .maybeSingle();
+      const { data: emailStatsData } = await api.db.query<{stat_value: number}[]>("email_stats", {
+        filter: { stat_key: "total_emails_generated" },
+        limit: 1
+      });
 
-      const { count: receivedCount } = await supabase
-        .from("received_emails")
-        .select("*", { count: "exact" });
+      const { data: receivedData } = await api.db.query<{id: string}[]>("received_emails", {
+        select: "id",
+        limit: 1000
+      });
+      const receivedCount = receivedData?.length || 0;
 
-      const { count: domainCount } = await supabase
-        .from("domains")
-        .select("*", { count: "exact" })
-        .eq("is_active", true);
+      const { data: domainData } = await api.db.query<{id: string}[]>("domains", {
+        filter: { is_active: true }
+      });
+      const domainCount = domainData?.length || 0;
 
-      const { count: userCount } = await supabase
-        .from("profiles")
-        .select("*", { count: "exact" });
+      const { data: userData } = await api.db.query<{id: string}[]>("profiles", {
+        select: "id",
+        limit: 1000
+      });
+      const userCount = userData?.length || 0;
 
-      const totalEmails = emailStatsData?.stat_value || 0;
+      const totalEmails = emailStatsData?.[0]?.stat_value || 0;
 
       setAnalytics({
         totalEmails: totalEmails,

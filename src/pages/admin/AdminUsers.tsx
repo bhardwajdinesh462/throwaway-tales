@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAdminUsers } from "@/hooks/useAdminQueries";
@@ -87,9 +87,9 @@ const AdminUsers = () => {
 
   const updateUserRole = async (userId: string, newRole: string) => {
     try {
-      await supabase.from("user_roles").delete().eq("user_id", userId);
+      await api.db.delete("user_roles", { user_id: userId });
       
-      const { error } = await supabase.from("user_roles").insert({
+      const { error } = await api.db.insert("user_roles", {
         user_id: userId,
         role: newRole as "admin" | "moderator" | "user",
       });
@@ -107,7 +107,7 @@ const AdminUsers = () => {
   const deleteUser = async (userId: string) => {
     setDeletingUserId(userId);
     try {
-      const { data, error } = await supabase.functions.invoke('delete-user-complete', {
+      const { data, error } = await api.functions.invoke<{error?: string}>('delete-user-complete', {
         body: { userId }
       });
 
@@ -134,7 +134,7 @@ const AdminUsers = () => {
     
     setIsBulkDeleting(true);
     try {
-      const { data, error } = await supabase.rpc('bulk_delete_users', {
+      const { data, error } = await api.db.rpc('bulk_delete_users', {
         user_ids: Array.from(selectedUsers)
       });
 
@@ -173,7 +173,7 @@ const AdminUsers = () => {
         suspendUntil = now.toISOString();
       }
 
-      const { error } = await supabase.rpc('suspend_user', {
+      const { error } = await api.db.rpc('suspend_user', {
         target_user_id: suspendingUser.user_id,
         suspension_reason: suspendReason || null,
         suspend_until: suspendUntil
@@ -194,7 +194,7 @@ const AdminUsers = () => {
 
   const unsuspendUser = async (userId: string) => {
     try {
-      const { error } = await supabase.rpc('unsuspend_user', {
+      const { error } = await api.db.rpc('unsuspend_user', {
         target_user_id: userId
       });
 
@@ -211,10 +211,10 @@ const AdminUsers = () => {
   const manuallyVerifyEmail = async (userId: string) => {
     setVerifyingUserId(userId);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ email_verified: true })
-        .eq('user_id', userId);
+      const { error } = await api.db.update('profiles', 
+        { email_verified: true },
+        { user_id: userId }
+      );
 
       if (error) throw error;
 
@@ -236,7 +236,7 @@ const AdminUsers = () => {
     
     setResendingEmailUserId(user.user_id);
     try {
-      const { data, error } = await supabase.functions.invoke('create-verification-and-send', {
+      const { data, error } = await api.functions.invoke<{error?: string}>('create-verification-and-send', {
         body: {
           userId: user.user_id,
           email: user.email,

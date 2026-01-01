@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Users, Mail, Globe, TrendingUp, Activity, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, Server, Shield, Key } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -74,20 +74,20 @@ const AdminDashboard = () => {
       try {
         // Fetch counts in parallel - use email_stats for permanent counter
         const [usersRes, emailStatsRes, domainsRes, receivedRes, activeRes, emailsTodayRes] = await Promise.all([
-          supabase.from("profiles").select("*", { count: "exact", head: true }),
-          supabase.from("email_stats").select("stat_value").eq("stat_key", "total_emails_generated").maybeSingle(),
-          supabase.from("domains").select("*", { count: "exact", head: true }),
-          supabase.from("received_emails").select("*", { count: "exact", head: true }),
-          supabase.from("temp_emails").select("*", { count: "exact", head: true }).eq("is_active", true),
-          supabase.from("received_emails").select("*", { count: "exact", head: true }).gte("received_at", new Date(new Date().setHours(0, 0, 0, 0)).toISOString()),
+          api.db.query<{id: string}[]>("profiles", { select: "id", limit: 1000 }),
+          api.db.query<{stat_value: number}[]>("email_stats", { filter: { stat_key: "total_emails_generated" }, limit: 1 }),
+          api.db.query<{id: string}[]>("domains", { select: "id", limit: 1000 }),
+          api.db.query<{id: string}[]>("received_emails", { select: "id", limit: 1000 }),
+          api.db.query<{id: string}[]>("temp_emails", { filter: { is_active: true }, select: "id", limit: 1000 }),
+          api.db.query<{id: string}[]>("received_emails", { select: "id", limit: 1000 }),
         ]);
 
         setStats({
-          totalUsers: usersRes.count || 0,
-          totalEmails: emailStatsRes.data?.stat_value || 0,
-          totalDomains: domainsRes.count || 0,
-          activeEmails: activeRes.count || 0,
-          emailsToday: emailsTodayRes.count || 0,
+          totalUsers: usersRes.data?.length || 0,
+          totalEmails: emailStatsRes.data?.[0]?.stat_value || 0,
+          totalDomains: domainsRes.data?.length || 0,
+          activeEmails: activeRes.data?.length || 0,
+          emailsToday: emailsTodayRes.data?.length || 0,
           userGrowth: 12,
         });
       } catch (error) {
@@ -99,11 +99,11 @@ const AdminDashboard = () => {
 
     const fetchHealthCheck = async () => {
       try {
-        const { data } = await supabase
-          .from("app_settings")
-          .select("value")
-          .eq("key", "email_health_check")
-          .single();
+        const { data: settingsData } = await api.db.query("app_settings", {
+          filter: { key: "email_health_check" },
+          limit: 1
+        });
+        const data = settingsData?.[0];
         
         if (data?.value) {
           setHealthCheck(data.value as unknown as HealthCheckResult);
@@ -120,7 +120,7 @@ const AdminDashboard = () => {
   const runHealthCheck = async () => {
     setIsCheckingHealth(true);
     try {
-      const { data, error } = await supabase.functions.invoke('email-health-check');
+      const { data, error } = await api.functions.invoke<HealthCheckResult>('email-health-check');
       if (error) throw error;
       setHealthCheck(data);
       toast.success("Health check completed");
@@ -135,7 +135,7 @@ const AdminDashboard = () => {
   const runEncryptionHealthCheck = async () => {
     setIsCheckingEncryption(true);
     try {
-      const { data, error } = await supabase.functions.invoke('encryption-health-check');
+      const { data, error } = await api.functions.invoke<EncryptionHealthResult>('encryption-health-check');
       if (error) throw error;
       setEncryptionHealth(data);
       toast.success("Encryption health check completed");

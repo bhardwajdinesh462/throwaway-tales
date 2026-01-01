@@ -905,7 +905,7 @@ export const functions = {
 };
 
 // ============================================
-// REALTIME API
+// REALTIME API (with SSE support for PHP backend)
 // ============================================
 
 type RealtimeCallback = (payload: { eventType: string; new: any; old?: any }) => void;
@@ -923,7 +923,9 @@ class RealtimeChannel {
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private lastDataMap: Map<string, any[]> = new Map();
   private supabaseChannel: any = null;
-  private pollIntervalMs: number = 3000; // Faster polling: 3 seconds
+  private eventSource: EventSource | null = null;
+  private pollIntervalMs: number = 2000; // Fast polling fallback: 2 seconds
+  private useSSE: boolean = true; // Try SSE first
 
   constructor(channelName: string) {
     this.channelName = channelName;
@@ -964,7 +966,25 @@ class RealtimeChannel {
       }
     }
 
-    // PHP Backend - use faster polling
+    // PHP Backend - Try SSE first, fall back to polling
+    if (this.useSSE && this.callbacks.length > 0) {
+      const filter = this.callbacks[0].filter;
+      if (filter.filter) {
+        const match = filter.filter.match(/temp_email_id=eq\.(.+)/);
+        if (match) {
+          const tempEmailId = match[1];
+          try {
+            await this.connectSSE(tempEmailId, statusCallback);
+            return this;
+          } catch (err) {
+            console.warn('SSE connection failed, falling back to polling:', err);
+            this.useSSE = false;
+          }
+        }
+      }
+    }
+
+    // Fallback to polling
     if (statusCallback) {
       statusCallback('SUBSCRIBED');
     }
@@ -975,10 +995,98 @@ class RealtimeChannel {
     return this;
   }
 
+  private connectSSE(tempEmailId: string, statusCallback?: (status: string, error?: any) => void): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const token = getAuthToken();
+      const sseUrl = new URL(`${PHP_API_URL}/sse`);
+      sseUrl.searchParams.set('temp_email_id', tempEmailId);
+      if (token) {
+        sseUrl.searchParams.set('token', token);
+      }
+
+      this.eventSource = new EventSource(sseUrl.toString());
+      
+      this.eventSource.onopen = () => {
+        if (statusCallback) {
+          statusCallback('SUBSCRIBED');
+        }
+        resolve();
+      };
+
+      this.eventSource.addEventListener('connected', (e: MessageEvent) => {
+        console.log('SSE connected:', JSON.parse(e.data));
+      });
+
+      this.eventSource.addEventListener('new_email', (e: MessageEvent) => {
+        const emailData = JSON.parse(e.data);
+        this.callbacks.forEach(({ callback }) => {
+          callback({
+            eventType: 'INSERT',
+            new: emailData
+          });
+        });
+      });
+
+      this.eventSource.addEventListener('heartbeat', () => {
+        // Keep-alive, no action needed
+      });
+
+      this.eventSource.addEventListener('reconnect', () => {
+        // Server asking us to reconnect
+        this.reconnectSSE(tempEmailId, statusCallback);
+      });
+
+      this.eventSource.addEventListener('error', (e: MessageEvent) => {
+        const errorData = e.data ? JSON.parse(e.data) : { message: 'Unknown error' };
+        console.error('SSE error:', errorData);
+      });
+
+      this.eventSource.onerror = (err) => {
+        if (this.eventSource?.readyState === EventSource.CLOSED) {
+          console.warn('SSE connection closed, reconnecting...');
+          setTimeout(() => this.reconnectSSE(tempEmailId, statusCallback), 2000);
+        } else {
+          reject(err);
+        }
+      };
+
+      // Timeout for initial connection
+      setTimeout(() => {
+        if (this.eventSource?.readyState !== EventSource.OPEN) {
+          reject(new Error('SSE connection timeout'));
+        }
+      }, 5000);
+    });
+  }
+
+  private reconnectSSE(tempEmailId: string, statusCallback?: (status: string, error?: any) => void): void {
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+    
+    setTimeout(() => {
+      this.connectSSE(tempEmailId, statusCallback).catch(err => {
+        console.error('SSE reconnection failed, switching to polling:', err);
+        this.useSSE = false;
+        if (statusCallback) {
+          statusCallback('SUBSCRIBED');
+        }
+        this.poll();
+        this.pollInterval = setInterval(() => this.poll(), this.pollIntervalMs);
+      });
+    }, 1000);
+  }
+
   unsubscribe(): void {
     if (this.supabaseChannel) {
       this.supabaseChannel.unsubscribe();
       this.supabaseChannel = null;
+    }
+    
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
     }
     
     if (this.pollInterval) {

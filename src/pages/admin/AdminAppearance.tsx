@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
 import { Paintbrush, Save, Upload, Image, Trash2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useSettings } from "@/contexts/SettingsContext";
 const APPEARANCE_SETTINGS_KEY = 'trashmails_appearance_settings';
 
@@ -46,16 +46,14 @@ const AdminAppearance = () => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'appearance')
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { data, error } = await api.db.query('app_settings', {
+          filter: { key: 'appearance' },
+          order: { column: 'updated_at', ascending: false },
+          limit: 1
+        });
 
-        if (!error && data?.value) {
-          const dbSettings = data.value as unknown as AppearanceSettings;
+        if (!error && data?.[0]?.value) {
+          const dbSettings = data[0].value as unknown as AppearanceSettings;
           setSettings({ ...defaultSettings, ...dbSettings });
         } else {
           const localSettings = storage.get<AppearanceSettings>(APPEARANCE_SETTINGS_KEY, defaultSettings);
@@ -80,11 +78,12 @@ const AdminAppearance = () => {
       
       // Also save to Supabase app_settings for persistence
       // First check if the key exists
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', 'appearance')
-        .single();
+      const { data: existingData } = await api.db.query('app_settings', {
+        filter: { key: 'appearance' },
+        select: 'id',
+        limit: 1
+      });
+      const existing = existingData?.[0];
 
       // Cast settings to Json-compatible format
       const settingsJson = JSON.parse(JSON.stringify(settings));
@@ -92,22 +91,17 @@ const AdminAppearance = () => {
       let error;
       if (existing) {
         // Update existing
-        const result = await supabase
-          .from('app_settings')
-          .update({
-            value: settingsJson,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('key', 'appearance');
+        const result = await api.db.update('app_settings', 
+          { value: settingsJson, updated_at: new Date().toISOString() },
+          { key: 'appearance' }
+        );
         error = result.error;
       } else {
         // Insert new
-        const result = await supabase
-          .from('app_settings')
-          .insert([{
-            key: 'appearance',
-            value: settingsJson,
-          }]);
+        const result = await api.db.insert('app_settings', {
+          key: 'appearance',
+          value: settingsJson,
+        });
         error = result.error;
       }
 
@@ -157,15 +151,11 @@ const AdminAppearance = () => {
       const fileName = `${type}-${Date.now()}.${fileExt}`;
       const filePath = `branding/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('banners')
-        .upload(filePath, file, { upsert: true });
+      const { error: uploadError } = await api.storage.upload('banners', filePath, file);
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('banners')
-        .getPublicUrl(filePath);
+      const publicUrl = api.storage.getPublicUrl('banners', filePath);
 
       if (type === 'logo') {
         updateSetting('logoUrl', publicUrl);

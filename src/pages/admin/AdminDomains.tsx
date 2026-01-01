@@ -130,13 +130,25 @@ const AdminDomains = () => {
   const handleAddDomain = () => {
     if (!newDomain.trim()) return;
     
+    // Normalize domain: trim, lowercase, ensure @ prefix
+    let normalizedDomain = newDomain.trim().toLowerCase();
+    if (!normalizedDomain.startsWith('@')) {
+      normalizedDomain = '@' + normalizedDomain;
+    }
+    
     addDomainMutation.mutate(
-      { name: newDomain, isPremium },
+      { name: normalizedDomain, isPremium },
       {
         onSuccess: () => {
           setNewDomain("");
           setIsPremium(false);
           setDialogOpen(false);
+          // Invalidate public domains cache as well
+          queryClient.invalidateQueries({ queryKey: ['domains'] });
+          // Clear localStorage cached domains
+          try {
+            localStorage.removeItem('nullsto_domains_cache');
+          } catch (e) {}
         },
       }
     );
@@ -260,9 +272,9 @@ const AdminDomains = () => {
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <label className="text-sm font-medium">Premium Domain</label>
+                    <label className="text-sm font-medium">Premium-Only Domain</label>
                     <p className="text-xs text-muted-foreground">
-                      Premium domains are only available to paying users
+                      If enabled, only paying subscribers can use this domain. Free users won't see it.
                     </p>
                   </div>
                   <Switch checked={isPremium} onCheckedChange={setIsPremium} />

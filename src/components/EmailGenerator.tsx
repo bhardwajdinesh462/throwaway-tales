@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles, User, Mail, Zap, Clock } from "lucide-react";
+import { useAdminRole } from "@/hooks/useAdminRole";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -45,6 +46,7 @@ interface EmailUsageStats {
 
 const EmailGenerator = () => {
   const { user } = useAuth();
+  const { isAdmin } = useAdminRole();
   const { t } = useLanguage();
   const {
     domains,
@@ -615,13 +617,13 @@ const EmailGenerator = () => {
                       ))}
                     </SelectContent>
                   </Select>
-                  {user && (
+                  {isAdmin && (
                     <Button
                       variant="ghost"
                       size="icon"
                       onClick={() => setCustomDomainDialog(true)}
                       className="h-6 w-6"
-                      title="Add custom domain"
+                      title="Add custom domain (Admin only)"
                     >
                       <Plus className="w-3 h-3" />
                     </Button>

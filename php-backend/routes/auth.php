@@ -172,14 +172,14 @@ function handleLogin($body, $pdo, $config) {
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$user) {
-            logError('Login failed: User not found', ['email' => $email], 'warning');
+            logWarning('Login failed: User not found', ['email' => $email]);
             http_response_code(401);
             echo json_encode(['error' => 'Invalid email or password']);
             return;
         }
 
         if (!password_verify($password, $user['password_hash'])) {
-            logError('Login failed: Invalid password', ['email' => $email], 'warning');
+            logWarning('Login failed: Invalid password', ['email' => $email]);
             http_response_code(401);
             echo json_encode(['error' => 'Invalid email or password']);
             return;
@@ -198,10 +198,16 @@ function handleLogin($body, $pdo, $config) {
             }
         }
 
-        // Check if 2FA is enabled for this user
-        $stmt = $pdo->prepare('SELECT is_enabled FROM user_2fa WHERE user_id = ? AND is_enabled = 1');
-        $stmt->execute([$user['id']]);
-        $twoFa = $stmt->fetch(PDO::FETCH_ASSOC);
+        // Check if 2FA is enabled for this user (with graceful fallback if table doesn't exist)
+        $twoFa = null;
+        try {
+            $stmt = $pdo->prepare('SELECT is_enabled FROM user_2fa WHERE user_id = ? AND is_enabled = 1');
+            $stmt->execute([$user['id']]);
+            $twoFa = $stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            // Table might not exist yet - 2FA not configured, continue without it
+            logWarning('2FA table not available', ['error' => $e->getMessage()]);
+        }
         
         if ($twoFa && $twoFa['is_enabled']) {
             // 2FA is enabled - check if code was provided

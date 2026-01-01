@@ -318,6 +318,19 @@ CREATE TABLE IF NOT EXISTS rate_limits (
     INDEX idx_window (window_start)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Two-Factor Authentication
+CREATE TABLE IF NOT EXISTS user_2fa (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL UNIQUE,
+    totp_secret VARCHAR(64),
+    backup_codes JSON,
+    is_enabled BOOLEAN DEFAULT FALSE,
+    enabled_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Insert default data
 INSERT INTO email_stats (id, stat_key, stat_value) VALUES 
 (UUID(), 'total_emails_created', 0),

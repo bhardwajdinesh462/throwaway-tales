@@ -1145,6 +1145,228 @@ export const realtime = {
 };
 
 // ============================================
+// ADMIN API
+// ============================================
+
+export const admin = {
+  // Users management
+  async getUsers(options: { page?: number; pageSize?: number; search?: string } = {}): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.rpc('get_all_profiles_for_admin', {
+        p_page: options.page || 1,
+        p_page_size: options.pageSize || 50,
+        p_search: options.search || null
+      });
+    }
+    return fetchApi('/admin/users', {
+      method: 'GET',
+    });
+  },
+
+  async deleteUser(userId: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.rpc('delete_user_as_admin', { target_user_id: userId });
+    }
+    return fetchApi(`/admin/users/${userId}`, { method: 'DELETE' });
+  },
+
+  async suspendUser(userId: string, reason?: string, until?: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.rpc('suspend_user', {
+        target_user_id: userId,
+        suspension_reason: reason,
+        suspend_until: until
+      });
+    }
+    return fetchApi(`/admin/users/${userId}/suspend`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, until })
+    });
+  },
+
+  async unsuspendUser(userId: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.rpc('unsuspend_user', { target_user_id: userId });
+    }
+    return fetchApi(`/admin/users/${userId}/unsuspend`, { method: 'POST' });
+  },
+
+  // Domains management
+  async getDomains(): Promise<ApiResponse<any>> {
+    return db.query('domains', { order: { column: 'name', ascending: true } });
+  },
+
+  async addDomain(name: string, isPremium: boolean): Promise<ApiResponse<any>> {
+    return db.insert('domains', { name, is_premium: isPremium, is_active: true });
+  },
+
+  async updateDomain(id: string, updates: Record<string, any>): Promise<ApiResponse<any>> {
+    return db.update('domains', updates, { id });
+  },
+
+  async deleteDomain(id: string): Promise<ApiResponse<any>> {
+    return db.delete('domains', { id });
+  },
+
+  // Mailboxes management
+  async getMailboxes(): Promise<ApiResponse<any>> {
+    return db.query('mailboxes', { order: { column: 'priority', ascending: false } });
+  },
+
+  async saveMailbox(mailbox: Record<string, any>): Promise<ApiResponse<any>> {
+    if (mailbox.id) {
+      return db.update('mailboxes', mailbox, { id: mailbox.id });
+    }
+    return db.insert('mailboxes', mailbox);
+  },
+
+  async deleteMailbox(id: string): Promise<ApiResponse<any>> {
+    return db.delete('mailboxes', { id });
+  },
+
+  async testMailbox(type: 'smtp' | 'imap', config: Record<string, any>): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return functions.invoke(type === 'smtp' ? 'smtp-connectivity-test' : 'fetch-imap-emails', {
+        body: { ...config, test_only: true }
+      });
+    }
+    return fetchApi(`/admin/mailboxes/test-${type}`, {
+      method: 'POST',
+      body: JSON.stringify(config)
+    });
+  },
+
+  async pollIMAP(mailboxId: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return functions.invoke('fetch-imap-emails', { body: { mailbox_id: mailboxId } });
+    }
+    return fetchApi(`/admin/mailboxes/${mailboxId}/poll`, { method: 'POST' });
+  },
+
+  // Email logs
+  async getEmailLogs(options: { page?: number; pageSize?: number; search?: string; status?: string } = {}): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.rpc('get_email_logs', {
+        p_page: options.page || 1,
+        p_page_size: options.pageSize || 50,
+        p_search: options.search || null,
+        p_status_filter: options.status || null
+      });
+    }
+    const params = new URLSearchParams();
+    if (options.page) params.set('page', String(options.page));
+    if (options.pageSize) params.set('page_size', String(options.pageSize));
+    if (options.search) params.set('search', options.search);
+    if (options.status) params.set('status', options.status);
+    return fetchApi(`/admin/email-logs?${params.toString()}`);
+  },
+
+  async getEmailStats(): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.rpc('get_email_stats');
+    }
+    return fetchApi('/admin/email-stats');
+  },
+
+  // Audit logs
+  async getAuditLogs(options: { page?: number; pageSize?: number; action?: string } = {}): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.rpc('get_admin_audit_logs', {
+        p_page: options.page || 1,
+        p_page_size: options.pageSize || 50,
+        p_action_filter: options.action || null
+      });
+    }
+    const params = new URLSearchParams();
+    if (options.page) params.set('page', String(options.page));
+    if (options.pageSize) params.set('page_size', String(options.pageSize));
+    if (options.action) params.set('action', options.action);
+    return fetchApi(`/admin/audit-logs?${params.toString()}`);
+  },
+
+  // Settings management
+  async getSettings(key: string): Promise<ApiResponse<any>> {
+    return db.query('app_settings', { eq: { key }, single: true });
+  },
+
+  async saveSettings(key: string, value: any): Promise<ApiResponse<any>> {
+    return db.upsert('app_settings', { key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+  },
+
+  // Banners management
+  async getBanners(): Promise<ApiResponse<any>> {
+    return db.query('banners', { order: { column: 'priority', ascending: false } });
+  },
+
+  async saveBanner(banner: Record<string, any>): Promise<ApiResponse<any>> {
+    if (banner.id) {
+      return db.update('banners', banner, { id: banner.id });
+    }
+    return db.insert('banners', banner);
+  },
+
+  async deleteBanner(id: string): Promise<ApiResponse<any>> {
+    return db.delete('banners', { id });
+  },
+
+  // Subscriptions management
+  async getSubscriptionTiers(): Promise<ApiResponse<any>> {
+    return db.query('subscription_tiers', { eq: { is_active: true }, order: { column: 'price_monthly', ascending: true } });
+  },
+
+  async findUserByEmail(email: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.rpc('find_user_by_email', { search_email: email });
+    }
+    return fetchApi(`/admin/users/search?email=${encodeURIComponent(email)}`);
+  },
+
+  async getUserSubscription(userId: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.rpc('admin_get_user_subscription', { target_user_id: userId });
+    }
+    return fetchApi(`/admin/users/${userId}/subscription`);
+  },
+
+  async assignSubscription(userId: string, tierId: string, durationMonths: number): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.rpc('admin_assign_subscription', {
+        target_user_id: userId,
+        target_tier_id: tierId,
+        duration_months: durationMonths
+      });
+    }
+    return fetchApi(`/admin/users/${userId}/subscription`, {
+      method: 'POST',
+      body: JSON.stringify({ tier_id: tierId, duration_months: durationMonths })
+    });
+  },
+
+  async revokeSubscription(userId: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.rpc('admin_revoke_subscription', { target_user_id: userId });
+    }
+    return fetchApi(`/admin/users/${userId}/subscription`, { method: 'DELETE' });
+  },
+
+  // Blogs management
+  async getBlogs(): Promise<ApiResponse<any>> {
+    return db.query('blogs', { order: { column: 'created_at', ascending: false } });
+  },
+
+  async saveBlog(blog: Record<string, any>): Promise<ApiResponse<any>> {
+    if (blog.id) {
+      return db.update('blogs', { ...blog, updated_at: new Date().toISOString() }, { id: blog.id });
+    }
+    return db.insert('blogs', blog);
+  },
+
+  async deleteBlog(id: string): Promise<ApiResponse<any>> {
+    return db.delete('blogs', { id });
+  },
+};
+
+// ============================================
 // CONVENIENCE EXPORTS
 // ============================================
 
@@ -1154,6 +1376,7 @@ export const api = {
   storage,
   functions,
   realtime,
+  admin,
   
   // Direct fetch for custom endpoints (PHP only)
   fetch: fetchApi,

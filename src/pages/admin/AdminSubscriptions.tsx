@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
+import { api, db } from "@/lib/api";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateQueries } from "@/lib/queryClient";
@@ -121,18 +121,14 @@ const AdminSubscriptions = () => {
   const fetchTiers = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('subscription_tiers')
-        .select('*')
-        .eq('is_active', true)
-        .order('price_monthly', { ascending: true });
+      const { data, error } = await api.admin.getSubscriptionTiers();
 
-      if (error) throw error;
+      if (error) throw new Error(error.message);
       setTiers(data || []);
       
       // Initialize tier stats
       if (data) {
-        const stats: TierStats[] = data.map(tier => ({
+        const stats: TierStats[] = data.map((tier: SubscriptionTier) => ({
           tier_id: tier.id,
           tier_name: tier.name,
           user_count: 0,
@@ -143,13 +139,11 @@ const AdminSubscriptions = () => {
         
         // Fetch user counts for each tier
         for (const stat of stats) {
-          const { count } = await supabase
-            .from('user_subscriptions')
-            .select('*', { count: 'exact', head: true })
-            .eq('tier_id', stat.tier_id)
-            .eq('status', 'active');
-          
-          stat.user_count = count || 0;
+          const { data: subData } = await db.query('user_subscriptions', {
+            eq: { tier_id: stat.tier_id, status: 'active' },
+            limit: 1000
+          });
+          stat.user_count = Array.isArray(subData) ? subData.length : 0;
         }
         
         setTierStats(stats);
@@ -173,13 +167,12 @@ const AdminSubscriptions = () => {
 
     try {
       // Fetch subscriptions for this tier
-      const { data: subscriptions, error: subError } = await supabase
-        .from('user_subscriptions')
-        .select('user_id, current_period_start, current_period_end, status')
-        .eq('tier_id', tierId)
-        .eq('status', 'active');
+      const { data: subscriptions, error: subError } = await db.query<any[]>('user_subscriptions', {
+        select: 'user_id, current_period_start, current_period_end, status',
+        eq: { tier_id: tierId, status: 'active' }
+      });
 
-      if (subError) throw subError;
+      if (subError) throw new Error(subError.message);
 
       if (!subscriptions || subscriptions.length === 0) {
         setTierStats(prev => prev.map((s, i) => 
@@ -190,18 +183,18 @@ const AdminSubscriptions = () => {
 
       // Fetch profiles for these users
       const userIds = subscriptions.map(s => s.user_id);
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('user_id, email, display_name')
-        .in('user_id', userIds);
+      const { data: profiles } = await db.query<any[]>('profiles', {
+        select: 'user_id, email, display_name',
+        in: { user_id: userIds }
+      });
 
       // Fetch usage for today
       const today = new Date().toISOString().split('T')[0];
-      const { data: usageData } = await supabase
-        .from('user_usage')
-        .select('user_id, temp_emails_created, ai_summaries_used, emails_received')
-        .in('user_id', userIds)
-        .eq('date', today);
+      const { data: usageData } = await db.query<any[]>('user_usage', {
+        select: 'user_id, temp_emails_created, ai_summaries_used, emails_received',
+        in: { user_id: userIds },
+        eq: { date: today }
+      });
 
       // Combine data
       const users: TierUser[] = subscriptions.map(sub => {
@@ -259,11 +252,9 @@ const AdminSubscriptions = () => {
     setFoundUser(null);
 
     try {
-      const { data: userData, error: userError } = await supabase.rpc('find_user_by_email', {
-        search_email: searchEmail.trim()
-      });
+      const { data: userData, error: userError } = await api.admin.findUserByEmail(searchEmail.trim());
 
-      if (userError) throw userError;
+      if (userError) throw new Error(userError.message);
 
       if (!userData || userData.length === 0) {
         toast.error("No user found with that email");
@@ -272,9 +263,7 @@ const AdminSubscriptions = () => {
 
       const user = userData[0];
 
-      const { data: subData } = await supabase.rpc('admin_get_user_subscription', {
-        target_user_id: user.found_user_id
-      });
+      const { data: subData } = await api.admin.getUserSubscription(user.found_user_id);
 
       setFoundUser({
         user_id: user.found_user_id,
@@ -304,22 +293,20 @@ const AdminSubscriptions = () => {
 
     setIsAssigning(true);
     try {
-      const { error } = await supabase.rpc('admin_assign_subscription', {
-        target_user_id: foundUser.user_id,
-        target_tier_id: selectedTierId,
-        duration_months: parseInt(durationMonths)
-      });
+      const { error } = await api.admin.assignSubscription(
+        foundUser.user_id,
+        selectedTierId,
+        parseInt(durationMonths)
+      );
 
-      if (error) throw error;
+      if (error) throw new Error(error.message);
 
       const tierName = tiers.find(t => t.id === selectedTierId)?.name || 'subscription';
       toast.success(`${tierName} assigned to ${foundUser.display_name || foundUser.email} for ${durationMonths} month(s)`);
       
       invalidateQueries.subscriptions(queryClient);
       
-      const { data: subData } = await supabase.rpc('admin_get_user_subscription', {
-        target_user_id: foundUser.user_id
-      });
+      const { data: subData } = await api.admin.getUserSubscription(foundUser.user_id);
 
       setFoundUser({
         ...foundUser,
@@ -347,19 +334,15 @@ const AdminSubscriptions = () => {
 
     setIsRevoking(true);
     try {
-      const { error } = await supabase.rpc('admin_revoke_subscription', {
-        target_user_id: foundUser.user_id
-      });
+      const { error } = await api.admin.revokeSubscription(foundUser.user_id);
 
-      if (error) throw error;
+      if (error) throw new Error(error.message);
 
       toast.success(`Subscription revoked for ${foundUser.display_name || foundUser.email}`);
       
       invalidateQueries.subscriptions(queryClient);
       
-      const { data: subData } = await supabase.rpc('admin_get_user_subscription', {
-        target_user_id: foundUser.user_id
-      });
+      const { data: subData } = await api.admin.getUserSubscription(foundUser.user_id);
 
       setFoundUser({
         ...foundUser,

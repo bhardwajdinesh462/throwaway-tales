@@ -167,7 +167,7 @@ const AdminSMTPSettings = () => {
 
     setIsSavingToDb(true);
     try {
-      const mailboxData = {
+      const mailboxData: Record<string, any> = {
         name: settings.fromName || 'Default Mailbox',
         smtp_host: settings.host,
         smtp_port: settings.port,
@@ -178,11 +178,14 @@ const AdminSMTPSettings = () => {
       };
 
       if (selectedMailboxId) {
-        await api.admin('mailbox-update', { id: selectedMailboxId, ...mailboxData });
+        mailboxData.id = selectedMailboxId;
+        const { error } = await api.admin.saveMailbox(mailboxData);
+        if (error) throw new Error(error.message);
         toast.success("Mailbox updated in database!");
       } else {
-        const result = await api.admin('mailbox-create', mailboxData);
-        setSelectedMailboxId(result.id);
+        const { data, error } = await api.admin.saveMailbox(mailboxData);
+        if (error) throw new Error(error.message);
+        if (data?.id) setSelectedMailboxId(data.id);
         toast.success("New mailbox created in database!");
       }
       
@@ -205,7 +208,8 @@ const AdminSMTPSettings = () => {
     }
 
     try {
-      await api.admin('mailbox-delete', { id: selectedMailboxId });
+      const { error } = await api.admin.deleteMailbox(selectedMailboxId);
+      if (error) throw new Error(error.message);
       toast.success("Mailbox deleted");
       setSelectedMailboxId(null);
       setSettings(defaultSettings);
@@ -228,7 +232,7 @@ const AdminSMTPSettings = () => {
     setConnectivityResult(null);
     
     try {
-      const data = await api.admin('mailbox-test-smtp', {
+      const { data, error } = await api.admin.testMailbox('smtp', {
         host: settings.host,
         port: settings.port,
         user: settings.username,
@@ -236,14 +240,16 @@ const AdminSMTPSettings = () => {
         from: settings.fromEmail || settings.username,
       });
 
+      if (error) throw new Error(error.message);
+
       setConnectivityResult(data);
 
-      if (data.success) {
+      if (data?.success) {
         setConnectionStatus('success');
         toast.success(data.message || `Connection successful!`);
       } else {
         setConnectionStatus('error');
-        toast.error(data.error || "Connection failed");
+        toast.error(data?.error || "Connection failed");
       }
     } catch (error: any) {
       console.error("Connectivity test error:", error);

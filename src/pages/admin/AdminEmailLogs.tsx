@@ -83,12 +83,14 @@ const AdminEmailLogs = () => {
   const fetchLogs = async () => {
     setIsLoading(true);
     try {
-      const data = await api.admin('email-logs', {
+      const { data, error } = await api.admin.getEmailLogs({
         page,
-        page_size: pageSize,
-        status: statusFilter === 'all' ? null : statusFilter,
-        search: search || null
+        pageSize,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        search: search || undefined
       });
+
+      if (error) throw new Error(error.message);
 
       setLogs(data || []);
       if (data && data.length > 0) {
@@ -107,7 +109,8 @@ const AdminEmailLogs = () => {
   const fetchStats = async () => {
     setIsLoadingStats(true);
     try {
-      const data = await api.admin('email-stats', {});
+      const { data, error } = await api.admin.getEmailStats();
+      if (error) throw new Error(error.message);
       if (data && data.length > 0) {
         setStats(data[0]);
       }

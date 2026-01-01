@@ -154,6 +154,7 @@ const AdminIMAPSettings = () => {
     setIsSavingToDb(true);
     try {
       const mailboxData = {
+        id: selectedMailboxId,
         imap_host: settings.host,
         imap_port: settings.port,
         imap_user: settings.username,
@@ -162,7 +163,8 @@ const AdminIMAPSettings = () => {
       };
 
       if (selectedMailboxId) {
-        await api.admin('mailbox-update', { id: selectedMailboxId, ...mailboxData });
+        const { error } = await api.admin.saveMailbox(mailboxData);
+        if (error) throw new Error(error.message);
         toast.success("IMAP settings updated in database!");
       } else {
         toast.error("Please select or create a mailbox first in SMTP Settings");
@@ -188,7 +190,7 @@ const AdminIMAPSettings = () => {
     setConnectionStatus('idle');
     
     try {
-      const data = await api.admin('mailbox-test-imap', {
+      const { data, error } = await api.admin.testMailbox('imap', {
         host: settings.host,
         port: settings.port,
         user: settings.username,
@@ -196,12 +198,14 @@ const AdminIMAPSettings = () => {
         ssl: settings.useSSL,
       });
 
-      if (data.success) {
+      if (error) throw new Error(error.message);
+
+      if (data?.success) {
         setConnectionStatus('success');
         toast.success(`IMAP connection successful! Found ${data.message_count || 0} messages.`);
       } else {
         setConnectionStatus('error');
-        toast.error(data.error || "Connection failed");
+        toast.error(data?.error || "Connection failed");
       }
     } catch (error: any) {
       setConnectionStatus('error');
@@ -221,15 +225,11 @@ const AdminIMAPSettings = () => {
     setFetchResult(null);
 
     try {
-      const data = await api.admin('mailbox-fetch-emails', {
-        mailbox_id: selectedMailboxId,
-        host: settings.host,
-        port: settings.port,
-        user: settings.username,
-        password: settings.password,
-      });
+      const { data, error } = await api.admin.pollIMAP(selectedMailboxId || '');
 
-      if (data.success) {
+      if (error) throw new Error(error.message);
+
+      if (data?.success) {
         setFetchResult({
           success: true,
           message: data.message,
@@ -237,8 +237,8 @@ const AdminIMAPSettings = () => {
         });
         toast.success(`Fetched ${data.stats?.stored || 0} new emails!`);
       } else {
-        setFetchResult({ success: false, message: data.error });
-        toast.error(data.error || "Failed to fetch emails");
+        setFetchResult({ success: false, message: data?.error || 'Unknown error' });
+        toast.error(data?.error || "Failed to fetch emails");
       }
     } catch (error: any) {
       const errorMessage = error.message || "Failed to fetch emails";

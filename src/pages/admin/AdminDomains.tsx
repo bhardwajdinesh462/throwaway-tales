@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { useAdminDomains, useDomainMutations } from "@/hooks/useAdminQueries";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { toast } from "sonner";
 import { AdminDomainSkeleton } from "@/components/admin/AdminSkeletons";
 import {
   Dialog,
@@ -37,18 +39,79 @@ interface Domain {
 }
 
 const AdminDomains = () => {
+  const queryClient = useQueryClient();
   const [newDomain, setNewDomain] = useState("");
   const [isPremium, setIsPremium] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  // Use React Query for caching
-  const { data: domains = [], isLoading, refetch } = useAdminDomains();
-  const { addDomain, toggleActive, togglePremium, deleteDomain } = useDomainMutations();
+  // Use React Query with api.ts compatibility layer
+  const { data: domains = [], isLoading, refetch } = useQuery({
+    queryKey: ['admin', 'domains'],
+    queryFn: async () => {
+      const { data, error } = await api.admin.getDomains();
+      if (error) throw new Error(error.message);
+      return data || [];
+    }
+  });
+
+  const addDomainMutation = useMutation({
+    mutationFn: async ({ name, isPremium }: { name: string; isPremium: boolean }) => {
+      const { error } = await api.admin.addDomain(name, isPremium);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'domains'] });
+      toast.success("Domain added successfully");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to add domain");
+    }
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+      const { error } = await api.admin.updateDomain(id, { is_active: !isActive });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'domains'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to update domain");
+    }
+  });
+
+  const togglePremiumMutation = useMutation({
+    mutationFn: async ({ id, isPremium }: { id: string; isPremium: boolean }) => {
+      const { error } = await api.admin.updateDomain(id, { is_premium: !isPremium });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'domains'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to update domain");
+    }
+  });
+
+  const deleteDomainMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await api.admin.deleteDomain(id);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'domains'] });
+      toast.success("Domain deleted");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to delete domain");
+    }
+  });
 
   const handleAddDomain = () => {
     if (!newDomain.trim()) return;
     
-    addDomain.mutate(
+    addDomainMutation.mutate(
       { name: newDomain, isPremium },
       {
         onSuccess: () => {
@@ -61,15 +124,15 @@ const AdminDomains = () => {
   };
 
   const handleToggleActive = (domain: Domain) => {
-    toggleActive.mutate({ id: domain.id, isActive: domain.is_active });
+    toggleActiveMutation.mutate({ id: domain.id, isActive: domain.is_active });
   };
 
   const handleTogglePremium = (domain: Domain) => {
-    togglePremium.mutate({ id: domain.id, isPremium: domain.is_premium });
+    togglePremiumMutation.mutate({ id: domain.id, isPremium: domain.is_premium });
   };
 
   const handleDeleteDomain = (id: string) => {
-    deleteDomain.mutate(id);
+    deleteDomainMutation.mutate(id);
   };
 
   return (
@@ -127,7 +190,7 @@ const AdminDomains = () => {
                 <Button 
                   variant="neon" 
                   onClick={handleAddDomain}
-                  disabled={addDomain.isPending}
+                  disabled={addDomainMutation.isPending}
                 >
                   Add Domain
                 </Button>

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api, storage } from "@/lib/api";
 import {
   Select,
   SelectContent,
@@ -104,14 +104,11 @@ const AdminBanners = () => {
   const fetchBanners = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("banners")
-        .select("*")
-        .order("priority", { ascending: false });
+      const { data, error } = await api.admin.getBanners();
       
-      if (error) throw error;
+      if (error) throw new Error(error.message);
       setBanners(data || []);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching banners:", error);
       toast.error("Failed to load banners");
     } finally {
@@ -186,17 +183,11 @@ const AdminBanners = () => {
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = `banners/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from("banners")
-        .upload(filePath, file);
+      const { data, error: uploadError } = await storage.upload("banners", filePath, file);
 
-      if (uploadError) throw uploadError;
+      if (uploadError) throw new Error(uploadError.message);
 
-      const { data: { publicUrl } } = supabase.storage
-        .from("banners")
-        .getPublicUrl(filePath);
-
-      setFormData({ ...formData, image_url: publicUrl });
+      setFormData({ ...formData, image_url: data?.url || '' });
       toast.success("Image uploaded successfully");
     } catch (error: any) {
       console.error("Upload error:", error);
@@ -223,7 +214,7 @@ const AdminBanners = () => {
     }
 
     try {
-      const bannerData = {
+      const bannerData: Record<string, any> = {
         name: formData.name,
         position: formData.position,
         type: formData.type,
@@ -240,21 +231,13 @@ const AdminBanners = () => {
       };
 
       if (editingBanner) {
-        const { error } = await supabase
-          .from("banners")
-          .update(bannerData)
-          .eq("id", editingBanner.id);
-        
-        if (error) throw error;
-        toast.success("Banner updated successfully");
-      } else {
-        const { error } = await supabase
-          .from("banners")
-          .insert(bannerData);
-        
-        if (error) throw error;
-        toast.success("Banner created successfully");
+        bannerData.id = editingBanner.id;
       }
+
+      const { error } = await api.admin.saveBanner(bannerData);
+      
+      if (error) throw new Error(error.message);
+      toast.success(editingBanner ? "Banner updated successfully" : "Banner created successfully");
 
       setIsDialogOpen(false);
       fetchBanners();
@@ -266,28 +249,28 @@ const AdminBanners = () => {
 
   const handleDeleteBanner = async (id: string) => {
     try {
-      const { error } = await supabase.from("banners").delete().eq("id", id);
-      if (error) throw error;
+      const { error } = await api.admin.deleteBanner(id);
+      if (error) throw new Error(error.message);
       setBanners(banners.filter(b => b.id !== id));
       toast.success("Banner deleted");
-    } catch (error) {
-      toast.error("Failed to delete banner");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete banner");
     }
   };
 
   const handleToggleActive = async (banner: Banner) => {
     try {
-      const { error } = await supabase
-        .from("banners")
-        .update({ is_active: !banner.is_active })
-        .eq("id", banner.id);
+      const { error } = await api.admin.saveBanner({
+        id: banner.id,
+        is_active: !banner.is_active
+      });
       
-      if (error) throw error;
+      if (error) throw new Error(error.message);
       setBanners(banners.map(b => 
         b.id === banner.id ? { ...b, is_active: !b.is_active } : b
       ));
-    } catch (error) {
-      toast.error("Failed to update banner status");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update banner status");
     }
   };
 

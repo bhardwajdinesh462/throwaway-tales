@@ -43,11 +43,13 @@ const AdminAuditLogs = () => {
   const fetchLogs = async () => {
     setIsLoading(true);
     try {
-      const data = await api.admin('audit-logs', {
+      const { data, error } = await api.admin.getAuditLogs({
         page,
-        page_size: pageSize,
-        action: searchTerm || null
+        pageSize,
+        action: searchTerm || undefined
       });
+
+      if (error) throw new Error(error.message);
 
       if (Array.isArray(data)) {
         setLogs(data.map((row: any) => ({

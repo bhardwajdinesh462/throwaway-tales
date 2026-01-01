@@ -43,7 +43,7 @@ const AdminPayments = () => {
   const [settings, setSettings] = useState<PaymentSettings>(defaultSettings);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const isPhpBackend = api.isPhpBackend();
+  const isPhpBackend = api.isPHP;
 
   useEffect(() => {
     loadSettings();
@@ -53,8 +53,10 @@ const AdminPayments = () => {
     try {
       if (isPhpBackend) {
         const response = await api.admin.getSettings('payment_settings');
-        if (response?.value) {
-          setSettings({ ...defaultSettings, ...response.value });
+        if (response?.data && Array.isArray(response.data) && response.data[0]?.value) {
+          setSettings({ ...defaultSettings, ...response.data[0].value });
+        } else if (response?.data?.value) {
+          setSettings({ ...defaultSettings, ...response.data.value });
         }
       } else {
         const { data, error } = await supabase

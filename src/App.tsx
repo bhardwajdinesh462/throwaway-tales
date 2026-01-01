@@ -116,6 +116,7 @@ const AdminBackup = lazyWithRetry(() => import("./pages/admin/AdminBackup"));
 const AdminPricing = lazyWithRetry(() => import("./pages/admin/AdminPricing"));
 const AdminHomepage = lazyWithRetry(() => import("./pages/admin/AdminHomepage"));
 const AdminWebhooks = lazyWithRetry(() => import("./pages/admin/AdminWebhooks"));
+const AdminErrorLogs = lazyWithRetry(() => import("./pages/admin/AdminErrorLogs"));
 
 // Redirect www to non-www
 if (typeof window !== 'undefined' && window.location.hostname.startsWith('www.')) {
@@ -326,6 +327,7 @@ const App = () => (
                             <Route path="backup" element={<AdminBackup />} />
                             <Route path="pricing" element={<AdminPricing />} />
                             <Route path="webhooks" element={<AdminWebhooks />} />
+                            <Route path="error-logs" element={<AdminErrorLogs />} />
                           </Route>
 
                           <Route path="*" element={<NotFound />} />

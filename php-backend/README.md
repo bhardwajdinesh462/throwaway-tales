@@ -39,13 +39,19 @@ public_html/
     ├── analytics.php       # Analytics dashboard
     ├── cron-manager.php    # Cron job manager
     ├── settings.php        # Admin settings API
+    ├── error-logger.php    # Comprehensive error logging system
     ├── routes/
     │   ├── auth.php        # Authentication endpoints
     │   ├── data.php        # Database CRUD operations
     │   ├── rpc.php         # RPC function calls
     │   ├── storage.php     # File upload/download
     │   ├── functions.php   # Edge function equivalents
-    │   └── admin.php       # Admin panel endpoints (includes DNS verification)
+    │   ├── admin.php       # Admin panel endpoints (includes DNS verification)
+    │   ├── webhooks.php    # Stripe/PayPal payment webhooks
+    │   ├── logs.php        # Admin error logs API
+    │   ├── forwarding.php  # Email forwarding API
+    │   └── attachments.php # Email attachments API
+    ├── logs/               # Error and application logs (auto-created)
     └── cron/
         ├── imap-poll.php   # Fetch emails via IMAP (runs every 1-2 minutes)
         └── maintenance.php # Cleanup expired emails
@@ -365,10 +371,57 @@ return [
 ];
 ```
 
+## Payment Gateway Setup
+
+### Stripe Integration
+
+1. Go to Admin Panel → Payments
+2. Enable Stripe and enter your API keys:
+   - **Publishable Key**: `pk_test_...` or `pk_live_...`
+   - **Secret Key**: `sk_test_...` or `sk_live_...`
+   - **Webhook Secret**: `whsec_...`
+3. Set up a webhook in Stripe Dashboard pointing to:
+   ```
+   https://yourdomain.com/api/webhook/stripe
+   ```
+4. Enable events: `checkout.session.completed`, `invoice.paid`, `customer.subscription.updated`, `customer.subscription.deleted`
+
+### PayPal Integration
+
+1. Go to Admin Panel → Payments → PayPal tab
+2. Enter your PayPal API credentials:
+   - **Client ID**: From PayPal Developer Dashboard
+   - **Client Secret**: From PayPal Developer Dashboard
+3. Set up a webhook in PayPal pointing to:
+   ```
+   https://yourdomain.com/api/webhook/paypal
+   ```
+
+## Error Logs
+
+The PHP backend includes a comprehensive error logging system:
+
+### Viewing Logs
+
+- **Admin Panel**: Go to Admin → Error Logs to view, filter, and search logs
+- **Log Files**: Located in `/api/logs/` directory (protected by .htaccess)
+
+### Log Types
+
+- `error-YYYY-MM-DD.log` - Errors and critical issues
+- `app-YYYY-MM-DD.log` - Info, warnings, and debug messages
+
+### Log Management
+
+- Logs automatically rotate when they reach 10MB
+- Old logs are automatically cleaned up (keeps last 5 files)
+- Admin can clear logs from the Error Logs page
+
 ## Support
 
 For issues or questions:
 1. Check the troubleshooting section above
-2. Review PHP error logs in cPanel
-3. Test individual components (database, SMTP, IMAP) separately
-4. Verify all file permissions are correct
+2. Review error logs in Admin → Error Logs
+3. Check PHP error logs in cPanel
+4. Test individual components (database, SMTP, IMAP) separately
+5. Verify all file permissions are correct

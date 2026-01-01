@@ -128,6 +128,7 @@ const AdminSidebar = () => {
     { title: "Status Settings", url: "/admin/status-settings", icon: Activity },
     { title: "Mailbox Health", url: "/admin/mailbox-health", icon: Activity },
     { title: "Email Logs", url: "/admin/email-logs", icon: FileWarning },
+    { title: "Error Logs", url: "/admin/error-logs", icon: FileWarning },
     { title: "Webhooks", url: "/admin/webhooks", icon: Globe },
     { title: "Audit Logs", url: "/admin/audit-logs", icon: Clock },
     { title: "IP Blocking", url: "/admin/ip-blocking", icon: ShieldCheck },

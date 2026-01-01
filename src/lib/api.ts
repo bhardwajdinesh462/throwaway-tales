@@ -1297,11 +1297,27 @@ export const admin = {
 
   // Settings management
   async getSettings(key: string): Promise<ApiResponse<any>> {
-    return db.query('app_settings', { eq: { key }, single: true });
+    if (USE_SUPABASE) {
+      return db.query('app_settings', { eq: { key }, single: true });
+    }
+    return fetchApi(`/admin/settings?key=${encodeURIComponent(key)}`, {
+      method: 'GET'
+    });
   },
 
   async saveSettings(key: string, value: any): Promise<ApiResponse<any>> {
-    return db.upsert('app_settings', { key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    if (USE_SUPABASE) {
+      return db.upsert('app_settings', { key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    }
+    return fetchApi('/admin/settings', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'settings', key, value })
+    });
+  },
+
+  // Alias for saveSettings
+  async updateSettings(key: string, value: any): Promise<ApiResponse<any>> {
+    return this.saveSettings(key, value);
   },
 
   // Banners management
@@ -1543,6 +1559,41 @@ export const admin = {
       body: JSON.stringify({ action: 'cron-logs', job_id: jobId, limit })
     });
   },
+
+  // Error Logs (PHP backend only)
+  async getErrorLogs(options: { type?: string; limit?: number; search?: string; level?: string } = {}): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return { data: { logs: [], count: 0 }, error: null };
+    }
+    const params = new URLSearchParams();
+    if (options.type) params.set('type', options.type);
+    if (options.limit) params.set('limit', options.limit.toString());
+    if (options.search) params.set('search', options.search);
+    if (options.level) params.set('level', options.level);
+    
+    return fetchApi(`/logs/recent?${params.toString()}`, {
+      method: 'GET'
+    });
+  },
+
+  async getLogStats(): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return { data: null, error: null };
+    }
+    return fetchApi('/logs/stats', {
+      method: 'GET'
+    });
+  },
+
+  async clearLogs(type: string = 'all'): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return { data: null, error: null };
+    }
+    return fetchApi('/logs/clear', {
+      method: 'POST',
+      body: JSON.stringify({ type })
+    });
+  },
 };
 
 // ============================================
@@ -1568,6 +1619,11 @@ export const api = {
   // Check which backend is in use
   isSupabase: USE_SUPABASE,
   isPHP: !USE_SUPABASE,
+  
+  // Helper method to check if PHP backend
+  isPhpBackend(): boolean {
+    return !USE_SUPABASE;
+  },
 };
 
 export default api;

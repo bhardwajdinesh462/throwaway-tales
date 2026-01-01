@@ -170,6 +170,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
                 foreach (['/storage', '/storage/avatars', '/storage/attachments', '/logs'] as $dir) {
                     if (!is_dir(__DIR__ . $dir)) mkdir(__DIR__ . $dir, 0755, true);
                 }
+                
+                // Protect logs directory
+                $logsHtaccess = __DIR__ . '/logs/.htaccess';
+                if (!file_exists($logsHtaccess)) {
+                    file_put_contents($logsHtaccess, "Order deny,allow\nDeny from all\n");
+                }
+                
+                // Create index.php in logs to prevent directory listing
+                $logsIndex = __DIR__ . '/logs/index.php';
+                if (!file_exists($logsIndex)) {
+                    file_put_contents($logsIndex, '<?php // Silence is golden');
+                }
+                
                 echo json_encode(['success' => true]);
             } else {
                 echo json_encode(['success' => false, 'error' => 'Failed to write config.php']);

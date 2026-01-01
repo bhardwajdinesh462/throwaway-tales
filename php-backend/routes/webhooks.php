@@ -67,7 +67,7 @@ function handleStripeWebhook($pdo, $config, $logger) {
                 break;
                 
             case 'invoice.payment_failed':
-                handlePaymentFailed($pdo, $eventData, $logger);
+                handlePaymentFailed($pdo, $eventData, $logger, $config);
                 break;
                 
             case 'customer.subscription.updated':
@@ -130,7 +130,7 @@ function handlePaypalWebhook($pdo, $config, $logger) {
                 break;
                 
             case 'BILLING.SUBSCRIPTION.PAYMENT.FAILED':
-                handlePaypalPaymentFailed($pdo, $resource, $logger);
+                handlePaypalPaymentFailed($pdo, $resource, $logger, $config);
                 break;
                 
             default:
@@ -287,12 +287,12 @@ function handleInvoicePaid($pdo, $invoice, $logger, $config = null) {
     }
 }
 
-function handlePaymentFailed($pdo, $invoice, $logger) {
+function handlePaymentFailed($pdo, $invoice, $logger, $config = null) {
     $subscriptionId = $invoice['subscription'] ?? '';
     
-    $stmt = $pdo->prepare('SELECT user_id FROM user_subscriptions WHERE stripe_subscription_id = ?');
+    $stmt = $pdo->prepare('SELECT us.user_id, us.tier_id, st.name as tier_name FROM user_subscriptions us LEFT JOIN subscription_tiers st ON us.tier_id = st.id WHERE us.stripe_subscription_id = ?');
     $stmt->execute([$subscriptionId]);
-    $subscription = $stmt->fetch();
+    $subscription = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if ($subscription) {
         $stmt = $pdo->prepare('
@@ -305,6 +305,13 @@ function handlePaymentFailed($pdo, $invoice, $logger) {
             'user_id' => $subscription['user_id'],
             'subscription_id' => $subscriptionId
         ]);
+        
+        // Send payment failure notification email
+        if ($config) {
+            $amount = ($invoice['amount_due'] ?? 0) / 100;
+            $currency = $invoice['currency'] ?? 'usd';
+            sendPaymentFailureEmail($pdo, $config, $subscription['user_id'], $subscription['tier_name'] ?? 'Premium', $amount, $currency, 'stripe', $logger);
+        }
     }
 }
 
@@ -447,8 +454,13 @@ function handlePaypalSubscriptionCancelled($pdo, $resource, $logger) {
     $logger->info('PayPal subscription cancelled', ['subscription_id' => $subscriptionId]);
 }
 
-function handlePaypalPaymentFailed($pdo, $resource, $logger) {
+function handlePaypalPaymentFailed($pdo, $resource, $logger, $config = null) {
     $subscriptionId = $resource['id'] ?? '';
+    $customId = $resource['custom_id'] ?? '';
+    
+    $parts = explode(':', $customId);
+    $userId = $parts[0] ?? '';
+    $tierId = $parts[1] ?? '';
     
     $stmt = $pdo->prepare('
         UPDATE user_subscriptions SET status = ?, updated_at = NOW()
@@ -457,6 +469,15 @@ function handlePaypalPaymentFailed($pdo, $resource, $logger) {
     $stmt->execute(['past_due', 'paypal_' . $subscriptionId]);
     
     $logger->warning('PayPal payment failed', ['subscription_id' => $subscriptionId]);
+    
+    // Send payment failure notification email
+    if ($config && !empty($userId)) {
+        $stmt = $pdo->prepare('SELECT name, price_monthly FROM subscription_tiers WHERE id = ?');
+        $stmt->execute([$tierId]);
+        $tier = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        sendPaymentFailureEmail($pdo, $config, $userId, $tier['name'] ?? 'Premium', $tier['price_monthly'] ?? 0, 'usd', 'paypal', $logger);
+    }
 }
 
 // =========== EMAIL SENDING ===========
@@ -579,6 +600,234 @@ function sendPaymentConfirmationEmail($pdo, $config, $userId, $tierName, $amount
         return false;
     }
 }
+
+/**
+ * Send payment failure notification email to user
+ */
+function sendPaymentFailureEmail($pdo, $config, $userId, $tierName, $amount, $currency, $paymentMethod, $logger) {
+    try {
+        // Get user profile
+        $stmt = $pdo->prepare('SELECT email, display_name FROM profiles WHERE user_id = ?');
+        $stmt->execute([$userId]);
+        $profile = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$profile || empty($profile['email'])) {
+            $logger->warning('Cannot send payment failure email - no email', ['user_id' => $userId]);
+            return false;
+        }
+        
+        $email = $profile['email'];
+        $name = $profile['display_name'] ?: 'Valued Customer';
+        
+        // Get site name and URL from settings
+        $stmt = $pdo->prepare('SELECT value FROM app_settings WHERE `key` = ?');
+        $stmt->execute(['general_settings']);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $generalSettings = $row ? json_decode($row['value'], true) : [];
+        $siteName = $generalSettings['siteName'] ?? 'TempMail';
+        $siteUrl = $generalSettings['siteUrl'] ?? ($_SERVER['HTTP_ORIGIN'] ?? 'https://yourdomain.com');
+        
+        // Get SMTP configuration from active mailbox
+        $stmt = $pdo->query('SELECT * FROM mailboxes WHERE is_active = 1 ORDER BY priority ASC LIMIT 1');
+        $mailbox = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$mailbox) {
+            $smtpHost = $config['smtp']['host'] ?? '';
+            $smtpPort = $config['smtp']['port'] ?? 587;
+            $smtpUser = $config['smtp']['user'] ?? '';
+            $smtpPass = $config['smtp']['pass'] ?? '';
+            $smtpFrom = $config['smtp']['from'] ?? $smtpUser;
+        } else {
+            $smtpHost = $mailbox['smtp_host'];
+            $smtpPort = $mailbox['smtp_port'];
+            $smtpUser = $mailbox['smtp_user'];
+            $smtpPass = $mailbox['smtp_password'];
+            $smtpFrom = $mailbox['smtp_from'] ?: $mailbox['smtp_user'];
+        }
+        
+        if (empty($smtpHost) || empty($smtpUser)) {
+            $logger->warning('Cannot send payment failure email - SMTP not configured');
+            return false;
+        }
+        
+        // Format currency
+        $currencySymbol = strtoupper($currency) === 'USD' ? '$' : (strtoupper($currency) === 'EUR' ? '€' : $currency . ' ');
+        $formattedAmount = $currencySymbol . number_format($amount, 2);
+        
+        // Build update payment URL
+        $updatePaymentUrl = $siteUrl . '/billing';
+        
+        // Build HTML email
+        $subject = "Action Required: Payment Failed - $siteName";
+        
+        $htmlBody = buildPaymentFailureHtml(
+            $name,
+            $tierName,
+            $formattedAmount,
+            ucfirst($paymentMethod),
+            $updatePaymentUrl,
+            $siteName
+        );
+        
+        $plainBody = "Payment Failed\n\n";
+        $plainBody .= "Dear $name,\n\n";
+        $plainBody .= "We were unable to process your subscription payment.\n\n";
+        $plainBody .= "Subscription Details:\n";
+        $plainBody .= "- Plan: $tierName\n";
+        $plainBody .= "- Amount: $formattedAmount\n";
+        $plainBody .= "- Payment Method: " . ucfirst($paymentMethod) . "\n\n";
+        $plainBody .= "Please update your payment method to avoid service interruption:\n";
+        $plainBody .= "$updatePaymentUrl\n\n";
+        $plainBody .= "If you have any questions, please contact our support team.\n\n";
+        $plainBody .= "Best regards,\nThe $siteName Team";
+        
+        // Send email using existing function
+        require_once __DIR__ . '/functions.php';
+        $result = sendSmtpEmail($smtpHost, $smtpPort, $smtpUser, $smtpPass, $smtpFrom, $email, $subject, $plainBody, $htmlBody);
+        
+        // Log the attempt
+        $stmt = $pdo->prepare("
+            INSERT INTO email_logs (id, recipient_email, subject, status, smtp_host, mailbox_id, mailbox_name, 
+                                   error_message, sent_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        ");
+        $stmt->execute([
+            generateUUID(),
+            $email,
+            $subject,
+            $result['success'] ? 'sent' : 'failed',
+            $smtpHost,
+            $mailbox['id'] ?? null,
+            $mailbox['name'] ?? 'Config File',
+            $result['error'] ?? null,
+            $result['success'] ? date('Y-m-d H:i:s') : null
+        ]);
+        
+        if ($result['success']) {
+            $logger->info('Payment failure email sent', ['user_id' => $userId, 'email' => $email]);
+        } else {
+            $logger->warning('Payment failure email failed', ['user_id' => $userId, 'error' => $result['error'] ?? 'Unknown']);
+        }
+        
+        return $result['success'];
+        
+    } catch (Exception $e) {
+        $logger->error('Payment failure email error', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        return false;
+    }
+}
+
+/**
+ * Build HTML payment failure email
+ */
+function buildPaymentFailureHtml($name, $tierName, $amount, $paymentMethod, $updatePaymentUrl, $siteName) {
+    return <<<HTML
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Failed</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f4f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f4f4f5;">
+        <tr>
+            <td align="center" style="padding: 40px 20px;">
+                <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="padding: 40px 40px 20px; text-align: center; border-bottom: 1px solid #e5e7eb;">
+                            <div style="display: inline-block; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); width: 60px; height: 60px; border-radius: 50%; line-height: 60px; margin-bottom: 16px;">
+                                <span style="font-size: 28px; color: #ffffff;">!</span>
+                            </div>
+                            <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #ef4444;">Payment Failed</h1>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 30px 40px;">
+                            <p style="margin: 0 0 20px; font-size: 16px; color: #374151; line-height: 1.6;">
+                                Dear <strong>$name</strong>,
+                            </p>
+                            <p style="margin: 0 0 30px; font-size: 16px; color: #374151; line-height: 1.6;">
+                                We were unable to process your subscription payment. Please update your payment method to avoid service interruption.
+                            </p>
+                            
+                            <!-- Details Box -->
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #fef2f2; border-radius: 8px; margin-bottom: 30px; border: 1px solid #fecaca;">
+                                <tr>
+                                    <td style="padding: 24px;">
+                                        <h3 style="margin: 0 0 16px; font-size: 14px; font-weight: 600; color: #991b1b; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            Payment Details
+                                        </h3>
+                                        
+                                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                                            <tr>
+                                                <td style="padding: 8px 0;">
+                                                    <span style="color: #991b1b; font-size: 14px;">Plan</span>
+                                                </td>
+                                                <td style="padding: 8px 0; text-align: right;">
+                                                    <span style="color: #7f1d1d; font-size: 14px; font-weight: 600;">$tierName</span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px 0;">
+                                                    <span style="color: #991b1b; font-size: 14px;">Amount Due</span>
+                                                </td>
+                                                <td style="padding: 8px 0; text-align: right;">
+                                                    <span style="color: #7f1d1d; font-size: 14px; font-weight: 600;">$amount</span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px 0;">
+                                                    <span style="color: #991b1b; font-size: 14px;">Payment Method</span>
+                                                </td>
+                                                <td style="padding: 8px 0; text-align: right;">
+                                                    <span style="color: #7f1d1d; font-size: 14px; font-weight: 600;">$paymentMethod</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- CTA Button -->
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                                <tr>
+                                    <td align="center" style="padding: 10px 0 30px;">
+                                        <a href="$updatePaymentUrl" style="display: inline-block; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 16px;">
+                                            Update Payment Method
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <p style="margin: 0; font-size: 14px; color: #6b7280; line-height: 1.6;">
+                                If you believe this is an error or need assistance, please contact our support team.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding: 30px 40px; border-top: 1px solid #e5e7eb; text-align: center;">
+                            <p style="margin: 0 0 8px; font-size: 14px; color: #6b7280;">
+                                Best regards,<br>
+                                <strong style="color: #374151;">The $siteName Team</strong>
+                            </p>
+                            <p style="margin: 16px 0 0; font-size: 12px; color: #9ca3af;">
+                                This is an automated email. Please do not reply directly to this message.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+HTML;
 
 /**
  * Build HTML payment confirmation email

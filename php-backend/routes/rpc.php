@@ -66,6 +66,7 @@ function createTempEmail($params, $pdo, $userId) {
     $domainId = $params['p_domain_id'] ?? '';
     $passedUserId = $params['p_user_id'] ?? null;
     $expiresAt = $params['p_expires_at'] ?? null;
+    $deviceId = $params['device_id'] ?? null;
 
     if (empty($address) || empty($domainId)) {
         http_response_code(400);
@@ -83,24 +84,63 @@ function createTempEmail($params, $pdo, $userId) {
         return;
     }
 
+    // Get user's email creation limit from subscription tier
+    $effectiveUserId = $passedUserId ?: $userId;
+    $emailLimit = getUserEmailLimit($pdo, $effectiveUserId);
+    $identifier = $effectiveUserId ?: $deviceId ?: 'anonymous';
+    
+    // Count emails created today by this user/device
+    $emailsCreatedToday = countTodayEmailsCreated($pdo, $identifier);
+    
+    // Check if user has reached their limit (skip for unlimited = -1)
+    if ($emailLimit !== -1 && $emailsCreatedToday >= $emailLimit) {
+        http_response_code(429);
+        echo json_encode([
+            'success' => false, 
+            'error' => "Daily email limit reached ($emailLimit emails). Please upgrade your plan for more.",
+            'limit_reached' => true,
+            'current_count' => $emailsCreatedToday,
+            'max_limit' => $emailLimit
+        ]);
+        return;
+    }
+
     // Generate secret token
     $secretToken = bin2hex(random_bytes(32));
     $id = generateUUID();
     $now = date('Y-m-d H:i:s');
-    $expires = $expiresAt ?: date('Y-m-d H:i:s', time() + 7200); // 2 hours default
+    
+    // Get expiry hours from tier (default 2 hours)
+    $expiryHours = getUserEmailExpiryHours($pdo, $effectiveUserId);
+    $expires = $expiresAt ?: date('Y-m-d H:i:s', time() + ($expiryHours * 3600));
 
     try {
+        $pdo->beginTransaction();
+        
         $stmt = $pdo->prepare('
             INSERT INTO temp_emails (id, address, domain_id, user_id, secret_token, expires_at, is_active, created_at)
             VALUES (?, ?, ?, ?, ?, ?, 1, ?)
         ');
-        $stmt->execute([$id, $address, $domainId, $passedUserId ?: $userId, $secretToken, $expires, $now]);
+        $stmt->execute([$id, $address, $domainId, $effectiveUserId, $secretToken, $expires, $now]);
+
+        // Track usage in rate_limits for accurate counting
+        trackEmailCreation($pdo, $identifier);
+        
+        // Update email_stats counter
+        $stmt = $pdo->prepare("
+            INSERT INTO email_stats (id, stat_key, stat_value, updated_at) 
+            VALUES (?, 'total_emails_generated', 1, NOW())
+            ON DUPLICATE KEY UPDATE stat_value = stat_value + 1, updated_at = NOW()
+        ");
+        $stmt->execute([generateUUID()]);
+        
+        $pdo->commit();
 
         $email = [
             'id' => $id,
             'address' => $address,
             'domain_id' => $domainId,
-            'user_id' => $passedUserId ?: $userId,
+            'user_id' => $effectiveUserId,
             'secret_token' => $secretToken,
             'expires_at' => $expires,
             'is_active' => true,
@@ -109,8 +149,123 @@ function createTempEmail($params, $pdo, $userId) {
 
         echo json_encode(['success' => true, 'email' => $email]);
     } catch (PDOException $e) {
+        $pdo->rollBack();
         http_response_code(500);
         echo json_encode(['success' => false, 'error' => 'Failed to create email: ' . $e->getMessage()]);
+    }
+}
+
+/**
+ * Get user's email creation limit from their subscription tier
+ */
+function getUserEmailLimit($pdo, $userId) {
+    // Default free tier limit
+    $defaultLimit = 5;
+    
+    // Try to get from free tier first
+    $stmt = $pdo->prepare("SELECT max_temp_emails FROM subscription_tiers WHERE LOWER(name) = 'free' AND is_active = 1 LIMIT 1");
+    $stmt->execute();
+    $freeTier = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($freeTier) {
+        $defaultLimit = intval($freeTier['max_temp_emails']);
+    }
+    
+    if (!$userId) {
+        return $defaultLimit;
+    }
+    
+    // Get user's subscription tier limit
+    $stmt = $pdo->prepare("
+        SELECT st.max_temp_emails 
+        FROM user_subscriptions us
+        JOIN subscription_tiers st ON us.tier_id = st.id
+        WHERE us.user_id = ? AND us.status = 'active' AND us.current_period_end > NOW()
+        LIMIT 1
+    ");
+    $stmt->execute([$userId]);
+    $subscription = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($subscription) {
+        return intval($subscription['max_temp_emails']);
+    }
+    
+    return $defaultLimit;
+}
+
+/**
+ * Get user's email expiry hours from their subscription tier
+ */
+function getUserEmailExpiryHours($pdo, $userId) {
+    $defaultHours = 2;
+    
+    // Try to get from free tier first
+    $stmt = $pdo->prepare("SELECT email_expiry_hours FROM subscription_tiers WHERE LOWER(name) = 'free' AND is_active = 1 LIMIT 1");
+    $stmt->execute();
+    $freeTier = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($freeTier) {
+        $defaultHours = intval($freeTier['email_expiry_hours']);
+    }
+    
+    if (!$userId) {
+        return $defaultHours;
+    }
+    
+    $stmt = $pdo->prepare("
+        SELECT st.email_expiry_hours 
+        FROM user_subscriptions us
+        JOIN subscription_tiers st ON us.tier_id = st.id
+        WHERE us.user_id = ? AND us.status = 'active' AND us.current_period_end > NOW()
+        LIMIT 1
+    ");
+    $stmt->execute([$userId]);
+    $subscription = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($subscription) {
+        return intval($subscription['email_expiry_hours']);
+    }
+    
+    return $defaultHours;
+}
+
+/**
+ * Count emails created today by identifier (user_id or device_id)
+ */
+function countTodayEmailsCreated($pdo, $identifier) {
+    // Get emails created in the last 24 hours
+    $windowStart = date('Y-m-d H:i:s', time() - 86400); // 24 hours ago
+    
+    $stmt = $pdo->prepare("
+        SELECT COALESCE(SUM(request_count), 0) as total
+        FROM rate_limits 
+        WHERE identifier = ? AND action_type = 'generate_email' AND window_start > ?
+    ");
+    $stmt->execute([$identifier, $windowStart]);
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    return intval($result['total'] ?? 0);
+}
+
+/**
+ * Track email creation in rate_limits table
+ */
+function trackEmailCreation($pdo, $identifier) {
+    $windowStart = date('Y-m-d H:i:s', strtotime('today midnight'));
+    
+    // Try to update existing record for today
+    $stmt = $pdo->prepare("
+        UPDATE rate_limits 
+        SET request_count = request_count + 1 
+        WHERE identifier = ? AND action_type = 'generate_email' AND DATE(window_start) = CURDATE()
+    ");
+    $stmt->execute([$identifier]);
+    
+    if ($stmt->rowCount() === 0) {
+        // Insert new record
+        $stmt = $pdo->prepare("
+            INSERT INTO rate_limits (id, identifier, action_type, request_count, window_start)
+            VALUES (?, ?, 'generate_email', 1, ?)
+        ");
+        $stmt->execute([generateUUID(), $identifier, $windowStart]);
     }
 }
 

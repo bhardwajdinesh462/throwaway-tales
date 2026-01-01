@@ -48,6 +48,14 @@ function handleSignup($body, $pdo, $config) {
     $email = strtolower(trim($body['email'] ?? ''));
     $password = $body['password'] ?? '';
     $displayName = $body['display_name'] ?? null;
+    $captchaToken = $body['captcha_token'] ?? null;
+
+    // Verify CAPTCHA if enabled for registration
+    if (!verifyCaptchaIfEnabled($pdo, $config, $captchaToken, 'registration', 'signup')) {
+        http_response_code(400);
+        echo json_encode(['error' => 'CAPTCHA verification failed. Please try again.']);
+        return;
+    }
 
     // Validation
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -137,6 +145,8 @@ function handleLogin($body, $pdo, $config) {
     try {
         $email = strtolower(trim($body['email'] ?? ''));
         $password = $body['password'] ?? '';
+        $captchaToken = $body['captcha_token'] ?? null;
+        $twoFactorCode = $body['two_factor_code'] ?? null;
 
         if (empty($email) || empty($password)) {
             http_response_code(400);
@@ -147,6 +157,13 @@ function handleLogin($body, $pdo, $config) {
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             http_response_code(400);
             echo json_encode(['error' => 'Invalid email format']);
+            return;
+        }
+
+        // Verify CAPTCHA if enabled for login
+        if (!verifyCaptchaIfEnabled($pdo, $config, $captchaToken, 'login', 'login')) {
+            http_response_code(400);
+            echo json_encode(['error' => 'CAPTCHA verification failed. Please try again.']);
             return;
         }
 
@@ -177,6 +194,31 @@ function handleLogin($body, $pdo, $config) {
             if (!$suspension['suspended_until'] || strtotime($suspension['suspended_until']) > time()) {
                 http_response_code(403);
                 echo json_encode(['error' => 'Account suspended: ' . ($suspension['reason'] ?? 'Contact support')]);
+                return;
+            }
+        }
+
+        // Check if 2FA is enabled for this user
+        $stmt = $pdo->prepare('SELECT is_enabled FROM user_2fa WHERE user_id = ? AND is_enabled = 1');
+        $stmt->execute([$user['id']]);
+        $twoFa = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($twoFa && $twoFa['is_enabled']) {
+            // 2FA is enabled - check if code was provided
+            if (empty($twoFactorCode)) {
+                // Return response indicating 2FA is required
+                echo json_encode([
+                    'requires_2fa' => true,
+                    'user_id' => $user['id'],
+                    'message' => 'Two-factor authentication code required'
+                ]);
+                return;
+            }
+            
+            // Verify 2FA code
+            if (!verify2FACode($pdo, $user['id'], $twoFactorCode)) {
+                http_response_code(401);
+                echo json_encode(['error' => 'Invalid two-factor authentication code']);
                 return;
             }
         }
@@ -261,6 +303,14 @@ function handleSession($pdo, $config) {
 
 function handleResetPassword($body, $pdo, $config) {
     $email = strtolower(trim($body['email'] ?? ''));
+    $captchaToken = $body['captcha_token'] ?? null;
+
+    // Verify CAPTCHA if enabled for password reset
+    if (!verifyCaptchaIfEnabled($pdo, $config, $captchaToken, 'passwordReset', 'password_reset')) {
+        http_response_code(400);
+        echo json_encode(['error' => 'CAPTCHA verification failed. Please try again.']);
+        return;
+    }
 
     $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ?');
     $stmt->execute([$email]);
@@ -585,4 +635,145 @@ function sendEmail($to, $subject, $body, $config) {
     $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
     
     return mail($to, $subject, $body, $headers);
+}
+
+/**
+ * Verify CAPTCHA if enabled for the specified action
+ */
+function verifyCaptchaIfEnabled($pdo, $config, $captchaToken, $settingKey, $action) {
+    // Get captcha settings from database
+    $stmt = $pdo->prepare("SELECT value FROM app_settings WHERE `key` = 'captcha_settings'");
+    $stmt->execute();
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$row) {
+        return true; // No captcha settings, allow through
+    }
+    
+    $settings = json_decode($row['value'], true);
+    
+    if (!$settings || !($settings['enabled'] ?? false)) {
+        return true; // Captcha not enabled
+    }
+    
+    // Check if this specific action requires captcha
+    $actionKey = 'enableOn' . ucfirst($settingKey);
+    if (!($settings[$actionKey] ?? false)) {
+        return true; // This action doesn't require captcha
+    }
+    
+    // Captcha is required - verify token
+    if (empty($captchaToken)) {
+        return false; // No token provided
+    }
+    
+    $secretKey = $settings['secretKey'] ?? $config['recaptcha']['secret_key'] ?? '';
+    if (empty($secretKey)) {
+        return true; // No secret key configured, allow through
+    }
+    
+    // Verify with Google
+    $response = @file_get_contents('https://www.google.com/recaptcha/api/siteverify', false, stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => 'Content-Type: application/x-www-form-urlencoded',
+            'content' => http_build_query([
+                'secret' => $secretKey,
+                'response' => $captchaToken,
+            ]),
+            'timeout' => 10,
+        ],
+    ]));
+    
+    if ($response === false) {
+        return true; // Network error, allow through (fail open)
+    }
+    
+    $result = json_decode($response, true);
+    return ($result['success'] ?? false) && (($result['score'] ?? 0.5) >= 0.5);
+}
+
+/**
+ * Verify 2FA TOTP code
+ */
+function verify2FACode($pdo, $userId, $code) {
+    // Get user's 2FA secret
+    $stmt = $pdo->prepare('SELECT totp_secret, backup_codes FROM user_2fa WHERE user_id = ? AND is_enabled = 1');
+    $stmt->execute([$userId]);
+    $twoFa = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$twoFa) {
+        return false;
+    }
+    
+    $secret = $twoFa['totp_secret'];
+    
+    // First check if it's a backup code
+    $backupCodes = json_decode($twoFa['backup_codes'] ?? '[]', true);
+    if (is_array($backupCodes) && in_array($code, $backupCodes)) {
+        // Remove used backup code
+        $backupCodes = array_diff($backupCodes, [$code]);
+        $stmt = $pdo->prepare('UPDATE user_2fa SET backup_codes = ? WHERE user_id = ?');
+        $stmt->execute([json_encode(array_values($backupCodes)), $userId]);
+        return true;
+    }
+    
+    // Verify TOTP code
+    return verifyTOTP($secret, $code);
+}
+
+/**
+ * Verify TOTP code against secret
+ */
+function verifyTOTP($secret, $code, $window = 1) {
+    $time = floor(time() / 30);
+    
+    for ($i = -$window; $i <= $window; $i++) {
+        $calculatedCode = calculateTOTP($secret, $time + $i);
+        if (hash_equals($calculatedCode, str_pad($code, 6, '0', STR_PAD_LEFT))) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * Calculate TOTP code for given time
+ */
+function calculateTOTP($secret, $time) {
+    $secretDecoded = base32Decode($secret);
+    $timeBytes = pack('N*', 0) . pack('N*', $time);
+    $hash = hash_hmac('sha1', $timeBytes, $secretDecoded, true);
+    $offset = ord($hash[strlen($hash) - 1]) & 0x0F;
+    $code = (
+        ((ord($hash[$offset]) & 0x7F) << 24) |
+        ((ord($hash[$offset + 1]) & 0xFF) << 16) |
+        ((ord($hash[$offset + 2]) & 0xFF) << 8) |
+        (ord($hash[$offset + 3]) & 0xFF)
+    ) % 1000000;
+    
+    return str_pad($code, 6, '0', STR_PAD_LEFT);
+}
+
+/**
+ * Base32 decode helper
+ */
+function base32Decode($input) {
+    $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    $output = '';
+    $buffer = 0;
+    $bitsLeft = 0;
+    
+    foreach (str_split(strtoupper($input)) as $char) {
+        if ($char === '=') break;
+        $buffer = ($buffer << 5) | strpos($alphabet, $char);
+        $bitsLeft += 5;
+        if ($bitsLeft >= 8) {
+            $bitsLeft -= 8;
+            $output .= chr(($buffer >> $bitsLeft) & 0xFF);
+        }
+    }
+    
+    return $output;
 }

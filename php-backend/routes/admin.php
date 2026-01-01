@@ -136,6 +136,24 @@ function handleAdminRoute($action, $body, $pdo, $config) {
             saveThemes($body, $pdo, $userId);
             break;
 
+        // DNS Verification
+        case 'domain-verify-dns':
+            verifyDomainDNS($body, $pdo, $userId);
+            break;
+
+        // Health Dashboard
+        case 'mailbox-health':
+            getMailboxHealth($pdo);
+            break;
+        case 'mailbox-clear-error':
+            clearMailboxError($body, $pdo, $userId);
+            break;
+
+        // Cron Logs
+        case 'cron-logs':
+            getCronLogs($body, $pdo);
+            break;
+
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Unknown admin action: ' . $action]);
@@ -1464,4 +1482,298 @@ function saveThemes($body, $pdo, $adminId) {
     logAdminAction($pdo, $adminId, 'UPDATE_THEMES', 'app_settings', null, ['theme_count' => count($themes)]);
 
     echo json_encode(['success' => true]);
+}
+
+// =========== DNS VERIFICATION ===========
+
+function verifyDomainDNS($body, $pdo, $adminId) {
+    $domain = $body['domain'] ?? '';
+    $verificationToken = $body['verification_token'] ?? null;
+    
+    if (empty($domain)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Domain name required']);
+        return;
+    }
+    
+    // Clean domain name
+    $domain = strtolower(trim($domain));
+    $domain = preg_replace('/^(https?:\/\/)?(www\.)?/', '', $domain);
+    $domain = rtrim($domain, '/');
+    
+    $results = [
+        'domain' => $domain,
+        'verified' => false,
+        'checks' => []
+    ];
+    
+    // 1. Check MX records
+    $mxRecords = @dns_get_record($domain, DNS_MX);
+    $results['checks']['mx'] = [
+        'status' => !empty($mxRecords) ? 'pass' : 'fail',
+        'records' => $mxRecords ?: [],
+        'message' => !empty($mxRecords) ? 'MX records found' : 'No MX records found'
+    ];
+    
+    // 2. Check A records
+    $aRecords = @dns_get_record($domain, DNS_A);
+    $results['checks']['a'] = [
+        'status' => !empty($aRecords) ? 'pass' : 'warning',
+        'records' => $aRecords ?: [],
+        'message' => !empty($aRecords) ? 'A records found' : 'No A records found'
+    ];
+    
+    // 3. Check NS records
+    $nsRecords = @dns_get_record($domain, DNS_NS);
+    $results['checks']['ns'] = [
+        'status' => !empty($nsRecords) ? 'pass' : 'warning',
+        'records' => $nsRecords ?: [],
+        'message' => !empty($nsRecords) ? 'NS records found' : 'No NS records found'
+    ];
+    
+    // 4. Check TXT records for verification token
+    $txtRecords = @dns_get_record($domain, DNS_TXT);
+    $verificationFound = false;
+    
+    if ($verificationToken) {
+        foreach ($txtRecords as $record) {
+            if (isset($record['txt']) && strpos($record['txt'], $verificationToken) !== false) {
+                $verificationFound = true;
+                break;
+            }
+        }
+    }
+    
+    $results['checks']['txt'] = [
+        'status' => $verificationToken ? ($verificationFound ? 'pass' : 'fail') : 'skip',
+        'records' => $txtRecords ?: [],
+        'message' => $verificationToken 
+            ? ($verificationFound ? 'Verification token found' : 'Verification token not found in TXT records')
+            : 'No verification token provided'
+    ];
+    
+    // 5. Check SPF record
+    $spfFound = false;
+    foreach ($txtRecords as $record) {
+        if (isset($record['txt']) && strpos($record['txt'], 'v=spf1') !== false) {
+            $spfFound = true;
+            break;
+        }
+    }
+    
+    $results['checks']['spf'] = [
+        'status' => $spfFound ? 'pass' : 'warning',
+        'message' => $spfFound ? 'SPF record found' : 'No SPF record found (recommended for email delivery)'
+    ];
+    
+    // 6. Check DKIM (check for common DKIM selectors)
+    $dkimSelectors = ['default', 'google', 'selector1', 'selector2', 'dkim', 'mail'];
+    $dkimFound = false;
+    
+    foreach ($dkimSelectors as $selector) {
+        $dkimRecords = @dns_get_record("$selector._domainkey.$domain", DNS_TXT);
+        if (!empty($dkimRecords)) {
+            $dkimFound = true;
+            break;
+        }
+    }
+    
+    $results['checks']['dkim'] = [
+        'status' => $dkimFound ? 'pass' : 'warning',
+        'message' => $dkimFound ? 'DKIM record found' : 'No DKIM record found (recommended for email delivery)'
+    ];
+    
+    // 7. Check DMARC
+    $dmarcRecords = @dns_get_record("_dmarc.$domain", DNS_TXT);
+    $results['checks']['dmarc'] = [
+        'status' => !empty($dmarcRecords) ? 'pass' : 'warning',
+        'records' => $dmarcRecords ?: [],
+        'message' => !empty($dmarcRecords) ? 'DMARC record found' : 'No DMARC record found (recommended for email delivery)'
+    ];
+    
+    // Calculate overall verification status
+    $requiredChecks = ['mx'];
+    $allRequired = true;
+    
+    foreach ($requiredChecks as $check) {
+        if (($results['checks'][$check]['status'] ?? 'fail') === 'fail') {
+            $allRequired = false;
+            break;
+        }
+    }
+    
+    // If verification token provided, it must pass
+    if ($verificationToken && !$verificationFound) {
+        $allRequired = false;
+    }
+    
+    $results['verified'] = $allRequired;
+    
+    // Update domain verification status in database if verified
+    if ($results['verified']) {
+        $stmt = $pdo->prepare('UPDATE domains SET is_active = 1 WHERE name = ?');
+        $stmt->execute([$domain]);
+        
+        logAdminAction($pdo, $adminId, 'VERIFY_DOMAIN', 'domains', null, ['domain' => $domain]);
+    }
+    
+    echo json_encode($results);
+}
+
+// =========== MAILBOX HEALTH DASHBOARD ===========
+
+function getMailboxHealth($pdo) {
+    // Get mailboxes with health info
+    $stmt = $pdo->query('
+        SELECT id, name, smtp_from, smtp_host, smtp_port,
+               is_active, priority, daily_limit, hourly_limit,
+               emails_sent_today, emails_sent_this_hour,
+               last_polled_at, last_sent_at, last_error, last_error_at,
+               created_at, updated_at
+        FROM mailboxes
+        ORDER BY priority ASC
+    ');
+    $mailboxes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Get email logs summary (last 24 hours)
+    $oneDayAgo = date('Y-m-d H:i:s', strtotime('-24 hours'));
+    
+    $stmt = $pdo->prepare("
+        SELECT mailbox_id, status, COUNT(*) as count
+        FROM email_logs
+        WHERE created_at >= ?
+        GROUP BY mailbox_id, status
+    ");
+    $stmt->execute([$oneDayAgo]);
+    $logSummary = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Build summary by mailbox
+    $mailboxStats = [];
+    foreach ($logSummary as $log) {
+        $mbId = $log['mailbox_id'];
+        if (!isset($mailboxStats[$mbId])) {
+            $mailboxStats[$mbId] = ['sent' => 0, 'failed' => 0, 'bounced' => 0];
+        }
+        $mailboxStats[$mbId][$log['status']] = $log['count'];
+    }
+    
+    // Calculate health status for each mailbox
+    foreach ($mailboxes as &$mailbox) {
+        $mbId = $mailbox['id'];
+        $stats = $mailboxStats[$mbId] ?? ['sent' => 0, 'failed' => 0, 'bounced' => 0];
+        
+        $mailbox['recent_successes'] = $stats['sent'];
+        $mailbox['recent_failures'] = $stats['failed'] + ($stats['bounced'] ?? 0);
+        
+        // Determine status
+        $status = 'healthy';
+        
+        if (!$mailbox['is_active']) {
+            $status = 'inactive';
+        } elseif ($mailbox['last_error'] && $mailbox['last_error_at']) {
+            $errorAge = time() - strtotime($mailbox['last_error_at']);
+            if ($errorAge < 30 * 60) {
+                $status = 'error';
+            } elseif ($errorAge < 2 * 60 * 60) {
+                $status = 'warning';
+            }
+        }
+        
+        // Check usage limits
+        $hourlyUsage = ($mailbox['emails_sent_this_hour'] ?? 0) / max(($mailbox['hourly_limit'] ?? 100), 1);
+        $dailyUsage = ($mailbox['emails_sent_today'] ?? 0) / max(($mailbox['daily_limit'] ?? 1000), 1);
+        
+        if ($hourlyUsage > 0.9 || $dailyUsage > 0.9) {
+            if ($status === 'healthy') $status = 'warning';
+        }
+        
+        $mailbox['status'] = $status;
+    }
+    
+    // Calculate overall stats
+    $totalSent = array_sum(array_column($logSummary, 'count'));
+    $totalFailed = 0;
+    foreach ($logSummary as $log) {
+        if ($log['status'] === 'failed' || $log['status'] === 'bounced') {
+            $totalFailed += $log['count'];
+        }
+    }
+    
+    $successRate = $totalSent > 0 ? round((($totalSent - $totalFailed) / $totalSent) * 100, 1) : 100;
+    
+    echo json_encode([
+        'mailboxes' => $mailboxes,
+        'stats' => [
+            'total_sent_24h' => $totalSent,
+            'total_failed_24h' => $totalFailed,
+            'success_rate' => $successRate,
+            'active_mailboxes' => count(array_filter($mailboxes, fn($m) => $m['is_active'])),
+            'healthy_mailboxes' => count(array_filter($mailboxes, fn($m) => $m['status'] === 'healthy'))
+        ]
+    ]);
+}
+
+function clearMailboxError($body, $pdo, $adminId) {
+    $mailboxId = $body['mailbox_id'] ?? '';
+    
+    if (empty($mailboxId)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'mailbox_id required']);
+        return;
+    }
+    
+    $stmt = $pdo->prepare('UPDATE mailboxes SET last_error = NULL, last_error_at = NULL WHERE id = ?');
+    $stmt->execute([$mailboxId]);
+    
+    logAdminAction($pdo, $adminId, 'CLEAR_MAILBOX_ERROR', 'mailboxes', $mailboxId, []);
+    
+    echo json_encode(['success' => true]);
+}
+
+// =========== CRON LOGS ===========
+
+function getCronLogs($body, $pdo) {
+    $jobId = $body['job_id'] ?? null;
+    $limit = min(intval($body['limit'] ?? 50), 100);
+    
+    try {
+        if ($jobId) {
+            $stmt = $pdo->prepare("
+                SELECT * FROM cron_logs 
+                WHERE job_id = ? 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            ");
+            $stmt->execute([$jobId, $limit]);
+        } else {
+            $stmt = $pdo->prepare("
+                SELECT * FROM cron_logs 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            ");
+            $stmt->execute([$limit]);
+        }
+        
+        echo json_encode(['logs' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    } catch (PDOException $e) {
+        // Table might not exist - create it
+        try {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS cron_logs (
+                    id VARCHAR(36) PRIMARY KEY,
+                    job_id VARCHAR(50) NOT NULL,
+                    status ENUM('success', 'failed', 'running') DEFAULT 'running',
+                    message TEXT,
+                    duration_ms INT,
+                    items_processed INT DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_job_id (job_id),
+                    INDEX idx_created_at (created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ");
+            echo json_encode(['logs' => [], 'message' => 'Cron logs table created']);
+        } catch (PDOException $e2) {
+            echo json_encode(['logs' => [], 'error' => 'Could not access cron logs']);
+        }
+    }
 }

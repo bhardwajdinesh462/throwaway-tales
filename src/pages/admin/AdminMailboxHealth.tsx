@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { 
   Activity, AlertTriangle, CheckCircle, XCircle, RefreshCw, 
   Mail, Clock, TrendingUp, Shield, Zap, AlertCircle
@@ -32,6 +33,8 @@ interface MailboxHealth {
   status: 'healthy' | 'warning' | 'error' | 'inactive';
   recentFailures: number;
   recentSuccesses: number;
+  recent_failures?: number;
+  recent_successes?: number;
 }
 
 interface EmailLogSummary {
@@ -64,22 +67,48 @@ const AdminMailboxHealth = () => {
 
   const fetchHealthData = async () => {
     try {
-      // Fetch mailboxes
-      const { data: mailboxData, error: mailboxError } = await supabase
-        .from('mailboxes')
-        .select('*')
-        .order('priority', { ascending: true });
-
-      if (mailboxError) throw mailboxError;
-
-      // Fetch recent email logs (last 24 hours)
-      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const { data: logData, error: logError } = await supabase
-        .from('email_logs')
-        .select('mailbox_id, mailbox_name, status, error_code, error_message')
-        .gte('created_at', oneDayAgo);
-
-      if (logError) throw logError;
+      // Try PHP backend first
+      if (api.isPHP) {
+        const { data, error } = await api.admin.getMailboxHealth();
+        if (data && !error) {
+          const newAlerts: typeof alerts = [];
+          const healthyMailboxes = (data.mailboxes || []).map((mailbox: any) => {
+            // Check for alert conditions
+            if (mailbox.status === 'error' && mailbox.last_error) {
+              if (mailbox.last_error.includes('535') || mailbox.last_error.includes('authentication')) {
+                newAlerts.push({ type: 'error', message: `Authentication failed: ${mailbox.last_error}`, mailbox: mailbox.name });
+              } else if (mailbox.last_error.includes('550') || mailbox.last_error.includes('rate')) {
+                newAlerts.push({ type: 'error', message: `Rate limited or blocked: ${mailbox.last_error}`, mailbox: mailbox.name });
+              }
+            }
+            
+            const hourlyUsage = (mailbox.emails_sent_this_hour || 0) / (mailbox.hourly_limit || 100);
+            const dailyUsage = (mailbox.emails_sent_today || 0) / (mailbox.daily_limit || 1000);
+            if (hourlyUsage > 0.9 || dailyUsage > 0.9) {
+              newAlerts.push({ type: 'warning', message: `Approaching rate limit (${Math.round(Math.max(hourlyUsage, dailyUsage) * 100)}% used)`, mailbox: mailbox.name });
+            }
+            
+            return {
+              ...mailbox,
+              recentFailures: mailbox.recent_failures || 0,
+              recentSuccesses: mailbox.recent_successes || 0,
+            };
+          });
+          
+          setMailboxes(healthyMailboxes);
+          setAlerts(newAlerts);
+          setOverallStats({
+            totalSent: data.stats?.total_sent_24h || 0,
+            totalFailed: data.stats?.total_failed_24h || 0,
+            successRate: data.stats?.success_rate || 100,
+            activeMailboxes: data.stats?.active_mailboxes || 0,
+            healthyMailboxes: data.stats?.healthy_mailboxes || 0,
+          });
+          setIsLoading(false);
+          setIsRefreshing(false);
+          return;
+        }
+      }
 
       // Calculate health status for each mailbox
       const newAlerts: typeof alerts = [];

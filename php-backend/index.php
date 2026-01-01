@@ -2,9 +2,60 @@
 /**
  * Main PHP Backend Entry Point
  * Self-hosted REST API for TempMail
+ * Security-hardened for production use
  */
 
+// Security headers
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: DENY");
+header("X-XSS-Protection: 1; mode=block");
+header("Referrer-Policy: strict-origin-when-cross-origin");
+
+// Block suspicious requests
+$userAgent = $_SERVER['HTTP_USER_AGENT'] ?? '';
+$blockedAgents = ['sqlmap', 'nikto', 'nessus', 'nmap', 'hydra', 'acunetix'];
+foreach ($blockedAgents as $blocked) {
+    if (stripos($userAgent, $blocked) !== false) {
+        http_response_code(403);
+        exit;
+    }
+}
+
+// Rate limiting check (basic)
+session_start();
+$rateLimit = 100; // requests per minute
+$ratePeriod = 60; // seconds
+$clientIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+$rateKey = 'rate_' . md5($clientIp);
+
+if (!isset($_SESSION[$rateKey])) {
+    $_SESSION[$rateKey] = ['count' => 0, 'start' => time()];
+}
+
+if (time() - $_SESSION[$rateKey]['start'] > $ratePeriod) {
+    $_SESSION[$rateKey] = ['count' => 1, 'start' => time()];
+} else {
+    $_SESSION[$rateKey]['count']++;
+    if ($_SESSION[$rateKey]['count'] > $rateLimit) {
+        http_response_code(429);
+        header('Retry-After: ' . ($ratePeriod - (time() - $_SESSION[$rateKey]['start'])));
+        echo json_encode(['error' => 'Too many requests']);
+        exit;
+    }
+}
+
 // Load configuration
+if (!file_exists(__DIR__ . '/config.php')) {
+    // Redirect to installer if not configured
+    if (file_exists(__DIR__ . '/install.php')) {
+        header('Location: /api/install.php');
+        exit;
+    }
+    http_response_code(500);
+    echo json_encode(['error' => 'Configuration not found']);
+    exit;
+}
+
 $config = require __DIR__ . '/config.php';
 
 // Load routes
@@ -19,7 +70,7 @@ require_once __DIR__ . '/routes/admin.php';
 $allowedOrigins = $config['cors']['origins'] ?? ['*'];
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if (in_array($origin, $allowedOrigins) || in_array('*', $allowedOrigins)) {
-    header("Access-Control-Allow-Origin: $origin");
+    header("Access-Control-Allow-Origin: " . ($origin ?: '*'));
 }
 header("Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, apikey, X-Temp-Email-Id, X-Secret-Token");
@@ -46,6 +97,18 @@ try {
     exit;
 }
 
+// Check IP blocking
+$clientIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
+if ($clientIp) {
+    $stmt = $pdo->prepare('SELECT 1 FROM blocked_ips WHERE ip_address = ? AND is_active = 1 AND (expires_at IS NULL OR expires_at > NOW())');
+    $stmt->execute([$clientIp]);
+    if ($stmt->fetch()) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Access denied']);
+        exit;
+    }
+}
+
 // Parse request
 $requestUri = $_SERVER['REQUEST_URI'];
 $basePath = '/api';
@@ -56,6 +119,13 @@ $segments = explode('/', $path);
 $method = $_SERVER['REQUEST_METHOD'];
 $body = json_decode(file_get_contents('php://input'), true) ?: [];
 
+// Sanitize input
+array_walk_recursive($body, function(&$value) {
+    if (is_string($value)) {
+        $value = trim($value);
+    }
+});
+
 // Route handling
 try {
     switch ($segments[0] ?? '') {
@@ -64,6 +134,7 @@ try {
             break;
             
         case 'rest':
+        case 'data':
             handleDataRoute($segments, $method, $body, $pdo, $config);
             break;
             
@@ -84,21 +155,25 @@ try {
             break;
             
         case 'sse':
-            // SSE is handled by sse.php
-            header('Location: /api/sse.php?' . $_SERVER['QUERY_STRING']);
-            exit;
+            require_once __DIR__ . '/sse.php';
+            break;
             
         case 'health':
-            echo json_encode(['status' => 'ok', 'timestamp' => date('c')]);
+            echo json_encode([
+                'status' => 'ok', 
+                'timestamp' => date('c'),
+                'version' => '1.0.0'
+            ]);
             break;
             
         default:
             http_response_code(404);
-            echo json_encode(['error' => 'Not found', 'path' => $path]);
+            echo json_encode(['error' => 'Not found']);
     }
 } catch (Exception $e) {
+    error_log('API Error: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => 'Internal server error']);
 }
 
 // =========== HELPER FUNCTIONS ===========
@@ -113,6 +188,18 @@ function generateUUID() {
     );
 }
 
+function generateJWT($userId, $config) {
+    $header = rtrim(strtr(base64_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT'])), '+/', '-_'), '=');
+    $payload = rtrim(strtr(base64_encode(json_encode([
+        'sub' => $userId,
+        'user_id' => $userId,
+        'iat' => time(),
+        'exp' => time() + ($config['jwt']['expiry'] ?? 604800)
+    ])), '+/', '-_'), '=');
+    $signature = rtrim(strtr(base64_encode(hash_hmac('sha256', "$header.$payload", $config['jwt']['secret'], true)), '+/', '-_'), '=');
+    return "$header.$payload.$signature";
+}
+
 function getAuthUser($pdo, $config) {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     if (!preg_match('/Bearer\s+(.+)/', $authHeader, $matches)) {
@@ -120,7 +207,7 @@ function getAuthUser($pdo, $config) {
     }
     
     $token = $matches[1];
-    $secret = $config['jwt']['secret'];
+    $secret = $config['jwt']['secret'] ?? '';
     
     try {
         $parts = explode('.', $token);
@@ -140,7 +227,15 @@ function getAuthUser($pdo, $config) {
             return null;
         }
         
-        return ['id' => $payload['sub'] ?? null, 'email' => $payload['email'] ?? null];
+        $userId = $payload['sub'] ?? $payload['user_id'] ?? null;
+        
+        if ($userId) {
+            $stmt = $pdo->prepare('SELECT * FROM users WHERE id = ?');
+            $stmt->execute([$userId]);
+            return $stmt->fetch(PDO::FETCH_ASSOC);
+        }
+        
+        return null;
     } catch (Exception $e) {
         return null;
     }
@@ -148,118 +243,21 @@ function getAuthUser($pdo, $config) {
 
 function checkIsAdmin($pdo, $userId) {
     if (!$userId) return false;
-    $stmt = $pdo->prepare("SELECT 1 FROM user_roles WHERE user_id = ? AND role = 'admin'");
+    $stmt = $pdo->prepare("SELECT 1 FROM user_roles WHERE user_id = ? AND role IN ('admin', 'moderator')");
     $stmt->execute([$userId]);
     return (bool) $stmt->fetch();
 }
 
 function sendEmail($to, $subject, $body, $config) {
     $smtp = $config['smtp'] ?? [];
-    if (empty($smtp['host'])) {
-        // Use PHP mail() as fallback
-        return mail($to, $subject, $body, "From: {$smtp['from']}\r\nContent-Type: text/plain; charset=UTF-8");
-    }
+    $from = $smtp['from'] ?? 'noreply@localhost';
     
-    // For production, use PHPMailer or similar
-    // This is a simplified version
-    return mail($to, $subject, $body, "From: {$smtp['from']}\r\nContent-Type: text/plain; charset=UTF-8");
-}
-/**
- * Main API Router - PHP Backend for Trash Mails
- * Place in /api/index.php on your cPanel hosting
- */
-
-require_once __DIR__ . '/vendor/autoload.php';
-
-$config = require __DIR__ . '/config.php';
-
-// CORS headers
-header('Access-Control-Allow-Origin: ' . ($_SERVER['HTTP_ORIGIN'] ?? '*'));
-header('Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
-header('Content-Type: application/json');
-
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit;
-}
-
-// Database connection
-try {
-    $pdo = new PDO(
-        "mysql:host={$config['db']['host']};dbname={$config['db']['name']};charset={$config['db']['charset']}",
-        $config['db']['user'],
-        $config['db']['pass'],
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-    );
-} catch (PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Database connection failed']);
-    exit;
-}
-
-// JWT Helper functions
-function generateJWT($userId, $config) {
-    $header = base64_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
-    $payload = base64_encode(json_encode([
-        'sub' => $userId,
-        'iat' => time(),
-        'exp' => time() + $config['jwt']['expiry']
-    ]));
-    $signature = base64_encode(hash_hmac('sha256', "$header.$payload", $config['jwt']['secret'], true));
-    return "$header.$payload.$signature";
-}
-
-function verifyJWT($token, $config) {
-    $parts = explode('.', $token);
-    if (count($parts) !== 3) return null;
+    $headers = [
+        'From' => $from,
+        'Reply-To' => $from,
+        'Content-Type' => 'text/plain; charset=UTF-8',
+        'X-Mailer' => 'PHP/' . phpversion()
+    ];
     
-    [$header, $payload, $signature] = $parts;
-    $expectedSig = base64_encode(hash_hmac('sha256', "$header.$payload", $config['jwt']['secret'], true));
-    
-    if (!hash_equals($expectedSig, $signature)) return null;
-    
-    $data = json_decode(base64_decode($payload), true);
-    if ($data['exp'] < time()) return null;
-    
-    return $data['sub'];
-}
-
-function getAuthUser($pdo, $config) {
-    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-    if (!preg_match('/Bearer\s+(.+)/', $authHeader, $matches)) return null;
-    
-    $userId = verifyJWT($matches[1], $config);
-    if (!$userId) return null;
-    
-    $stmt = $pdo->prepare('SELECT * FROM users WHERE id = ?');
-    $stmt->execute([$userId]);
-    return $stmt->fetch(PDO::FETCH_ASSOC);
-}
-
-// Route parsing
-$uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-$uri = preg_replace('#^/api#', '', $uri);
-$method = $_SERVER['REQUEST_METHOD'];
-$body = json_decode(file_get_contents('php://input'), true) ?? [];
-
-// Routes
-if (preg_match('#^/auth/(.+)$#', $uri, $m)) {
-    require __DIR__ . '/routes/auth.php';
-    handleAuth($m[1], $method, $body, $pdo, $config);
-} elseif (preg_match('#^/data/(.+)$#', $uri, $m)) {
-    require __DIR__ . '/routes/data.php';
-    handleData($m[1], $method, $body, $pdo, $config);
-} elseif (preg_match('#^/rpc/(.+)$#', $uri, $m)) {
-    require __DIR__ . '/routes/rpc.php';
-    handleRpc($m[1], $body, $pdo, $config);
-} elseif (preg_match('#^/storage/(.+)$#', $uri, $m)) {
-    require __DIR__ . '/routes/storage.php';
-    handleStorage($m[1], $method, $pdo, $config);
-} elseif (preg_match('#^/functions/(.+)$#', $uri, $m)) {
-    require __DIR__ . '/routes/functions.php';
-    handleFunction($m[1], $body, $pdo, $config);
-} else {
-    http_response_code(404);
-    echo json_encode(['error' => 'Not found']);
+    return @mail($to, $subject, $body, implode("\r\n", array_map(fn($k, $v) => "$k: $v", array_keys($headers), $headers)));
 }

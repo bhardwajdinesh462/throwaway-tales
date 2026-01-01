@@ -1485,7 +1485,7 @@ export const admin = {
     }
     return fetchApi('/admin/analytics', {
       method: 'POST',
-      body: JSON.stringify({ action: 'analytics', days })
+      body: JSON.stringify({ action: 'analytics', period: `${days}d` })
     });
   },
 
@@ -1497,6 +1497,50 @@ export const admin = {
     return fetchApi('/admin/dashboard', {
       method: 'POST',
       body: JSON.stringify({ action: 'dashboard' })
+    });
+  },
+
+  // Health Dashboard
+  async getMailboxHealth(): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      // Supabase uses direct DB queries from the component
+      return { data: null, error: null };
+    }
+    return fetchApi('/admin/mailbox-health', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'mailbox-health' })
+    });
+  },
+
+  async clearMailboxError(mailboxId: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.update('mailboxes', { last_error: null, last_error_at: null }, { id: mailboxId });
+    }
+    return fetchApi('/admin/mailbox-clear-error', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'mailbox-clear-error', mailbox_id: mailboxId })
+    });
+  },
+
+  // DNS Verification
+  async verifyDomainDNS(domain: string, verificationToken?: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return functions.invoke('check-email-config', { body: { check_dns: true, domain, verification_token: verificationToken } });
+    }
+    return fetchApi('/admin/domain-verify-dns', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'domain-verify-dns', domain, verification_token: verificationToken })
+    });
+  },
+
+  // Cron Logs
+  async getCronLogs(jobId?: string, limit: number = 50): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return { data: { logs: [] }, error: null };
+    }
+    return fetchApi('/admin/cron-logs', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'cron-logs', job_id: jobId, limit })
     });
   },
 };

@@ -1,11 +1,35 @@
 # TempMail PHP Backend - Apache Configuration
-# Place this file in your api directory on cPanel hosting
+# Security-hardened for production use
 
 # Enable RewriteEngine
 RewriteEngine On
 
-# Set base path (adjust if needed)
-# RewriteBase /api/
+# Block suspicious requests and scanners
+RewriteCond %{HTTP_USER_AGENT} (sqlmap|nikto|nessus|nmap|hydra|acunetix|burp|dirbuster|gobuster|wpscan|zmeu|w00tw00t) [NC,OR]
+RewriteCond %{QUERY_STRING} (union.*select|select.*from|insert.*into|drop.*table|delete.*from|update.*set|cast.*\(|exec\(|execute\(|xp_cmdshell|cmdshell) [NC,OR]
+RewriteCond %{QUERY_STRING} (\.\.\/|\.\.\\|%2e%2e%2f|%2e%2e\/|\.%2e\/|%2e\.\/|\.\.\%2f) [NC,OR]
+RewriteCond %{QUERY_STRING} (<|>|'|%0A|%0D|%27|%3C|%3E|%00) [NC,OR]
+RewriteCond %{REQUEST_URI} (\.php\.|\.asp|\.aspx|\.jsp|\.cgi|\.exe|\.dll|\.bak|\.old|\.orig|\.sql|\.tar|\.zip|\.gz|\.rar|\.7z) [NC]
+RewriteRule .* - [F,L]
+
+# Block access to sensitive files
+<FilesMatch "^(config\.php|config\.example\.php|\.env|composer\.json|composer\.lock|schema\.sql|\.htpasswd|\.htaccess|\.git|install\.php\.bak|README\.md)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Protect log files and directories
+<FilesMatch "\.log$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+RedirectMatch 403 ^/api/logs/.*$
+RedirectMatch 403 ^/api/cron/.*$
+RedirectMatch 403 ^/api/storage/.*$
+
+# Allow SSE endpoint
+RewriteRule ^sse/?$ sse.php [QSA,L]
 
 # Handle CORS preflight requests
 RewriteCond %{REQUEST_METHOD} OPTIONS
@@ -16,21 +40,23 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^(.*)$ index.php [QSA,L]
 
-# Handle SSE endpoint separately (for streaming)
-RewriteRule ^sse/?$ sse.php [QSA,L]
-
-# Disable caching for API responses
+# Security Headers
 <IfModule mod_headers.c>
-    # CORS Headers
-    Header always set Access-Control-Allow-Origin "*"
+    # CORS Headers (origin will be set dynamically by PHP)
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-    Header always set Access-Control-Allow-Headers "Authorization, Content-Type, Accept, X-Requested-With"
+    Header always set Access-Control-Allow-Headers "Authorization, Content-Type, Accept, X-Requested-With, X-Temp-Email-Id, X-Secret-Token"
     Header always set Access-Control-Max-Age "3600"
     
     # Security Headers
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "DENY"
     Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' https:; connect-src 'self' https:; frame-ancestors 'none'"
+    
+    # Remove server signature
+    Header always unset X-Powered-By
+    Header always unset Server
     
     # Disable caching for API responses
     <FilesMatch "\.(php)$">
@@ -40,14 +66,11 @@ RewriteRule ^sse/?$ sse.php [QSA,L]
     </FilesMatch>
 </IfModule>
 
-# Protect sensitive files
-<FilesMatch "^(config\.php|\.env|composer\.json|composer\.lock)$">
-    Order allow,deny
-    Deny from all
-</FilesMatch>
-
 # Disable directory listing
-Options -Indexes
+Options -Indexes -FollowSymLinks +SymLinksIfOwnerMatch
+
+# Disable server signature
+ServerSignature Off
 
 # PHP Configuration
 <IfModule mod_php8.c>
@@ -57,12 +80,21 @@ Options -Indexes
     php_value upload_max_filesize 50M
     php_flag display_errors Off
     php_flag log_errors On
-    php_value error_log "error_log"
+    php_value error_log "logs/error.log"
+    php_flag expose_php Off
+    php_value session.cookie_httponly 1
+    php_value session.cookie_secure 1
+    php_value session.cookie_samesite "Strict"
 </IfModule>
 
-# Enable gzip compression for JSON responses
+# Enable gzip compression
 <IfModule mod_deflate.c>
-    AddOutputFilterByType DEFLATE application/json text/plain text/html
+    AddOutputFilterByType DEFLATE application/json text/plain text/html application/javascript text/css
+</IfModule>
+
+# Set correct content type for JSON
+<IfModule mod_mime.c>
+    AddType application/json .json
 </IfModule>
 
 # Increase timeout for SSE connections
@@ -78,3 +110,6 @@ Options -Indexes
         php_value implicit_flush On
     </IfModule>
 </Files>
+
+# Protect install.php after installation (handled by .install_lock check in PHP)
+# Install.php should be deleted after setup

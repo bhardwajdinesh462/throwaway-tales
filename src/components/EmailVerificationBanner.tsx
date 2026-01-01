@@ -8,7 +8,12 @@ interface EmailVerificationBannerProps {
 }
 
 export const EmailVerificationBanner = ({ onVerified }: EmailVerificationBannerProps) => {
-  const { requiresVerification, resendVerificationEmail, isResending, userEmail } = useEmailVerification();
+  const { requiresVerification, resendVerificationEmail, isResending, userEmail, loading } = useEmailVerification();
+
+  // Don't render anything while loading to prevent flicker
+  if (loading) {
+    return null;
+  }
 
   if (!requiresVerification()) {
     return null;

@@ -3,6 +3,17 @@
  * Data Routes - Database CRUD operations
  */
 
+/**
+ * Wrapper function called by index.php router
+ * Converts path segments to a path string and calls handleData
+ */
+function handleDataRoute($segments, $method, $body, $pdo, $config) {
+    // segments = ['data', 'tablename'] or ['data', 'tablename', 'upsert']
+    array_shift($segments); // Remove 'data' prefix
+    $path = implode('/', $segments);
+    return handleData($path, $method, $body, $pdo, $config);
+}
+
 function handleData($path, $method, $body, $pdo, $config) {
     // Parse path: could be "table" or "table/upsert"
     $parts = explode('/', $path, 2);
@@ -51,6 +62,13 @@ function handleData($path, $method, $body, $pdo, $config) {
     // Handle upsert action
     if ($action === 'upsert') {
         handleUpsert($table, $body, $pdo, $userId, $isAdmin);
+        return;
+    }
+
+    // Admin-only write operations for domains table
+    if ($table === 'domains' && in_array($method, ['POST', 'PATCH', 'DELETE']) && !$isAdmin) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Admin access required to manage domains']);
         return;
     }
 
@@ -367,6 +385,25 @@ function applyRowLevelSecurity($table, $where, &$params, $userId, $isAdmin) {
     switch ($table) {
         case 'domains':
             $where[] = 'is_active = 1';
+            // Hide premium domains for users without paid subscription
+            if (!$userId) {
+                // Anonymous users: only free domains
+                $where[] = 'is_premium = 0';
+            } else {
+                // Check if user has active paid subscription
+                $subStmt = $pdo->prepare("
+                    SELECT st.name FROM user_subscriptions us
+                    JOIN subscription_tiers st ON us.tier_id = st.id
+                    WHERE us.user_id = ? AND us.status = 'active' AND LOWER(st.name) != 'free'
+                ");
+                $subStmt->execute([$userId]);
+                $hasPaidSub = $subStmt->fetch();
+                if (!$hasPaidSub) {
+                    // Free tier users: only free domains
+                    $where[] = 'is_premium = 0';
+                }
+                // Paid users: see all domains (no additional filter)
+            }
             break;
         case 'banners':
             $where[] = 'is_active = 1';

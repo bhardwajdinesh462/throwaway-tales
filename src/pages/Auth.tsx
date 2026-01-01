@@ -14,7 +14,7 @@ import { z } from "zod";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import DOMPurify from "dompurify";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 const emailSchema = z.string().email("Please enter a valid email address").max(255);
 const passwordSchema = z.string().min(6, "Password must be at least 6 characters").max(128);
@@ -109,7 +109,7 @@ const Auth = () => {
     }
 
     try {
-      const { data, error } = await supabase.functions.invoke('verify-recaptcha', {
+      const { data, error } = await api.functions.invoke<{ success: boolean; error?: string }>('verify-recaptcha', {
         body: { token, action }
       });
 
@@ -187,7 +187,7 @@ const Auth = () => {
             // Use combined edge function that handles both DB insert and email sending
             // This bypasses RLS using service role key
             try {
-              const { data: verifyResult, error: verifyError } = await supabase.functions.invoke('create-verification-and-send', {
+              const { data: verifyResult, error: verifyError } = await api.functions.invoke('create-verification-and-send', {
                 body: {
                   userId: data.user.id,
                   email: sanitizedEmail,

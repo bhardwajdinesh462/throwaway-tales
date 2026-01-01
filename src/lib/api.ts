@@ -6,15 +6,26 @@
  * - Uses fetch-based REST API when running on self-hosted PHP backend
  */
 
+// Auto-detect PHP backend by checking if we're on a non-Lovable domain
+const isLovableDomain = typeof window !== 'undefined' && (
+  window.location.hostname.includes('lovable.app') ||
+  window.location.hostname.includes('lovableproject.com') ||
+  window.location.hostname === 'localhost'
+);
+
 // Detect which backend to use
 const USE_SUPABASE = Boolean(
+  isLovableDomain &&
   import.meta.env.VITE_SUPABASE_URL && 
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY &&
   !import.meta.env.VITE_PHP_API_URL // Explicit PHP override
 );
 
-// PHP API URL for self-hosted deployments
-const PHP_API_URL = import.meta.env.VITE_PHP_API_URL || 'https://myserver.com/api';
+// PHP API URL - auto-detect from current domain or use env variable
+const PHP_API_URL = import.meta.env.VITE_PHP_API_URL || 
+  (typeof window !== 'undefined' && !isLovableDomain 
+    ? `${window.location.origin}/api` 
+    : 'https://myserver.com/api');
 
 // Token storage keys for PHP backend
 const AUTH_TOKEN_KEY = 'nullsto_auth_token';

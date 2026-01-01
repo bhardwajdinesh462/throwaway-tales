@@ -45,10 +45,9 @@ public_html/
     │   ├── rpc.php         # RPC function calls
     │   ├── storage.php     # File upload/download
     │   ├── functions.php   # Edge function equivalents
-    │   ├── admin.php       # Admin panel endpoints
-    │   └── webhook.php     # Email webhook receiver
+    │   └── admin.php       # Admin panel endpoints (includes DNS verification)
     └── cron/
-        ├── imap-poll.php   # Fetch emails via IMAP
+        ├── imap-poll.php   # Fetch emails via IMAP (runs every 1-2 minutes)
         └── maintenance.php # Cleanup expired emails
 ```
 
@@ -79,8 +78,11 @@ public_html/
 In cPanel → Cron Jobs, add these entries:
 
 ```bash
-# Poll IMAP for new emails every minute (fast polling)
-* * * * * /usr/bin/php /home/username/public_html/api/cron/imap-poll.php >> /home/username/logs/imap-poll.log 2>&1
+# Poll IMAP for new emails every 1-2 minutes (fast polling for quick email delivery)
+*/2 * * * * /usr/bin/php /home/username/public_html/api/cron/imap-poll.php >> /home/username/logs/imap-poll.log 2>&1
+
+# For even faster polling (every minute):
+# * * * * * /usr/bin/php /home/username/public_html/api/cron/imap-poll.php >> /home/username/logs/imap-poll.log 2>&1
 
 # Cleanup expired emails every hour
 0 * * * * /usr/bin/php /home/username/public_html/api/cron/maintenance.php >> /home/username/logs/maintenance.log 2>&1
@@ -158,30 +160,32 @@ SELECT id, 'admin' FROM users WHERE email = 'your@email.com';
    ```
    (Generate hash with PHP: `password_hash('newpassword', PASSWORD_DEFAULT)`)
 
-## Email Webhook Receiver
+## DNS Verification for Custom Domains
 
-For receiving emails via HTTP POST from services like Mailgun or SendGrid:
+The admin panel includes automated DNS verification that checks:
 
-**Endpoint**: `POST https://yourdomain.com/api/webhook`
+- **MX Records** - Required for receiving emails
+- **SPF Records** - Improves email deliverability
+- **DKIM Records** - Email authentication
+- **DMARC Records** - Email policy
+- **NS Records** - Domain ownership
 
-### Mailgun Setup
+### How to Use
 
-1. In Mailgun → Routes, create a catch-all route:
-   - Expression Type: `Catch All`
-   - Action: `forward("https://yourdomain.com/api/webhook")`
+1. Go to Admin Panel → Domains
+2. Add your custom domain
+3. Click "Verify DNS" to check all records
+4. Green checkmarks indicate properly configured records
+5. Domain is automatically enabled once MX records are verified
 
-### SendGrid Setup
+### Required DNS Records for Email
 
-1. In SendGrid → Settings → Inbound Parse:
-   - Add your domain
-   - Destination URL: `https://yourdomain.com/api/webhook`
-
-### Webhook Security
-
-Add webhook secret to `config.php`:
-```php
-'webhook_secret' => 'your-secret-key',
-```
+| Type | Name | Value | Priority |
+|------|------|-------|----------|
+| MX | @ | mail.yourdomain.com | 10 |
+| A | mail | Your server IP | - |
+| TXT | @ | v=spf1 +a +mx ~all | - |
+| TXT | _dmarc | v=DMARC1; p=none | - |
 
 ## API Endpoints
 
@@ -343,22 +347,21 @@ return [
     ],
     'jwt_secret' => 'generate-a-random-64-char-string-here',
     'smtp' => [
-        'host' => 'mail.yourdomain.com',
-        'port' => 587,
+        'host' => 'mail.yourdomain.com',  // Your cPanel mail server
+        'port' => 465,                     // 465 for SSL, 587 for TLS
         'user' => 'noreply@yourdomain.com',
-        'pass' => 'your_smtp_password',
+        'pass' => 'your_email_password',
         'from' => 'noreply@yourdomain.com',
     ],
     'imap' => [
-        'host' => 'mail.yourdomain.com',
-        'port' => 993,
-        'user' => 'inbox@yourdomain.com',
-        'pass' => 'your_imap_password',
+        'host' => 'mail.yourdomain.com',  // Same as SMTP usually
+        'port' => 993,                     // 993 for SSL
+        'user' => 'catchall@yourdomain.com', // Email that receives all temp emails
+        'pass' => 'your_email_password',
     ],
     'storage_path' => __DIR__ . '/storage',
     'cors_origins' => ['https://yourdomain.com'],
     'force_https' => true,
-    'webhook_secret' => null, // Optional: for email webhook verification
 ];
 ```
 

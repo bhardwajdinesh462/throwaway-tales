@@ -15,6 +15,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import DOMPurify from "dompurify";
 import { api } from "@/lib/api";
+import SetupWizard from "@/components/SetupWizard";
 
 const emailSchema = z.string().email("Please enter a valid email address").max(255);
 const passwordSchema = z.string().min(6, "Password must be at least 6 characters").max(128);
@@ -30,11 +31,44 @@ const Auth = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSetupWizard, setShowSetupWizard] = useState(false);
+  const [checkingSetup, setCheckingSetup] = useState(true);
   const { user, isAdmin, signIn, signUp, signInWithGoogle, signInWithFacebook, resetPassword, updatePassword } = useAuth();
   const { t } = useLanguage();
   const { settings: regSettings, isLoading: regLoading } = useRegistrationSettings();
   const { executeRecaptcha, isEnabled: captchaEnabled, isReady: captchaReady, isLoading: captchaLoading, loadError: captchaError, settings: captchaSettings } = useRecaptcha();
   const navigate = useNavigate();
+
+  // Check if this is PHP backend and needs initial setup
+  useEffect(() => {
+    const checkSetup = async () => {
+      // Only check for PHP backend
+      if (!api.isPHP) {
+        setCheckingSetup(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${api.baseUrl}/install.php`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'check_setup' }),
+        });
+        const data = await response.json();
+        
+        if (data.needs_setup) {
+          setShowSetupWizard(true);
+        }
+      } catch (error) {
+        // If install.php doesn't exist or returns error, assume setup is done
+        console.log('Setup check skipped - likely already configured');
+      } finally {
+        setCheckingSetup(false);
+      }
+    };
+
+    checkSetup();
+  }, []);
 
   useEffect(() => {
     if (searchParams.get('mode') === 'reset') {
@@ -321,12 +355,17 @@ const Auth = () => {
     }
   };
 
-  if (regLoading) {
+  if (checkingSetup || regLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
+  }
+
+  // Show setup wizard for PHP backend if not configured
+  if (showSetupWizard) {
+    return <SetupWizard onComplete={() => setShowSetupWizard(false)} />;
   }
 
   return (

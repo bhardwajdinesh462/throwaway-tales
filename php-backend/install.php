@@ -10,7 +10,192 @@
 
 session_start();
 
-// Check if already installed
+// Handle JSON API requests from frontend SetupWizard
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== false) {
+    header('Content-Type: application/json');
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type');
+    
+    $input = json_decode(file_get_contents('php://input'), true);
+    $action = $input['action'] ?? '';
+    
+    switch ($action) {
+        case 'check_setup':
+            // Check if installation is needed
+            $needsSetup = !file_exists(__DIR__ . '/config.php') || !file_exists(__DIR__ . '/.install_lock');
+            echo json_encode(['needs_setup' => $needsSetup]);
+            exit;
+            
+        case 'test_database':
+            $dbHost = trim($input['host'] ?? 'localhost');
+            $dbName = trim($input['name'] ?? '');
+            $dbUser = trim($input['user'] ?? '');
+            $dbPass = $input['pass'] ?? '';
+            
+            try {
+                $pdo = new PDO(
+                    "mysql:host={$dbHost};charset=utf8mb4",
+                    $dbUser,
+                    $dbPass,
+                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+                );
+                $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+                $pdo->exec("USE `{$dbName}`");
+                echo json_encode(['success' => true, 'message' => 'Database connection successful']);
+            } catch (PDOException $e) {
+                echo json_encode(['success' => false, 'error' => 'Database connection failed: ' . $e->getMessage()]);
+            }
+            exit;
+            
+        case 'create_tables':
+            $db = $input;
+            try {
+                $pdo = new PDO(
+                    "mysql:host={$db['host']};dbname={$db['name']};charset=utf8mb4",
+                    $db['user'],
+                    $db['pass'],
+                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+                );
+                
+                $schemaPath = __DIR__ . '/schema.sql';
+                if (!file_exists($schemaPath)) {
+                    echo json_encode(['success' => false, 'error' => 'schema.sql not found']);
+                    exit;
+                }
+                
+                $schema = file_get_contents($schemaPath);
+                $statements = preg_split('/;\s*$/m', $schema);
+                $created = 0;
+                
+                foreach ($statements as $stmt) {
+                    $stmt = trim($stmt);
+                    if (!empty($stmt) && !preg_match('/^DELIMITER/i', $stmt)) {
+                        try {
+                            $pdo->exec($stmt);
+                            if (stripos($stmt, 'CREATE TABLE') !== false) $created++;
+                        } catch (PDOException $e) {
+                            // Ignore "already exists" errors
+                            if (strpos($e->getMessage(), 'already exists') === false && 
+                                strpos($e->getMessage(), 'Duplicate') === false) {
+                                throw $e;
+                            }
+                        }
+                    }
+                }
+                
+                echo json_encode(['success' => true, 'tables_created' => $created]);
+            } catch (PDOException $e) {
+                echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+            }
+            exit;
+            
+        case 'create_admin':
+            $db = $input['db'] ?? [];
+            $admin = $input['admin'] ?? [];
+            
+            if (empty($admin['email']) || empty($admin['password'])) {
+                echo json_encode(['success' => false, 'error' => 'Email and password required']);
+                exit;
+            }
+            
+            try {
+                $pdo = new PDO(
+                    "mysql:host={$db['host']};dbname={$db['name']};charset=utf8mb4",
+                    $db['user'],
+                    $db['pass'],
+                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+                );
+                
+                $userId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+                    mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000,
+                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+                $hashedPassword = password_hash($admin['password'], PASSWORD_BCRYPT, ['cost' => 12]);
+                
+                // Create user
+                $stmt = $pdo->prepare("INSERT INTO users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())");
+                $stmt->execute([$userId, $admin['email'], $hashedPassword]);
+                
+                // Create profile
+                $profileId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+                    mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000,
+                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+                $stmt = $pdo->prepare("INSERT INTO profiles (id, user_id, email, display_name, email_verified, created_at, updated_at) VALUES (?, ?, ?, ?, 1, NOW(), NOW())");
+                $stmt->execute([$profileId, $userId, $admin['email'], $admin['display_name'] ?? 'Admin']);
+                
+                // Assign admin role
+                $roleId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+                    mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000,
+                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+                $stmt = $pdo->prepare("INSERT INTO user_roles (id, user_id, role, created_at) VALUES (?, ?, 'admin', NOW())");
+                $stmt->execute([$roleId, $userId]);
+                
+                echo json_encode(['success' => true, 'user_id' => $userId]);
+            } catch (PDOException $e) {
+                echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+            }
+            exit;
+            
+        case 'save_config':
+            $db = $input['db'] ?? [];
+            $smtp = $input['smtp'] ?? [];
+            $imap = $input['imap'] ?? [];
+            $jwtSecret = bin2hex(random_bytes(32));
+            $date = date('Y-m-d H:i:s');
+            
+            $configContent = "<?php\n/**\n * TempMail Configuration - Generated {$date}\n */\n\n";
+            $configContent .= "define('DB_HOST', '{$db['host']}');\n";
+            $configContent .= "define('DB_NAME', '{$db['name']}');\n";
+            $configContent .= "define('DB_USER', '{$db['user']}');\n";
+            $configContent .= "define('DB_PASS', '{$db['pass']}');\n\n";
+            $configContent .= "define('JWT_SECRET', '{$jwtSecret}');\n";
+            $configContent .= "define('JWT_EXPIRY', 604800);\n\n";
+            $configContent .= "define('SMTP_HOST', '{$smtp['host']}');\n";
+            $configContent .= "define('SMTP_PORT', {$smtp['port']});\n";
+            $configContent .= "define('SMTP_USER', '{$smtp['user']}');\n";
+            $configContent .= "define('SMTP_PASS', '{$smtp['pass']}');\n";
+            $configContent .= "define('SMTP_FROM', '{$smtp['from']}');\n\n";
+            $configContent .= "define('IMAP_HOST', '{$imap['host']}');\n";
+            $configContent .= "define('IMAP_PORT', {$imap['port']});\n";
+            $configContent .= "define('IMAP_USER', '{$imap['user']}');\n";
+            $configContent .= "define('IMAP_PASS', '{$imap['pass']}');\n\n";
+            $configContent .= "define('STORAGE_PATH', __DIR__ . '/storage');\n";
+            $configContent .= "define('ENCRYPTION_KEY', '{$jwtSecret}');\n";
+            
+            if (file_put_contents(__DIR__ . '/config.php', $configContent)) {
+                // Create directories
+                foreach (['/storage', '/storage/avatars', '/storage/attachments', '/logs'] as $dir) {
+                    if (!is_dir(__DIR__ . $dir)) mkdir(__DIR__ . $dir, 0755, true);
+                }
+                echo json_encode(['success' => true]);
+            } else {
+                echo json_encode(['success' => false, 'error' => 'Failed to write config.php']);
+            }
+            exit;
+            
+        case 'complete_setup':
+            file_put_contents(__DIR__ . '/.install_lock', date('Y-m-d H:i:s'));
+            echo json_encode(['success' => true]);
+            exit;
+            
+        default:
+            echo json_encode(['error' => 'Unknown action']);
+            exit;
+    }
+}
+
+// Handle CORS preflight
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type');
+    exit;
+}
+
+// Check if already installed (for HTML version)
 if (file_exists(__DIR__ . '/.install_lock') && !isset($_GET['force'])) {
     die('<h1>Installation Complete</h1><p>TempMail is already installed. Delete this file for security.</p>');
 }

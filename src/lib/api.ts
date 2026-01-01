@@ -1,13 +1,28 @@
 /**
- * API Client for PHP/MySQL Backend
- * Replaces Supabase SDK with standard fetch() calls
+ * Unified API Client - Supports both Lovable Cloud (Supabase) and Self-Hosted PHP Backend
+ * 
+ * This file provides a unified interface that:
+ * - Uses Supabase SDK when running on Lovable Cloud
+ * - Uses fetch-based REST API when running on self-hosted PHP backend
  */
 
-const API_BASE_URL = 'https://myserver.com/api';
+// Detect which backend to use
+const USE_SUPABASE = Boolean(
+  import.meta.env.VITE_SUPABASE_URL && 
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY &&
+  !import.meta.env.VITE_PHP_API_URL // Explicit PHP override
+);
 
-// Token storage
+// PHP API URL for self-hosted deployments
+const PHP_API_URL = import.meta.env.VITE_PHP_API_URL || 'https://myserver.com/api';
+
+// Token storage keys for PHP backend
 const AUTH_TOKEN_KEY = 'nullsto_auth_token';
 const REFRESH_TOKEN_KEY = 'nullsto_refresh_token';
+
+// ============================================
+// TYPE DEFINITIONS
+// ============================================
 
 export interface ApiResponse<T = any> {
   data: T | null;
@@ -42,7 +57,10 @@ export interface AuthResponse {
   error: ApiError | null;
 }
 
-// Get stored auth token
+// ============================================
+// PHP BACKEND HELPERS
+// ============================================
+
 export const getAuthToken = (): string | null => {
   try {
     return localStorage.getItem(AUTH_TOKEN_KEY);
@@ -51,7 +69,6 @@ export const getAuthToken = (): string | null => {
   }
 };
 
-// Store auth tokens
 export const setAuthTokens = (accessToken: string, refreshToken?: string): void => {
   try {
     localStorage.setItem(AUTH_TOKEN_KEY, accessToken);
@@ -63,7 +80,6 @@ export const setAuthTokens = (accessToken: string, refreshToken?: string): void 
   }
 };
 
-// Clear auth tokens
 export const clearAuthTokens = (): void => {
   try {
     localStorage.removeItem(AUTH_TOKEN_KEY);
@@ -73,7 +89,6 @@ export const clearAuthTokens = (): void => {
   }
 };
 
-// Build headers with optional auth
 const buildHeaders = (includeAuth = true): HeadersInit => {
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -90,13 +105,12 @@ const buildHeaders = (includeAuth = true): HeadersInit => {
   return headers;
 };
 
-// Generic fetch wrapper with error handling
 async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {},
   includeAuth = true
 ): Promise<ApiResponse<T>> {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = `${PHP_API_URL}${endpoint}`;
 
   try {
     const response = await fetch(url, {
@@ -138,11 +152,73 @@ async function fetchApi<T>(
 }
 
 // ============================================
+// SUPABASE IMPORT (conditional)
+// ============================================
+
+let supabaseClient: any = null;
+
+const getSupabaseClient = async () => {
+  if (!USE_SUPABASE) return null;
+  if (supabaseClient) return supabaseClient;
+  
+  try {
+    const { supabase } = await import('@/integrations/supabase/client');
+    supabaseClient = supabase;
+    return supabase;
+  } catch {
+    console.warn('Supabase client not available, falling back to PHP API');
+    return null;
+  }
+};
+
+// ============================================
 // AUTH API
 // ============================================
 
 export const auth = {
   async signUp(email: string, password: string, displayName?: string): Promise<AuthResponse> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/`,
+            data: { display_name: displayName }
+          }
+        });
+        
+        if (error) {
+          return { user: null, session: null, error: { message: error.message, code: error.code } };
+        }
+        
+        return {
+          user: data.user ? {
+            id: data.user.id,
+            email: data.user.email || '',
+            display_name: displayName,
+            created_at: data.user.created_at || new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          } : null,
+          session: data.session ? {
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token,
+            expires_at: data.session.expires_at || 0,
+            user: {
+              id: data.user?.id || '',
+              email: data.user?.email || '',
+              display_name: displayName,
+              created_at: data.user?.created_at || new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }
+          } : null,
+          error: null
+        };
+      }
+    }
+
+    // PHP Backend
     const { data, error } = await fetchApi<{ user: User; session: Session }>('/auth/signup', {
       method: 'POST',
       body: JSON.stringify({ email, password, display_name: displayName }),
@@ -160,6 +236,39 @@ export const auth = {
   },
 
   async signIn(email: string, password: string): Promise<AuthResponse> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        
+        if (error) {
+          return { user: null, session: null, error: { message: error.message, code: error.code } };
+        }
+        
+        return {
+          user: data.user ? {
+            id: data.user.id,
+            email: data.user.email || '',
+            created_at: data.user.created_at || new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          } : null,
+          session: data.session ? {
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token,
+            expires_at: data.session.expires_at || 0,
+            user: {
+              id: data.user?.id || '',
+              email: data.user?.email || '',
+              created_at: data.user?.created_at || new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }
+          } : null,
+          error: null
+        };
+      }
+    }
+
+    // PHP Backend
     const { data, error } = await fetchApi<{ user: User; session: Session }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
@@ -177,12 +286,53 @@ export const auth = {
   },
 
   async signOut(): Promise<ApiResponse<void>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { error } = await supabase.auth.signOut();
+        return { data: null, error: error ? { message: error.message } : null };
+      }
+    }
+
     const result = await fetchApi<void>('/auth/logout', { method: 'POST' });
     clearAuthTokens();
     return result;
   },
 
   async getSession(): Promise<AuthResponse> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          return { user: null, session: null, error: { message: error.message } };
+        }
+        
+        return {
+          user: session?.user ? {
+            id: session.user.id,
+            email: session.user.email || '',
+            created_at: session.user.created_at || new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          } : null,
+          session: session ? {
+            access_token: session.access_token,
+            refresh_token: session.refresh_token,
+            expires_at: session.expires_at || 0,
+            user: {
+              id: session.user?.id || '',
+              email: session.user?.email || '',
+              created_at: session.user?.created_at || new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }
+          } : null,
+          error: null
+        };
+      }
+    }
+
+    // PHP Backend
     const token = getAuthToken();
     if (!token) {
       return { user: null, session: null, error: null };
@@ -201,6 +351,16 @@ export const auth = {
   },
 
   async resetPassword(email: string): Promise<ApiResponse<void>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/auth?mode=reset`
+        });
+        return { data: null, error: error ? { message: error.message } : null };
+      }
+    }
+
     return fetchApi<void>('/auth/reset-password', {
       method: 'POST',
       body: JSON.stringify({ email }),
@@ -208,6 +368,14 @@ export const auth = {
   },
 
   async updatePassword(newPassword: string): Promise<ApiResponse<void>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { error } = await supabase.auth.updateUser({ password: newPassword });
+        return { data: null, error: error ? { message: error.message } : null };
+      }
+    }
+
     return fetchApi<void>('/auth/update-password', {
       method: 'POST',
       body: JSON.stringify({ password: newPassword }),
@@ -215,52 +383,255 @@ export const auth = {
   },
 
   async updateProfile(updates: Partial<User>): Promise<ApiResponse<User>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { data, error } = await supabase.auth.updateUser({
+          data: updates
+        });
+        if (error) {
+          return { data: null, error: { message: error.message } };
+        }
+        return { 
+          data: data.user ? {
+            id: data.user.id,
+            email: data.user.email || '',
+            ...updates,
+            created_at: data.user.created_at || new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          } : null,
+          error: null
+        };
+      }
+    }
+
     return fetchApi<User>('/auth/profile', {
       method: 'PATCH',
       body: JSON.stringify(updates),
     });
   },
 
-  // Social auth - redirects to OAuth provider
-  signInWithGoogle(): void {
-    window.location.href = `${API_BASE_URL}/auth/google`;
+  // Social auth
+  async signInWithGoogle(): Promise<void> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: { redirectTo: `${window.location.origin}/` }
+        });
+        return;
+      }
+    }
+    window.location.href = `${PHP_API_URL}/auth/google`;
   },
 
-  signInWithFacebook(): void {
-    window.location.href = `${API_BASE_URL}/auth/facebook`;
+  async signInWithFacebook(): Promise<void> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        await supabase.auth.signInWithOAuth({
+          provider: 'facebook',
+          options: { redirectTo: `${window.location.origin}/` }
+        });
+        return;
+      }
+    }
+    window.location.href = `${PHP_API_URL}/auth/facebook`;
   },
+
+  // Auth state change listener
+  onAuthStateChange(callback: (event: string, session: Session | null) => void): { unsubscribe: () => void } {
+    if (USE_SUPABASE) {
+      // This will be set up synchronously from cached client or async
+      let subscription: any = null;
+      
+      getSupabaseClient().then(supabase => {
+        if (supabase) {
+          const { data } = supabase.auth.onAuthStateChange((event: string, session: any) => {
+            const mappedSession: Session | null = session ? {
+              access_token: session.access_token,
+              refresh_token: session.refresh_token,
+              expires_at: session.expires_at || 0,
+              user: {
+                id: session.user?.id || '',
+                email: session.user?.email || '',
+                created_at: session.user?.created_at || new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }
+            } : null;
+            callback(event, mappedSession);
+          });
+          subscription = data.subscription;
+        }
+      });
+      
+      return {
+        unsubscribe: () => {
+          if (subscription) {
+            subscription.unsubscribe();
+          }
+        }
+      };
+    }
+
+    // PHP Backend - poll for session changes
+    let lastToken = getAuthToken();
+    const interval = setInterval(async () => {
+      const currentToken = getAuthToken();
+      if (currentToken !== lastToken) {
+        lastToken = currentToken;
+        if (currentToken) {
+          const { session } = await auth.getSession();
+          callback('SIGNED_IN', session);
+        } else {
+          callback('SIGNED_OUT', null);
+        }
+      }
+    }, 1000);
+
+    return {
+      unsubscribe: () => clearInterval(interval)
+    };
+  }
 };
 
 // ============================================
-// DATABASE API (replaces supabase.from())
+// DATABASE API
 // ============================================
 
 interface QueryOptions {
   select?: string;
   filter?: Record<string, any>;
-  order?: { column: string; ascending?: boolean };
+  order?: { column: string; ascending?: boolean } | Array<{ column: string; ascending?: boolean }>;
   limit?: number;
   offset?: number;
   single?: boolean;
+  eq?: Record<string, any>;
+  neq?: Record<string, any>;
+  gt?: Record<string, any>;
+  gte?: Record<string, any>;
+  lt?: Record<string, any>;
+  lte?: Record<string, any>;
+  like?: Record<string, any>;
+  ilike?: Record<string, any>;
+  in?: Record<string, any[]>;
+  is?: Record<string, any>;
 }
 
 export const db = {
-  // Generic query builder
   async query<T>(table: string, options: QueryOptions = {}): Promise<ApiResponse<T>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        let query = supabase.from(table).select(options.select || '*');
+        
+        // Apply filters
+        if (options.eq) {
+          Object.entries(options.eq).forEach(([key, value]) => {
+            query = query.eq(key, value);
+          });
+        }
+        if (options.neq) {
+          Object.entries(options.neq).forEach(([key, value]) => {
+            query = query.neq(key, value);
+          });
+        }
+        if (options.gt) {
+          Object.entries(options.gt).forEach(([key, value]) => {
+            query = query.gt(key, value);
+          });
+        }
+        if (options.gte) {
+          Object.entries(options.gte).forEach(([key, value]) => {
+            query = query.gte(key, value);
+          });
+        }
+        if (options.lt) {
+          Object.entries(options.lt).forEach(([key, value]) => {
+            query = query.lt(key, value);
+          });
+        }
+        if (options.lte) {
+          Object.entries(options.lte).forEach(([key, value]) => {
+            query = query.lte(key, value);
+          });
+        }
+        if (options.like) {
+          Object.entries(options.like).forEach(([key, value]) => {
+            query = query.like(key, value);
+          });
+        }
+        if (options.ilike) {
+          Object.entries(options.ilike).forEach(([key, value]) => {
+            query = query.ilike(key, value);
+          });
+        }
+        if (options.in) {
+          Object.entries(options.in).forEach(([key, values]) => {
+            query = query.in(key, values);
+          });
+        }
+        if (options.is) {
+          Object.entries(options.is).forEach(([key, value]) => {
+            query = query.is(key, value);
+          });
+        }
+        if (options.filter) {
+          Object.entries(options.filter).forEach(([key, value]) => {
+            query = query.eq(key, value);
+          });
+        }
+        
+        // Apply ordering
+        if (options.order) {
+          const orders = Array.isArray(options.order) ? options.order : [options.order];
+          orders.forEach(o => {
+            query = query.order(o.column, { ascending: o.ascending ?? true });
+          });
+        }
+        
+        if (options.limit) query = query.limit(options.limit);
+        if (options.offset) query = query.range(options.offset, options.offset + (options.limit || 10) - 1);
+        if (options.single) query = query.single();
+        
+        const { data, error } = await query;
+        return { data: data as T, error: error ? { message: error.message, code: error.code } : null };
+      }
+    }
+
+    // PHP Backend
     const params = new URLSearchParams();
 
     if (options.select) params.set('select', options.select);
     if (options.limit) params.set('limit', String(options.limit));
     if (options.offset) params.set('offset', String(options.offset));
     if (options.single) params.set('single', 'true');
+    
     if (options.order) {
-      params.set('order', `${options.order.column}.${options.order.ascending ? 'asc' : 'desc'}`);
+      const orders = Array.isArray(options.order) ? options.order : [options.order];
+      params.set('order', orders.map(o => `${o.column}.${o.ascending ? 'asc' : 'desc'}`).join(','));
     }
-    if (options.filter) {
-      Object.entries(options.filter).forEach(([key, value]) => {
-        params.set(`filter[${key}]`, String(value));
-      });
-    }
+    
+    // Add all filter types
+    const addFilters = (type: string, obj?: Record<string, any>) => {
+      if (obj) {
+        Object.entries(obj).forEach(([key, value]) => {
+          params.set(`${type}[${key}]`, Array.isArray(value) ? value.join(',') : String(value));
+        });
+      }
+    };
+    
+    addFilters('eq', options.eq || options.filter);
+    addFilters('neq', options.neq);
+    addFilters('gt', options.gt);
+    addFilters('gte', options.gte);
+    addFilters('lt', options.lt);
+    addFilters('lte', options.lte);
+    addFilters('like', options.like);
+    addFilters('ilike', options.ilike);
+    addFilters('in', options.in);
+    addFilters('is', options.is);
 
     const queryString = params.toString();
     const endpoint = `/data/${table}${queryString ? `?${queryString}` : ''}`;
@@ -268,18 +639,46 @@ export const db = {
     return fetchApi<T>(endpoint);
   },
 
-  async insert<T>(table: string, data: Record<string, any> | Record<string, any>[]): Promise<ApiResponse<T>> {
+  async insert<T>(table: string, data: Record<string, any> | Record<string, any>[], options?: { select?: string }): Promise<ApiResponse<T>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        let query = supabase.from(table).insert(data);
+        if (options?.select) {
+          query = query.select(options.select);
+        }
+        const result = await query;
+        return { data: result.data as T, error: result.error ? { message: result.error.message } : null };
+      }
+    }
+
     return fetchApi<T>(`/data/${table}`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({ data, select: options?.select }),
     });
   },
 
   async update<T>(
     table: string,
     data: Record<string, any>,
-    filter: Record<string, any>
+    filter: Record<string, any>,
+    options?: { select?: string }
   ): Promise<ApiResponse<T>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        let query = supabase.from(table).update(data);
+        Object.entries(filter).forEach(([key, value]) => {
+          query = query.eq(key, value);
+        });
+        if (options?.select) {
+          query = query.select(options.select);
+        }
+        const result = await query;
+        return { data: result.data as T, error: result.error ? { message: result.error.message } : null };
+      }
+    }
+
     const params = new URLSearchParams();
     Object.entries(filter).forEach(([key, value]) => {
       params.set(`filter[${key}]`, String(value));
@@ -287,11 +686,46 @@ export const db = {
 
     return fetchApi<T>(`/data/${table}?${params.toString()}`, {
       method: 'PATCH',
-      body: JSON.stringify(data),
+      body: JSON.stringify({ data, select: options?.select }),
+    });
+  },
+
+  async upsert<T>(
+    table: string,
+    data: Record<string, any> | Record<string, any>[],
+    options?: { onConflict?: string; select?: string }
+  ): Promise<ApiResponse<T>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        let query = supabase.from(table).upsert(data, { onConflict: options?.onConflict });
+        if (options?.select) {
+          query = query.select(options.select);
+        }
+        const result = await query;
+        return { data: result.data as T, error: result.error ? { message: result.error.message } : null };
+      }
+    }
+
+    return fetchApi<T>(`/data/${table}/upsert`, {
+      method: 'POST',
+      body: JSON.stringify({ data, onConflict: options?.onConflict, select: options?.select }),
     });
   },
 
   async delete(table: string, filter: Record<string, any>): Promise<ApiResponse<void>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        let query = supabase.from(table).delete();
+        Object.entries(filter).forEach(([key, value]) => {
+          query = query.eq(key, value);
+        });
+        const { error } = await query;
+        return { data: null, error: error ? { message: error.message } : null };
+      }
+    }
+
     const params = new URLSearchParams();
     Object.entries(filter).forEach(([key, value]) => {
       params.set(`filter[${key}]`, String(value));
@@ -302,8 +736,15 @@ export const db = {
     });
   },
 
-  // RPC-style function calls (for stored procedures)
   async rpc<T>(functionName: string, params: Record<string, any> = {}): Promise<ApiResponse<T>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { data, error } = await supabase.rpc(functionName, params);
+        return { data: data as T, error: error ? { message: error.message, code: error.code } : null };
+      }
+    }
+
     return fetchApi<T>(`/rpc/${functionName}`, {
       method: 'POST',
       body: JSON.stringify(params),
@@ -312,7 +753,7 @@ export const db = {
 };
 
 // ============================================
-// STORAGE API (replaces supabase.storage)
+// STORAGE API
 // ============================================
 
 export const storage = {
@@ -321,6 +762,22 @@ export const storage = {
     path: string,
     file: File
   ): Promise<ApiResponse<{ path: string; url: string }>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { data, error } = await supabase.storage.from(bucket).upload(path, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+        if (error) {
+          return { data: null, error: { message: error.message } };
+        }
+        const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path);
+        return { data: { path: data.path, url: urlData.publicUrl }, error: null };
+      }
+    }
+
+    // PHP Backend
     const formData = new FormData();
     formData.append('file', file);
     formData.append('bucket', bucket);
@@ -333,7 +790,7 @@ export const storage = {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/storage/upload`, {
+      const response = await fetch(`${PHP_API_URL}/storage/upload`, {
         method: 'POST',
         headers,
         body: formData,
@@ -358,6 +815,14 @@ export const storage = {
   },
 
   async download(bucket: string, path: string): Promise<ApiResponse<Blob>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { data, error } = await supabase.storage.from(bucket).download(path);
+        return { data, error: error ? { message: error.message } : null };
+      }
+    }
+
     try {
       const token = getAuthToken();
       const headers: HeadersInit = {};
@@ -366,7 +831,7 @@ export const storage = {
       }
 
       const response = await fetch(
-        `${API_BASE_URL}/storage/download?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(path)}`,
+        `${PHP_API_URL}/storage/download?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(path)}`,
         { headers }
       );
 
@@ -388,6 +853,14 @@ export const storage = {
   },
 
   async delete(bucket: string, paths: string[]): Promise<ApiResponse<void>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { error } = await supabase.storage.from(bucket).remove(paths);
+        return { data: null, error: error ? { message: error.message } : null };
+      }
+    }
+
     return fetchApi<void>('/storage/delete', {
       method: 'DELETE',
       body: JSON.stringify({ bucket, paths }),
@@ -395,12 +868,16 @@ export const storage = {
   },
 
   getPublicUrl(bucket: string, path: string): string {
-    return `${API_BASE_URL}/storage/public/${bucket}/${path}`;
+    if (USE_SUPABASE) {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      return `${supabaseUrl}/storage/v1/object/public/${bucket}/${path}`;
+    }
+    return `${PHP_API_URL}/storage/public/${bucket}/${path}`;
   },
 };
 
 // ============================================
-// FUNCTIONS API (replaces edge functions)
+// FUNCTIONS API (Edge Functions / PHP Functions)
 // ============================================
 
 export const functions = {
@@ -408,6 +885,17 @@ export const functions = {
     functionName: string,
     options: { body?: any; headers?: Record<string, string> } = {}
   ): Promise<ApiResponse<T>> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { data, error } = await supabase.functions.invoke(functionName, {
+          body: options.body,
+          headers: options.headers
+        });
+        return { data: data as T, error: error ? { message: error.message } : null };
+      }
+    }
+
     return fetchApi<T>(`/functions/${functionName}`, {
       method: 'POST',
       body: options.body ? JSON.stringify(options.body) : undefined,
@@ -417,48 +905,82 @@ export const functions = {
 };
 
 // ============================================
-// REALTIME (Polling-based for PHP backend)
+// REALTIME API
 // ============================================
 
 type RealtimeCallback = (payload: { eventType: string; new: any; old?: any }) => void;
 
-class RealtimeChannel {
-  private table: string;
-  private callbacks: RealtimeCallback[] = [];
-  private pollInterval: NodeJS.Timeout | null = null;
-  private lastData: any[] = [];
-  private filter: Record<string, any> = {};
+interface RealtimeFilterConfig {
+  event: 'INSERT' | 'UPDATE' | 'DELETE' | '*';
+  schema?: string;
+  table?: string;
+  filter?: string;
+}
 
-  constructor(table: string) {
-    this.table = table;
+class RealtimeChannel {
+  private channelName: string;
+  private callbacks: Array<{ filter: RealtimeFilterConfig; callback: RealtimeCallback }> = [];
+  private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private lastDataMap: Map<string, any[]> = new Map();
+  private supabaseChannel: any = null;
+  private pollIntervalMs: number = 3000; // Faster polling: 3 seconds
+
+  constructor(channelName: string) {
+    this.channelName = channelName;
   }
 
   on(
-    event: 'INSERT' | 'UPDATE' | 'DELETE' | '*',
-    filter: { schema?: string; table?: string; filter?: string } | undefined,
+    type: 'postgres_changes',
+    filter: RealtimeFilterConfig,
     callback: RealtimeCallback
   ): this {
-    this.callbacks.push(callback);
-    
-    // Parse filter string like "temp_email_id=eq.xxx"
-    if (filter?.filter) {
-      const [key, value] = filter.filter.split('=eq.');
-      if (key && value) {
-        this.filter[key] = value;
-      }
-    }
-    
+    this.callbacks.push({ filter, callback });
     return this;
   }
 
-  subscribe(): this {
-    // Start polling every 5 seconds
+  async subscribe(statusCallback?: (status: string, error?: any) => void): Promise<this> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        let channel = supabase.channel(this.channelName);
+        
+        this.callbacks.forEach(({ filter, callback }) => {
+          channel = channel.on('postgres_changes', filter, (payload: any) => {
+            callback({
+              eventType: payload.eventType,
+              new: payload.new,
+              old: payload.old
+            });
+          });
+        });
+        
+        this.supabaseChannel = channel.subscribe((status: string, err?: any) => {
+          if (statusCallback) {
+            statusCallback(status, err);
+          }
+        });
+        
+        return this;
+      }
+    }
+
+    // PHP Backend - use faster polling
+    if (statusCallback) {
+      statusCallback('SUBSCRIBED');
+    }
+    
     this.poll();
-    this.pollInterval = setInterval(() => this.poll(), 5000);
+    this.pollInterval = setInterval(() => this.poll(), this.pollIntervalMs);
+    
     return this;
   }
 
   unsubscribe(): void {
+    if (this.supabaseChannel) {
+      this.supabaseChannel.unsubscribe();
+      this.supabaseChannel = null;
+    }
+    
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
@@ -466,37 +988,47 @@ class RealtimeChannel {
   }
 
   private async poll(): Promise<void> {
-    try {
-      const { data, error } = await db.query<any[]>(this.table, {
-        filter: this.filter,
-        order: { column: 'created_at', ascending: false },
-        limit: 50,
-      });
-
-      if (error || !data) return;
-
-      // Detect new items
-      const oldIds = new Set(this.lastData.map((item) => item.id));
-      const newItems = data.filter((item) => !oldIds.has(item.id));
-
-      newItems.forEach((item) => {
-        this.callbacks.forEach((cb) => {
-          cb({ eventType: 'INSERT', new: item });
+    for (const { filter, callback } of this.callbacks) {
+      try {
+        const table = filter.table || this.channelName;
+        const filterObj: Record<string, any> = {};
+        
+        // Parse filter string like "temp_email_id=eq.xxx"
+        if (filter.filter) {
+          const [key, value] = filter.filter.split('=eq.');
+          if (key && value) {
+            filterObj[key] = value;
+          }
+        }
+        
+        const { data, error } = await db.query<any[]>(table, {
+          filter: filterObj,
+          order: { column: 'received_at', ascending: false },
+          limit: 50,
         });
-      });
 
-      this.lastData = data;
-    } catch (err) {
-      console.error('Realtime poll error:', err);
+        if (error || !data) continue;
+
+        const cacheKey = `${table}-${JSON.stringify(filterObj)}`;
+        const lastData = this.lastDataMap.get(cacheKey) || [];
+        const oldIds = new Set(lastData.map((item) => item.id));
+        const newItems = data.filter((item) => !oldIds.has(item.id));
+
+        newItems.forEach((item) => {
+          callback({ eventType: 'INSERT', new: item });
+        });
+
+        this.lastDataMap.set(cacheKey, data);
+      } catch (err) {
+        console.error('Realtime poll error:', err);
+      }
     }
   }
 }
 
 export const realtime = {
   channel(name: string): RealtimeChannel {
-    // Extract table name from channel name (e.g., "received-emails-xxx" -> "received_emails")
-    const tableName = name.split('-').slice(0, -1).join('_').replace(/-/g, '_') || name;
-    return new RealtimeChannel(tableName);
+    return new RealtimeChannel(name);
   },
 
   removeChannel(channel: RealtimeChannel): void {
@@ -515,11 +1047,17 @@ export const api = {
   functions,
   realtime,
   
-  // Direct fetch for custom endpoints
+  // Direct fetch for custom endpoints (PHP only)
   fetch: fetchApi,
   
   // Base URL for constructing custom URLs
-  baseUrl: API_BASE_URL,
+  get baseUrl() {
+    return USE_SUPABASE ? import.meta.env.VITE_SUPABASE_URL : PHP_API_URL;
+  },
+  
+  // Check which backend is in use
+  isSupabase: USE_SUPABASE,
+  isPHP: !USE_SUPABASE,
 };
 
 export default api;

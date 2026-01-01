@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 interface ReceivedEmail {
@@ -115,8 +115,8 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
       return;
     }
 
-    const filterConfig: any = {
-      event: 'INSERT',
+    const filterConfig = {
+      event: 'INSERT' as const,
       schema: 'public',
       table: 'received_emails',
       filter: `temp_email_id=eq.${tempEmailId}`
@@ -126,13 +126,8 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
 
     const channelName = `received-emails-${tempEmailId}`;
 
-    const channel = supabase
-      .channel(channelName, {
-        config: {
-          broadcast: { self: true },
-          presence: { key: tempEmailId },
-        }
-      })
+    const channel = api.realtime
+      .channel(channelName)
       .on(
         'postgres_changes',
         filterConfig,
@@ -145,7 +140,6 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
 
           // Call the callback immediately for instant UI update
           if (onNewEmail) {
-            // Use requestAnimationFrame for faster visual update
             requestAnimationFrame(() => {
               onNewEmail(newEmail);
             });
@@ -161,7 +155,6 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
 
           // Play sound using the callback from parent
           if (playSoundCallback) {
-            console.log('[useRealtimeEmails] Playing sound via callback');
             playSoundCallback();
           }
 
@@ -170,17 +163,16 @@ export const useRealtimeEmails = (options: UseRealtimeEmailsOptions = {}) => {
             showPushNotification(newEmail);
           }
         }
-      )
-      .subscribe((status, err) => {
-        console.log('[useRealtimeEmails] Subscription status:', status, err ? err : '');
-        if (status === 'SUBSCRIBED') {
-          console.log('[useRealtimeEmails] Successfully subscribed to realtime updates');
-        }
-      });
+      );
+    
+    // Subscribe asynchronously
+    channel.subscribe((status, err) => {
+      console.log('[useRealtimeEmails] Subscription status:', status, err ? err : '');
+    });
 
     return () => {
       console.log('[useRealtimeEmails] Cleaning up subscription');
-      channel.unsubscribe();
+      api.realtime.removeChannel(channel);
     };
   }, [tempEmailId, onNewEmail, showToast, playSoundCallback, showPushNotification]);
 

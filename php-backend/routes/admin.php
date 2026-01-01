@@ -23,10 +23,10 @@ function handleAdminRoute($action, $body, $pdo, $config) {
             getUserDetails($body, $pdo);
             break;
         case 'suspend-user':
-            suspendUser($body, $pdo, $userId);
+            adminSuspendUser($body, $pdo, $userId);
             break;
         case 'unsuspend-user':
-            unsuspendUser($body, $pdo, $userId);
+            adminUnsuspendUser($body, $pdo, $userId);
             break;
         case 'delete-user':
             deleteUser($body, $pdo, $userId);
@@ -85,10 +85,10 @@ function handleAdminRoute($action, $body, $pdo, $config) {
 
         // Email Logs
         case 'email-logs':
-            getEmailLogs($body, $pdo);
+            adminGetEmailLogs($body, $pdo);
             break;
         case 'email-stats':
-            getEmailStats($pdo);
+            adminGetEmailStats($pdo);
             break;
 
         // Audit Logs
@@ -255,7 +255,7 @@ function getUserDetails($body, $pdo) {
     ]);
 }
 
-function suspendUser($body, $pdo, $adminId) {
+function adminSuspendUser($body, $pdo, $adminId) {
     $userId = $body['user_id'] ?? '';
     $reason = $body['reason'] ?? '';
     $until = $body['until'] ?? null;
@@ -277,7 +277,7 @@ function suspendUser($body, $pdo, $adminId) {
     echo json_encode(['success' => true]);
 }
 
-function unsuspendUser($body, $pdo, $adminId) {
+function adminUnsuspendUser($body, $pdo, $adminId) {
     $userId = $body['user_id'] ?? '';
 
     if (empty($userId)) {
@@ -871,7 +871,7 @@ function fetchImapEmails($body, $pdo, $config) {
 
 // =========== EMAIL LOGS ===========
 
-function getEmailLogs($body, $pdo) {
+function adminGetEmailLogs($body, $pdo) {
     $page = intval($body['page'] ?? 1);
     $pageSize = intval($body['page_size'] ?? 20);
     $status = $body['status'] ?? null;
@@ -916,7 +916,7 @@ function getEmailLogs($body, $pdo) {
     echo json_encode($logs);
 }
 
-function getEmailStats($pdo) {
+function adminGetEmailStats($pdo) {
     // Get counts
     $stmt = $pdo->query("SELECT status, COUNT(*) as count FROM email_logs GROUP BY status");
     $statuses = [];

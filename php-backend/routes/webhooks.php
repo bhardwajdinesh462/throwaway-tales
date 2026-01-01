@@ -828,6 +828,7 @@ function buildPaymentFailureHtml($name, $tierName, $amount, $paymentMethod, $upd
 </body>
 </html>
 HTML;
+}
 
 /**
  * Build HTML payment confirmation email

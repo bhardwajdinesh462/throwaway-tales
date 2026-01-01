@@ -621,27 +621,7 @@ function handleFacebookCallback($pdo, $config) {
     exit;
 }
 
-// Helper functions
-function generateUUID() {
-    return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-        mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-        mt_rand(0, 0xffff),
-        mt_rand(0, 0x0fff) | 0x4000,
-        mt_rand(0, 0x3fff) | 0x8000,
-        mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
-    );
-}
-
-function sendEmail($to, $subject, $body, $config) {
-    $smtp = $config['smtp'];
-    if (empty($smtp['host'])) return false;
-
-    // Simple mail() fallback - in production use PHPMailer
-    $headers = "From: {$smtp['from_name']} <{$smtp['from']}>\r\n";
-    $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
-    
-    return mail($to, $subject, $body, $headers);
-}
+// Helper functions are defined in index.php - do not redeclare here
 
 /**
  * Verify CAPTCHA if enabled for the specified action

@@ -3,6 +3,11 @@
  * RPC Routes - Stored procedure / function calls
  */
 
+// Wrapper function called by index.php
+function handleRpcRoute($functionName, $body, $pdo, $config) {
+    handleRpc($functionName, $body, $pdo, $config);
+}
+
 function handleRpc($functionName, $params, $pdo, $config) {
     $user = getAuthUser($pdo, $config);
     $userId = $user['id'] ?? null;

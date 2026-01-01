@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from './useSupabaseAuth';
+import { api } from '@/lib/api';
+import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 import { storage } from '@/lib/storage';
 import { parseEmailCreationError } from '@/lib/emailErrorHandler';
@@ -165,7 +165,7 @@ export const useSecureEmailService = () => {
     );
   }, [currentEmail?.id]);
 
-  // Load domains from Supabase with retry logic and local cache fallback
+  // Load domains from API with retry logic and local cache fallback
   useEffect(() => {
     let cancelled = false;
     let retryTimeout: NodeJS.Timeout | null = null;
@@ -179,19 +179,11 @@ export const useSecureEmailService = () => {
       try {
         console.log(`[email-service] Loading domains (attempt ${attempt + 1})...`);
         
-        // Create abort controller for timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-        
-        const { data, error } = await supabase
-          .from('domains')
-          .select('id, name, is_premium, is_active, created_at')
-          .eq('is_active', true)
-          .order('is_premium', { ascending: true })
-          .limit(20)
-          .abortSignal(controller.signal);
-        
-        clearTimeout(timeoutId);
+        const { data, error } = await api.db.query<Domain[]>('domains', {
+          filter: { is_active: true },
+          order: { column: 'is_premium', ascending: true },
+          limit: 20,
+        });
 
         if (cancelled) return;
 
@@ -203,11 +195,10 @@ export const useSecureEmailService = () => {
         }
         
         if (error) {
-          const isTimeout = error.message?.includes('abort') || error.message?.includes('timeout');
           console.error(`[email-service] Error loading domains (attempt ${attempt + 1}):`, error.message);
           
-          // On timeout/connection error, try cached domains immediately
-          if (isTimeout && attempt === 0) {
+          // On error, try cached domains immediately
+          if (attempt === 0) {
             const cached = getCachedDomains();
             if (cached.length > 0) {
               console.log(`[email-service] Using ${cached.length} cached domains during connection issue`);
@@ -235,7 +226,6 @@ export const useSecureEmailService = () => {
         }
       } catch (err: any) {
         if (cancelled) return;
-        const isAbort = err?.name === 'AbortError' || err?.message?.includes('abort');
         console.error(`[email-service] Error loading domains (attempt ${attempt + 1}):`, err?.message || err);
         
         // Use cached domains on network errors
@@ -267,11 +257,10 @@ export const useSecureEmailService = () => {
     if (!user) return;
 
     const loadHistory = async () => {
-      const { data, error } = await supabase
-        .from('temp_emails')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+      const { data, error } = await api.db.query<TempEmail[]>('temp_emails', {
+        filter: { user_id: user.id },
+        order: { column: 'created_at', ascending: false },
+      });
 
       if (error) {
         console.error('Error loading history:', error);
@@ -307,16 +296,7 @@ export const useSecureEmailService = () => {
       }
       const address = username + selectedDomain.name;
 
-      // Use the SECURITY DEFINER function for reliable email creation
-      // This bypasses RLS issues for both guests and authenticated users
-      // Wrap in a Promise.race so UI never stays stuck on "Generating..." forever
-      const rpcCall = supabase.rpc('create_temp_email', {
-        p_address: address,
-        p_domain_id: selectedDomain.id,
-        p_user_id: user?.id || null,
-        p_expires_at: null, // Let the function calculate expiry based on user status
-      });
-
+      // Call the RPC function via API
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('timeout')), 30000)
       );
@@ -324,6 +304,13 @@ export const useSecureEmailService = () => {
       let result: any;
       let rpcError: any;
       try {
+        const rpcCall = api.db.rpc('create_temp_email', {
+          p_address: address,
+          p_domain_id: selectedDomain.id,
+          p_user_id: user?.id || null,
+          p_expires_at: null,
+        });
+
         const res = await Promise.race([rpcCall, timeoutPromise]);
         result = (res as any).data;
         rpcError = (res as any).error;
@@ -395,14 +382,14 @@ export const useSecureEmailService = () => {
       setIsGenerating(false);
       setIsLoading(false);
     }
-  }, [domains, user]);
+  }, [domains, user, usernameStyle]);
 
   // Generate custom email with specific username
   const generateCustomEmail = useCallback(async (username: string, domainId: string) => {
     return generateEmail(domainId, username, true);
   }, [generateEmail]);
 
-  // Initial email generation - check for existing first using edge function
+  // Initial email generation - check for existing first
   useEffect(() => {
     const initializeEmail = async () => {
       // Guard: prevent duplicate initialization
@@ -435,20 +422,19 @@ export const useSecureEmailService = () => {
 
       console.log(`[email-service] Found ${emailIds.length} stored tokens, preferredId: ${preferredId || 'none'}`);
 
-      // Use edge function to validate emails (bypasses RLS issues)
+      // Use API function to validate emails
       if (emailIds.length > 0) {
         try {
           // First try preferred email with token validation
           if (preferredId && tokens[preferredId]) {
             console.log(`[email-service] Validating preferred email: ${preferredId}`);
-            const { data: preferredResult, error: preferredError } = await supabase.functions.invoke('validate-temp-email', {
+            const { data: preferredResult, error: preferredError } = await api.functions.invoke<any>('validate-temp-email', {
               body: { tempEmailId: preferredId, token: tokens[preferredId] },
             });
 
             // Handle retryable errors (503) - skip validation and generate new
             if (preferredError || preferredResult?.retryable) {
               console.warn('[email-service] Validation failed or backend busy, will generate new email');
-              // Don't clear tokens on timeout - just skip to generation
             } else if (preferredResult?.valid && preferredResult?.email) {
               console.log(`[email-service] Preferred email is valid: ${preferredResult.email.address}`);
               setCurrentEmail({ ...preferredResult.email, secret_token: tokens[preferredId] });
@@ -456,7 +442,6 @@ export const useSecureEmailService = () => {
               return;
             } else {
               console.log(`[email-service] Preferred email invalid or expired, clearing...`);
-              // Clear invalid preferred email pointer
               try {
                 localStorage.removeItem(CURRENT_EMAIL_ID_KEY);
                 delete tokens[preferredId];
@@ -471,7 +456,7 @@ export const useSecureEmailService = () => {
           const remainingEmailIds = Object.keys(tokens);
           if (remainingEmailIds.length > 0) {
             console.log(`[email-service] Checking ${remainingEmailIds.length} remaining stored emails...`);
-            const { data: bulkResult, error: bulkError } = await supabase.functions.invoke('validate-temp-email', {
+            const { data: bulkResult, error: bulkError } = await api.functions.invoke<any>('validate-temp-email', {
               body: { emailIds: remainingEmailIds },
             });
 
@@ -506,7 +491,7 @@ export const useSecureEmailService = () => {
             }
           }
         } catch (error) {
-          console.error('[email-service] Error validating emails via edge function:', error);
+          console.error('[email-service] Error validating emails via function:', error);
           // Don't block - proceed to generate new email
         }
       }
@@ -550,7 +535,7 @@ export const useSecureEmailService = () => {
     const seq = ++fetchSeqRef.current;
 
     try {
-      const { data, error } = await supabase.functions.invoke('secure-email-access', {
+      const { data, error } = await api.functions.invoke<any>('secure-email-access', {
         body: {
           action: 'get_emails',
           tempEmailId: email.id,
@@ -583,7 +568,7 @@ export const useSecureEmailService = () => {
           return;
         }
 
-        // Check if this is an "email not found" error - handle 404 responses
+        // Check if this is an "email not found" error
         const isNotFound = 
           msg.includes('404') || 
           msg.includes('EMAIL_NOT_FOUND') ||
@@ -601,7 +586,7 @@ export const useSecureEmailService = () => {
         return;
       }
 
-      // Also check if data contains error (edge function might return error in body)
+      // Also check if data contains error
       if (data?.error) {
         if (data.code === 'EMAIL_NOT_FOUND' || data.error === 'Temp email not found') {
           console.warn('[email-service] Temp email not found (from response), clearing stale data...');
@@ -610,7 +595,7 @@ export const useSecureEmailService = () => {
           initStartedRef.current = false;
           return;
         }
-        console.error('Error from edge function:', data.error);
+        console.error('Error from function:', data.error);
         return;
       }
 
@@ -652,7 +637,7 @@ export const useSecureEmailService = () => {
         const limit = options?.limit ?? 10;
 
         console.log('Triggering IMAP fetch...');
-        const { data, error } = await supabase.functions.invoke('fetch-imap-emails', {
+        const { data, error } = await api.functions.invoke<any>('fetch-imap-emails', {
           body: { mode, limit },
         });
 
@@ -675,7 +660,7 @@ export const useSecureEmailService = () => {
     [fetchSecureEmails]
   );
 
-  // Mark email as read using secure edge function
+  // Mark email as read using secure function
   const markAsRead = useCallback(async (emailId: string) => {
     if (!currentEmail) return;
 
@@ -684,7 +669,7 @@ export const useSecureEmailService = () => {
     if (!token) return;
 
     try {
-      await supabase.functions.invoke('secure-email-access', {
+      await api.functions.invoke('secure-email-access', {
         body: {
           action: 'mark_read',
           tempEmailId: currentEmail.id,
@@ -708,12 +693,10 @@ export const useSecureEmailService = () => {
       return false;
     }
 
-    const { error } = await supabase
-      .from('saved_emails')
-      .insert({
-        user_id: user.id,
-        received_email_id: emailId,
-      });
+    const { error } = await api.db.insert('saved_emails', {
+      user_id: user.id,
+      received_email_id: emailId,
+    });
 
     if (error) {
       if (error.code === '23505') {
@@ -742,15 +725,11 @@ export const useSecureEmailService = () => {
 
     const name = domainName.startsWith('@') ? domainName : `@${domainName}`;
 
-    const { data, error } = await supabase
-      .from('domains')
-      .insert({
-        name,
-        is_premium: false,
-        is_active: true,
-      })
-      .select()
-      .single();
+    const { data, error } = await api.db.insert<Domain>('domains', {
+      name,
+      is_premium: false,
+      is_active: true,
+    });
 
     if (error) {
       if (error.code === '23505') {
@@ -761,7 +740,9 @@ export const useSecureEmailService = () => {
       return false;
     }
 
-    setDomains(prev => [...prev, data]);
+    if (data) {
+      setDomains(prev => [...prev, data]);
+    }
     toast.success('Custom domain added!');
     return true;
   };

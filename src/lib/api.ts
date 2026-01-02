@@ -1633,6 +1633,57 @@ export const admin = {
       body: JSON.stringify({ action: 'rate-limits-config-save', config })
     });
   },
+
+  // Alert Settings
+  async getAlertSettings(): Promise<ApiResponse<any>> {
+    return this.getSettings('alert_settings');
+  },
+
+  async saveAlertSettings(settings: any): Promise<ApiResponse<any>> {
+    return this.saveSettings('alert_settings', settings);
+  },
+
+  async getAlertLogs(): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.query('alert_logs', { 
+        order: { column: 'sent_at', ascending: false },
+        limit: 50
+      });
+    }
+    return fetchApi('/admin/alert-logs', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'alert-logs' })
+    });
+  },
+
+  async sendTestAlert(email: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return functions.invoke('send-test-email', {
+        body: {
+          to: email,
+          subject: '[Test] TempMail Alert System',
+          body: 'This is a test alert from your TempMail installation.',
+        },
+      });
+    }
+    return fetchApi('/admin/test-alert', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'test-alert', email })
+    });
+  },
+
+  // Domain Wizard
+  async startDomainWizard(domain: string, isPremium: boolean): Promise<ApiResponse<any>> {
+    return this.addDomain(domain, isPremium);
+  },
+
+  async checkDomainDNSStep(domain: string, recordType: string): Promise<ApiResponse<any>> {
+    return this.verifyDomainDNS(domain);
+  },
+
+  async completeDomainWizard(domainId: string): Promise<ApiResponse<any>> {
+    return this.updateDomain(domainId, { is_active: true, setup_status: 'active' });
+  },
 };
 
 // ============================================

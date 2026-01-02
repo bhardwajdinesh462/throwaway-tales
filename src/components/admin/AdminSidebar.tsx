@@ -124,7 +124,8 @@ const AdminSidebar = () => {
   ];
 
   const advancedMenuItems: MenuItem[] = [
-    { title: "Announcement", url: "/admin/announcement", icon: Bell },
+    { title: "Alerts", url: "/admin/alerts", icon: Bell },
+    { title: "Announcement", url: "/admin/announcement", icon: Megaphone },
     { title: "Status Settings", url: "/admin/status-settings", icon: Activity },
     { title: "Mailbox Health", url: "/admin/mailbox-health", icon: Activity },
     { title: "Deployment Health", url: "/admin/deployment-health", icon: Shield },

@@ -87,6 +87,165 @@ if ($earlyPath === 'health') {
     exit;
 }
 
+// Comprehensive diagnostics endpoint (works without DB, requires token in production)
+if ($earlyPath === 'health/diag') {
+    header("Content-Type: application/json");
+    
+    $configExists = file_exists(__DIR__ . '/config.php');
+    $config = $configExists ? require __DIR__ . '/config.php' : [];
+    
+    // Token validation (skip if no config yet - installer mode)
+    $diagToken = $config['diag_token'] ?? '';
+    $providedToken = $_GET['token'] ?? '';
+    
+    if ($configExists && !empty($diagToken) && $providedToken !== $diagToken) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Invalid or missing diagnostic token', 'hint' => 'Add ?token=YOUR_DIAG_TOKEN']);
+        exit;
+    }
+    
+    $diag = [
+        'status' => 'ok',
+        'timestamp' => date('c'),
+        'php_version' => phpversion(),
+        'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown',
+    ];
+    
+    // Check PHP extensions
+    $requiredExtensions = ['pdo_mysql', 'openssl', 'mbstring', 'json'];
+    $optionalExtensions = ['imap', 'curl', 'gd', 'zip'];
+    
+    $diag['extensions'] = [
+        'required' => [],
+        'optional' => [],
+    ];
+    
+    foreach ($requiredExtensions as $ext) {
+        $diag['extensions']['required'][$ext] = extension_loaded($ext);
+        if (!extension_loaded($ext)) {
+            $diag['status'] = 'error';
+        }
+    }
+    
+    foreach ($optionalExtensions as $ext) {
+        $diag['extensions']['optional'][$ext] = extension_loaded($ext);
+    }
+    
+    // Check directories
+    $diag['directories'] = [];
+    $dirs = [
+        'logs' => __DIR__ . '/logs',
+        'storage' => __DIR__ . '/storage',
+        'storage/avatars' => __DIR__ . '/storage/avatars',
+        'storage/attachments' => __DIR__ . '/storage/attachments',
+    ];
+    
+    foreach ($dirs as $name => $path) {
+        $exists = is_dir($path);
+        $writable = $exists ? is_writable($path) : false;
+        $diag['directories'][$name] = [
+            'exists' => $exists,
+            'writable' => $writable,
+        ];
+        if (!$writable && $diag['status'] !== 'error') {
+            $diag['status'] = 'warning';
+        }
+    }
+    
+    // Configuration check
+    $diag['config'] = [
+        'present' => $configExists,
+        'db_configured' => !empty($config['db']['host']),
+        'smtp_configured' => !empty($config['smtp']['host'] ?? ''),
+        'imap_configured' => !empty($config['imap']['host'] ?? ''),
+        'jwt_configured' => !empty($config['jwt']['secret'] ?? ''),
+    ];
+    
+    // Database connection and tables check
+    $diag['database'] = [
+        'connected' => false,
+        'tables' => [],
+        'missing_tables' => [],
+    ];
+    
+    $requiredTables = [
+        'users', 'profiles', 'user_roles', 'domains', 'temp_emails', 'received_emails',
+        'email_attachments', 'app_settings', 'blogs', 'subscription_tiers', 'user_subscriptions',
+        'email_stats', 'email_logs', 'mailboxes', 'user_suspensions', 'admin_audit_logs',
+        'friendly_websites', 'homepage_sections', 'email_verifications', 'backup_history',
+        'rate_limits', 'user_2fa', 'blocked_ips', 'alert_logs', 'status_incidents',
+        'scheduled_maintenance', 'uptime_records', 'cron_logs', 'email_restrictions',
+        'banners', 'saved_emails', 'user_invoices'
+    ];
+    
+    if ($configExists && !empty($config['db']['host'])) {
+        try {
+            $dsn = "mysql:host={$config['db']['host']};dbname={$config['db']['name']};charset={$config['db']['charset']}";
+            $testPdo = new PDO($dsn, $config['db']['user'], $config['db']['pass'], [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_TIMEOUT => 5,
+            ]);
+            $diag['database']['connected'] = true;
+            
+            // Check each required table
+            foreach ($requiredTables as $table) {
+                try {
+                    $stmt = $testPdo->query("SELECT 1 FROM `$table` LIMIT 1");
+                    $diag['database']['tables'][$table] = true;
+                } catch (Exception $e) {
+                    $diag['database']['tables'][$table] = false;
+                    $diag['database']['missing_tables'][] = $table;
+                }
+            }
+            
+            if (!empty($diag['database']['missing_tables']) && $diag['status'] !== 'error') {
+                $diag['status'] = 'warning';
+            }
+            
+            $testPdo = null;
+        } catch (Exception $e) {
+            $diag['database']['connected'] = false;
+            $diag['database']['error'] = $e->getMessage();
+            $diag['status'] = 'error';
+        }
+    }
+    
+    // SMTP connectivity check (if configured)
+    $diag['smtp'] = ['configured' => false, 'reachable' => null];
+    if (!empty($config['smtp']['host'] ?? '')) {
+        $diag['smtp']['configured'] = true;
+        $smtpHost = $config['smtp']['host'];
+        $smtpPort = $config['smtp']['port'] ?? 587;
+        $socket = @fsockopen($smtpHost, $smtpPort, $errno, $errstr, 5);
+        if ($socket) {
+            $diag['smtp']['reachable'] = true;
+            fclose($socket);
+        } else {
+            $diag['smtp']['reachable'] = false;
+            $diag['smtp']['error'] = "$errstr ($errno)";
+        }
+    }
+    
+    // IMAP connectivity check (if configured)
+    $diag['imap'] = ['configured' => false, 'reachable' => null];
+    if (!empty($config['imap']['host'] ?? '')) {
+        $diag['imap']['configured'] = true;
+        $imapHost = $config['imap']['host'];
+        $imapPort = $config['imap']['port'] ?? 993;
+        $socket = @fsockopen($imapHost, $imapPort, $errno, $errstr, 5);
+        if ($socket) {
+            $diag['imap']['reachable'] = true;
+            fclose($socket);
+        } else {
+            $diag['imap']['reachable'] = false;
+            $diag['imap']['error'] = "$errstr ($errno)";
+        }
+    }
+    
+    echo json_encode($diag, JSON_PRETTY_PRINT);
+    exit;
+}
+
 // Load configuration
 if (!file_exists(__DIR__ . '/config.php')) {
     // Redirect to installer if not configured
@@ -204,6 +363,22 @@ try {
             handleStorageRoute($segments, $method, $pdo, $config);
             break;
             
+        case 'health':
+            // Detailed health endpoint (after DB connection)
+            if (isset($segments[1]) && $segments[1] === 'diag') {
+                // Already handled above before config loading
+                echo json_encode(['error' => 'Use /api/health/diag endpoint directly']);
+            } else {
+                // Basic health already handled, but if we reach here with DB connected:
+                echo json_encode([
+                    'status' => 'ok', 
+                    'timestamp' => date('c'),
+                    'version' => '1.0.0',
+                    'db_connected' => true
+                ]);
+            }
+            break;
+            
         case 'functions':
             handleFunction($segments[1] ?? '', $body, $pdo, $config);
             break;
@@ -232,15 +407,7 @@ try {
             handleLogsRoute($segments[1] ?? '', $method, $body, $pdo, $config);
             break;
             
-        case 'health':
-            // Already handled above before DB connection
-            echo json_encode([
-                'status' => 'ok', 
-                'timestamp' => date('c'),
-                'version' => '1.0.0',
-                'db_connected' => true
-            ]);
-            break;
+        // Note: 'health' case is handled above in the first switch block
             
         case 'public-status':
             handlePublicStatus($pdo);

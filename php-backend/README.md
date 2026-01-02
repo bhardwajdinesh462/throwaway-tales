@@ -323,23 +323,60 @@ CREATE INDEX idx_received_emails_date ON received_emails(received_at);
 
 ## Troubleshooting
 
+### Quick Diagnostics
+
+Use the built-in diagnostics endpoint to quickly identify issues:
+
+```bash
+# Basic health check (works without config)
+curl https://yourdomain.com/api/health
+
+# Comprehensive diagnostics (requires diag_token in config.php)
+curl "https://yourdomain.com/api/health/diag?token=YOUR_DIAG_TOKEN"
+```
+
+**Diagnostics endpoint checks:**
+- ✅ PHP version and extensions (pdo_mysql, openssl, mbstring, json, imap, curl)
+- ✅ Directory permissions (logs/, storage/)
+- ✅ Database connectivity and all 32 required tables
+- ✅ SMTP/IMAP server reachability
+- ✅ Configuration completeness
+
+**Enable diagnostics token:**
+```php
+// In config.php, add:
+'diag_token' => 'your-secret-token-here',
+```
+
 ### Homepage Not Loading
 
 1. Verify `.htaccess` exists in `public_html/`
 2. Check that `mod_rewrite` is enabled
 3. Verify `index.html` exists in `public_html/`
+4. Run diagnostics: `curl https://yourdomain.com/api/health`
 
-### API Returns 404
+### API Returns 404 or 500
 
 1. Check `/api/.htaccess` exists
 2. Verify `config.php` exists (not just `config.example.php`)
-3. Test: `curl https://yourdomain.com/api/health`
+3. Test health endpoint: `curl https://yourdomain.com/api/health`
+4. Check PHP error logs: `tail -f /home/username/logs/error.log`
+5. Run full diagnostics to identify missing tables or extensions
 
 ### Database Connection Failed
 
 1. Verify database credentials in `config.php`
 2. Ensure database user has full privileges
 3. Check if MySQL server is running
+4. Run diagnostics to see which tables are missing
+
+### Design/CSS Not Loading
+
+1. Verify `assets/` folder was uploaded to `public_html/`
+2. Check browser DevTools Network tab for 404 errors
+3. Ensure `.htaccess` in `public_html/` exists (for SPA routing)
+4. Clear browser cache (Ctrl+Shift+R) and CDN cache if applicable
+5. Verify asset files have correct MIME types
 
 ### Emails Not Arriving
 
@@ -347,18 +384,20 @@ CREATE INDEX idx_received_emails_date ON received_emails(received_at);
 2. Check cron job is running: `tail -f ~/logs/imap-poll.log`
 3. Test IMAP: `curl -X POST https://yourdomain.com/api/test-imap.php`
 4. Check firewall allows IMAP port 993
+5. Run diagnostics to verify IMAP connectivity
 
 ### CORS Errors
 
 1. Add your domain to `cors_origins` in `config.php`
 2. Clear browser cache
 
-### Login Not Working
+### Login Not Working (Auth Errors)
 
 1. Check `/api/auth/session` returns valid response
 2. Verify JWT secret is set in config.php
 3. Check browser console for errors
 4. Ensure cookies are not blocked
+5. Run diagnostics to verify all auth-related tables exist
 
 ## Manual Configuration
 

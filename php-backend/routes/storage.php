@@ -3,6 +3,13 @@
  * Storage Routes - File upload/download
  */
 
+// Wrapper function called by index.php
+function handleStorageRoute($segments, $method, $pdo, $config) {
+    array_shift($segments); // Remove 'storage' prefix
+    $action = implode('/', $segments);
+    return handleStorage($action, $method, $pdo, $config);
+}
+
 function handleStorage($action, $method, $pdo, $config) {
     $user = getAuthUser($pdo, $config);
     $userId = $user['id'] ?? null;

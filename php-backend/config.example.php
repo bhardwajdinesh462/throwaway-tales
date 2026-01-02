@@ -97,4 +97,8 @@ return [
         'login_attempts' => 5, // max failed login attempts before lockout
         'lockout_time' => 900, // lockout duration in seconds (15 min)
     ],
+    
+    // Diagnostics Token (optional - for /api/health/diag endpoint)
+    // Generate with: bin2hex(random_bytes(16))
+    'diag_token' => '',
 ];

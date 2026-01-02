@@ -941,6 +941,45 @@ export type Database = {
           },
         ]
       }
+      scheduled_maintenance: {
+        Row: {
+          affected_services: Json | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          scheduled_end: string | null
+          scheduled_start: string
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          affected_services?: Json | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          scheduled_end?: string | null
+          scheduled_start: string
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          affected_services?: Json | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          scheduled_end?: string | null
+          scheduled_start?: string
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       subscription_tiers: {
         Row: {
           ai_summaries_per_day: number
@@ -1035,6 +1074,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      uptime_records: {
+        Row: {
+          checked_at: string
+          id: string
+          response_time_ms: number | null
+          service: string
+          status: string
+        }
+        Insert: {
+          checked_at?: string
+          id?: string
+          response_time_ms?: number | null
+          service: string
+          status?: string
+        }
+        Update: {
+          checked_at?: string
+          id?: string
+          response_time_ms?: number | null
+          service?: string
+          status?: string
+        }
+        Relationships: []
       }
       user_2fa: {
         Row: {

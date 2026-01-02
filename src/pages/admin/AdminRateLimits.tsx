@@ -5,8 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { Gauge, Save, RefreshCw, Trash2, RotateCcw, AlertTriangle, Users, User } from "lucide-react";
+import { Gauge, Save, RefreshCw, Trash2, RotateCcw, AlertTriangle, Users, User, Mail, LogIn, UserPlus, Key, Globe } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -28,11 +29,19 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-interface RateLimitSettings {
+interface ActionRateLimitSettings {
   max_requests: number;
   window_minutes: number;
   guest_max_requests: number;
   guest_window_minutes: number;
+}
+
+interface RateLimitsConfig {
+  email_create: ActionRateLimitSettings;
+  login: ActionRateLimitSettings;
+  signup: ActionRateLimitSettings;
+  password_reset: ActionRateLimitSettings;
+  api: ActionRateLimitSettings;
 }
 
 interface RateLimitRecord {
@@ -43,18 +52,37 @@ interface RateLimitRecord {
   window_start: string;
 }
 
+const defaultActionSettings: ActionRateLimitSettings = {
+  max_requests: 30,
+  window_minutes: 60,
+  guest_max_requests: 10,
+  guest_window_minutes: 60,
+};
+
+const defaultConfig: RateLimitsConfig = {
+  email_create: { max_requests: 30, window_minutes: 60, guest_max_requests: 10, guest_window_minutes: 60 },
+  login: { max_requests: 5, window_minutes: 15, guest_max_requests: 5, guest_window_minutes: 15 },
+  signup: { max_requests: 3, window_minutes: 60, guest_max_requests: 3, guest_window_minutes: 60 },
+  password_reset: { max_requests: 3, window_minutes: 60, guest_max_requests: 3, guest_window_minutes: 60 },
+  api: { max_requests: 100, window_minutes: 60, guest_max_requests: 20, guest_window_minutes: 60 },
+};
+
+const actionTabs = [
+  { key: 'email_create', label: 'Email Creation', icon: Mail, description: 'Limit temp email creation' },
+  { key: 'login', label: 'Login Attempts', icon: LogIn, description: 'Limit login attempts to prevent brute force' },
+  { key: 'signup', label: 'Signup Attempts', icon: UserPlus, description: 'Limit account creation' },
+  { key: 'password_reset', label: 'Password Reset', icon: Key, description: 'Limit password reset requests' },
+  { key: 'api', label: 'API Requests', icon: Globe, description: 'Limit API access' },
+];
+
 const AdminRateLimits = () => {
-  const [settings, setSettings] = useState<RateLimitSettings>({
-    max_requests: 30,
-    window_minutes: 60,
-    guest_max_requests: 10,
-    guest_window_minutes: 60,
-  });
+  const [config, setConfig] = useState<RateLimitsConfig>(defaultConfig);
   const [rateLimits, setRateLimits] = useState<RateLimitRecord[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [resetOnSave, setResetOnSave] = useState(true);
   const [isResettingAll, setIsResettingAll] = useState(false);
+  const [activeTab, setActiveTab] = useState('email_create');
 
   useEffect(() => {
     loadSettings();
@@ -65,19 +93,31 @@ const AdminRateLimits = () => {
     const { data, error } = await supabase
       .from("app_settings")
       .select("value")
-      .eq("key", "rate_limit_temp_email_create")
+      .eq("key", "rate_limits_config")
       .single();
 
     if (!error && data?.value && typeof data.value === 'object' && !Array.isArray(data.value)) {
       const value = data.value as Record<string, unknown>;
-      setSettings({
-        max_requests: typeof value.max_requests === 'number' ? value.max_requests : 30,
-        window_minutes: typeof value.window_minutes === 'number' ? value.window_minutes : 60,
-        guest_max_requests: typeof value.guest_max_requests === 'number' ? value.guest_max_requests : 10,
-        guest_window_minutes: typeof value.guest_window_minutes === 'number' ? value.guest_window_minutes : 60,
+      setConfig({
+        email_create: parseActionSettings(value.email_create, defaultConfig.email_create),
+        login: parseActionSettings(value.login, defaultConfig.login),
+        signup: parseActionSettings(value.signup, defaultConfig.signup),
+        password_reset: parseActionSettings(value.password_reset, defaultConfig.password_reset),
+        api: parseActionSettings(value.api, defaultConfig.api),
       });
     }
     setIsLoading(false);
+  };
+
+  const parseActionSettings = (value: unknown, defaults: ActionRateLimitSettings): ActionRateLimitSettings => {
+    if (!value || typeof value !== 'object') return defaults;
+    const v = value as Record<string, unknown>;
+    return {
+      max_requests: typeof v.max_requests === 'number' ? v.max_requests : defaults.max_requests,
+      window_minutes: typeof v.window_minutes === 'number' ? v.window_minutes : defaults.window_minutes,
+      guest_max_requests: typeof v.guest_max_requests === 'number' ? v.guest_max_requests : defaults.guest_max_requests,
+      guest_window_minutes: typeof v.guest_window_minutes === 'number' ? v.guest_window_minutes : defaults.guest_window_minutes,
+    };
   };
 
   const loadRateLimits = async () => {
@@ -92,6 +132,16 @@ const AdminRateLimits = () => {
     }
   };
 
+  const updateActionSettings = (actionKey: keyof RateLimitsConfig, field: keyof ActionRateLimitSettings, value: number) => {
+    setConfig(prev => ({
+      ...prev,
+      [actionKey]: {
+        ...prev[actionKey],
+        [field]: value
+      }
+    }));
+  };
+
   const saveSettings = async () => {
     setIsSaving(true);
     
@@ -99,27 +149,22 @@ const AdminRateLimits = () => {
     const { data: existing } = await supabase
       .from("app_settings")
       .select("id")
-      .eq("key", "rate_limit_temp_email_create")
+      .eq("key", "rate_limits_config")
       .single();
 
     let error;
-    const jsonValue = { 
-      max_requests: settings.max_requests, 
-      window_minutes: settings.window_minutes,
-      guest_max_requests: settings.guest_max_requests,
-      guest_window_minutes: settings.guest_window_minutes,
-    };
+    const jsonValue = JSON.parse(JSON.stringify(config));
     
     if (existing) {
       const result = await supabase
         .from("app_settings")
         .update({ value: jsonValue, updated_at: new Date().toISOString() })
-        .eq("key", "rate_limit_temp_email_create");
+        .eq("key", "rate_limits_config");
       error = result.error;
     } else {
       const result = await supabase
         .from("app_settings")
-        .insert([{ key: "rate_limit_temp_email_create", value: jsonValue }]);
+        .insert([{ key: "rate_limits_config", value: jsonValue }]);
       error = result.error;
     }
 
@@ -161,7 +206,7 @@ const AdminRateLimits = () => {
       toast.error("Failed to clear rate limits: " + error.message);
     } else {
       const count = data?.length || 0;
-      toast.success(`All rate limits cleared! ${count} record(s) removed. All users can now create emails again.`);
+      toast.success(`All rate limits cleared! ${count} record(s) removed.`);
       loadRateLimits();
     }
     setIsResettingAll(false);
@@ -176,6 +221,103 @@ const AdminRateLimits = () => {
       toast.success("Old rate limits cleaned up!");
       loadRateLimits();
     }
+  };
+
+  const renderActionSettings = (actionKey: keyof RateLimitsConfig) => {
+    const settings = config[actionKey];
+    const tabInfo = actionTabs.find(t => t.key === actionKey);
+    
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-6 md:grid-cols-2">
+          {/* Registered Users Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="w-5 h-5" />
+                Registered User Limits
+              </CardTitle>
+              <CardDescription>
+                Rate limits for logged-in users (tracked by user ID)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Max Requests</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={settings.max_requests}
+                  onChange={(e) => updateActionSettings(actionKey, 'max_requests', parseInt(e.target.value) || 1)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Maximum {tabInfo?.label.toLowerCase()} per time window
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Time Window (minutes)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  value={settings.window_minutes}
+                  onChange={(e) => updateActionSettings(actionKey, 'window_minutes', parseInt(e.target.value) || 1)}
+                />
+              </div>
+              <div className="p-3 bg-secondary/30 rounded-lg">
+                <p className="text-sm font-medium">
+                  ✅ {settings.max_requests} requests per {settings.window_minutes} min
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Guest Users Settings */}
+          <Card className="border-orange-500/30">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-orange-600">
+                <Users className="w-5 h-5" />
+                Guest User Limits
+              </CardTitle>
+              <CardDescription>
+                Rate limits for anonymous users (tracked by device ID)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Max Requests</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={settings.guest_max_requests}
+                  onChange={(e) => updateActionSettings(actionKey, 'guest_max_requests', parseInt(e.target.value) || 1)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Keep lower to prevent abuse from anonymous users
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Time Window (minutes)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  value={settings.guest_window_minutes}
+                  onChange={(e) => updateActionSettings(actionKey, 'guest_window_minutes', parseInt(e.target.value) || 1)}
+                />
+              </div>
+              <div className="p-3 bg-orange-500/10 rounded-lg border border-orange-500/30">
+                <p className="text-sm font-medium text-orange-600">
+                  ⚠️ {settings.guest_max_requests} requests per {settings.guest_window_minutes} min
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
   };
 
   if (isLoading) {
@@ -194,11 +336,11 @@ const AdminRateLimits = () => {
             <Gauge className="w-6 h-6 sm:w-8 sm:h-8 text-primary" />
             Rate Limits
           </h1>
-          <p className="text-muted-foreground text-sm sm:text-base">Configure rate limiting for temp email creation</p>
+          <p className="text-muted-foreground text-sm sm:text-base">Configure rate limiting for all actions</p>
         </div>
         <Button onClick={saveSettings} disabled={isSaving} className="w-full sm:w-auto">
           <Save className="w-4 h-4 mr-2" />
-          {isSaving ? "Saving..." : "Save Settings"}
+          {isSaving ? "Saving..." : "Save All Settings"}
         </Button>
       </div>
 
@@ -217,7 +359,7 @@ const AdminRateLimits = () => {
           <div className="flex flex-col gap-4">
             <div>
               <p className="text-sm text-muted-foreground">
-                This will immediately allow all rate-limited users to create emails again. 
+                This will immediately allow all rate-limited users to perform actions again. 
               </p>
               <p className="text-sm font-medium mt-2">
                 Currently tracking: <span className="text-primary">{rateLimits.length} active record(s)</span>
@@ -252,7 +394,7 @@ const AdminRateLimits = () => {
                   </AlertDialogTitle>
                   <AlertDialogDescription>
                     This will immediately clear all {rateLimits.length} rate limit record(s). 
-                    All users will be able to create emails again without restriction.
+                    All users will be able to perform actions again without restriction.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter className="flex-col sm:flex-row gap-2">
@@ -267,131 +409,37 @@ const AdminRateLimits = () => {
         </CardContent>
       </Card>
 
-      {/* What is Rate Limiting Explanation - Collapsible on mobile */}
-      <Card className="border-primary/20 bg-primary/5">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-            <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
-            What is Rate Limiting?
-          </CardTitle>
+      {/* Rate Limit Tabs */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Configure Rate Limits by Action</CardTitle>
+          <CardDescription>
+            Set different limits for each type of action
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-xs sm:text-sm text-muted-foreground">
-            <strong>Rate limiting</strong> prevents abuse by restricting how many emails a user can create within a time window.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
-            <div className="p-2 sm:p-3 bg-background rounded-lg border">
-              <p className="font-medium mb-1">🔐 Registered Users</p>
-              <p className="text-muted-foreground">Tracked by user ID.</p>
-            </div>
-            <div className="p-2 sm:p-3 bg-background rounded-lg border">
-              <p className="font-medium mb-1">👤 Guest Users</p>
-              <p className="text-muted-foreground">Tracked by device fingerprint.</p>
-            </div>
-          </div>
+        <CardContent>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid grid-cols-2 sm:grid-cols-5 mb-6">
+              {actionTabs.map(tab => (
+                <TabsTrigger key={tab.key} value={tab.key} className="flex items-center gap-1 text-xs sm:text-sm">
+                  <tab.icon className="w-3 h-3 sm:w-4 sm:h-4" />
+                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="sm:hidden">{tab.label.split(' ')[0]}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            
+            {actionTabs.map(tab => (
+              <TabsContent key={tab.key} value={tab.key}>
+                <div className="mb-4 p-3 bg-muted/50 rounded-lg">
+                  <p className="text-sm text-muted-foreground">{tab.description}</p>
+                </div>
+                {renderActionSettings(tab.key as keyof RateLimitsConfig)}
+              </TabsContent>
+            ))}
+          </Tabs>
         </CardContent>
       </Card>
-
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Registered Users Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <User className="w-5 h-5" />
-              Registered User Limits
-            </CardTitle>
-            <CardDescription>
-              Rate limits for logged-in users (tracked by user ID)
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="max_requests">Max Emails</Label>
-              <Input
-                id="max_requests"
-                type="number"
-                min={1}
-                max={1000}
-                value={settings.max_requests}
-                onChange={(e) => setSettings({ ...settings, max_requests: parseInt(e.target.value) || 30 })}
-              />
-              <p className="text-xs text-muted-foreground">
-                Maximum temp emails a registered user can create
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="window_minutes">Time Window (minutes)</Label>
-              <Input
-                id="window_minutes"
-                type="number"
-                min={1}
-                max={1440}
-                value={settings.window_minutes}
-                onChange={(e) => setSettings({ ...settings, window_minutes: parseInt(e.target.value) || 60 })}
-              />
-              <p className="text-xs text-muted-foreground">
-                Time period for the rate limit window
-              </p>
-            </div>
-            <div className="p-3 bg-secondary/30 rounded-lg">
-              <p className="text-sm font-medium">
-                ✅ {settings.max_requests} emails per {settings.window_minutes} min
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Guest Users Settings */}
-        <Card className="border-orange-500/30">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-orange-600">
-              <Users className="w-5 h-5" />
-              Guest User Limits
-            </CardTitle>
-            <CardDescription>
-              Rate limits for anonymous/guest users (tracked by device ID)
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="guest_max_requests">Max Emails</Label>
-              <Input
-                id="guest_max_requests"
-                type="number"
-                min={1}
-                max={100}
-                value={settings.guest_max_requests}
-                onChange={(e) => setSettings({ ...settings, guest_max_requests: parseInt(e.target.value) || 10 })}
-              />
-              <p className="text-xs text-muted-foreground">
-                Maximum temp emails a guest can create (keep lower to prevent abuse)
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="guest_window_minutes">Time Window (minutes)</Label>
-              <Input
-                id="guest_window_minutes"
-                type="number"
-                min={1}
-                max={1440}
-                value={settings.guest_window_minutes}
-                onChange={(e) => setSettings({ ...settings, guest_window_minutes: parseInt(e.target.value) || 60 })}
-              />
-              <p className="text-xs text-muted-foreground">
-                Time period for the guest rate limit window
-              </p>
-            </div>
-            <div className="p-3 bg-orange-500/10 rounded-lg border border-orange-500/30">
-              <p className="text-sm font-medium text-orange-600">
-                ⚠️ {settings.guest_max_requests} emails per {settings.guest_window_minutes} min
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Guest users are not logged in and may include bots
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
 
       {/* Save Options */}
       <Card>
@@ -414,7 +462,7 @@ const AdminRateLimits = () => {
             </label>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            When enabled, saving will clear all existing rate limit records, immediately allowing all blocked users to create emails again.
+            When enabled, saving will clear all existing rate limit records, immediately allowing all blocked users to perform actions again.
           </p>
         </CardContent>
       </Card>
@@ -462,26 +510,27 @@ const AdminRateLimits = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="text-xs">Identifier</TableHead>
-                    <TableHead className="text-xs hidden sm:table-cell">Action</TableHead>
+                    <TableHead className="text-xs">Action</TableHead>
                     <TableHead className="text-xs">Count</TableHead>
                     <TableHead className="text-xs">Time</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rateLimits.map((record) => (
-                    <TableRow key={record.id}>
-                      <TableCell className="font-mono text-[10px] sm:text-xs max-w-[100px] sm:max-w-[200px] truncate">
-                        {record.identifier.substring(0, 12)}...
+                  {rateLimits.map((limit) => (
+                    <TableRow key={limit.id}>
+                      <TableCell className="text-xs font-mono">
+                        {limit.identifier.length > 20 
+                          ? `${limit.identifier.slice(0, 20)}...` 
+                          : limit.identifier}
                       </TableCell>
-                      <TableCell className="text-xs hidden sm:table-cell">{record.action_type}</TableCell>
                       <TableCell className="text-xs">
-                        <span className={record.request_count >= settings.max_requests ? "text-destructive font-bold" : ""}>
-                          {record.request_count}
+                        <span className="px-2 py-1 bg-muted rounded text-xs">
+                          {limit.action_type}
                         </span>
-                        <span className="text-muted-foreground hidden sm:inline"> / {settings.max_requests}</span>
                       </TableCell>
-                      <TableCell className="text-muted-foreground text-[10px] sm:text-xs">
-                        {formatDistanceToNow(new Date(record.window_start), { addSuffix: true })}
+                      <TableCell className="text-xs font-medium">{limit.request_count}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {formatDistanceToNow(new Date(limit.window_start), { addSuffix: true })}
                       </TableCell>
                     </TableRow>
                   ))}

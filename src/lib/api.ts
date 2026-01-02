@@ -1717,7 +1717,7 @@ export const admin = {
 
   async updateMaintenance(id: string, data: any): Promise<ApiResponse<any>> {
     if (USE_SUPABASE) {
-      return db.update('scheduled_maintenance', id, data);
+      return db.update('scheduled_maintenance', data, { id });
     }
     return fetchApi('/admin/maintenance-update', {
       method: 'POST',
@@ -1727,7 +1727,7 @@ export const admin = {
 
   async startMaintenance(id: string): Promise<ApiResponse<any>> {
     if (USE_SUPABASE) {
-      return db.update('scheduled_maintenance', id, { status: 'in_progress' });
+      return db.update('scheduled_maintenance', { status: 'in_progress' }, { id });
     }
     return fetchApi('/admin/maintenance-start', {
       method: 'POST',
@@ -1737,7 +1737,7 @@ export const admin = {
 
   async completeMaintenance(id: string): Promise<ApiResponse<any>> {
     if (USE_SUPABASE) {
-      return db.update('scheduled_maintenance', id, { status: 'completed' });
+      return db.update('scheduled_maintenance', { status: 'completed' }, { id });
     }
     return fetchApi('/admin/maintenance-complete', {
       method: 'POST',
@@ -1747,7 +1747,7 @@ export const admin = {
 
   async cancelMaintenance(id: string): Promise<ApiResponse<any>> {
     if (USE_SUPABASE) {
-      return db.update('scheduled_maintenance', id, { status: 'cancelled' });
+      return db.update('scheduled_maintenance', { status: 'cancelled' }, { id });
     }
     return fetchApi('/admin/maintenance-cancel', {
       method: 'POST',
@@ -1757,7 +1757,7 @@ export const admin = {
 
   async deleteMaintenance(id: string): Promise<ApiResponse<any>> {
     if (USE_SUPABASE) {
-      return db.delete('scheduled_maintenance', id);
+      return db.delete('scheduled_maintenance', { id });
     }
     return fetchApi('/admin/maintenance-delete', {
       method: 'POST',
@@ -1769,17 +1769,13 @@ export const admin = {
   async getPublicStatus(): Promise<ApiResponse<any>> {
     if (USE_SUPABASE) {
       // Get maintenance from database
-      const maintenance = await db.query('scheduled_maintenance', {
+      const maintenance = await db.query<any[]>('scheduled_maintenance', {
         order: { column: 'scheduled_start', ascending: true }
-      });
-      const incidents = await db.query('status_incidents', {
-        order: { column: 'created_at', ascending: false },
-        limit: 10
       });
       return {
         data: {
           uptime: { overall: 99.9, imap: 99.8, smtp: 99.9, database: 100 },
-          incidents: incidents.data || [],
+          incidents: [],
           maintenance: (maintenance.data || []).filter((m: any) => m.status === 'scheduled' || m.status === 'in_progress')
         },
         error: null

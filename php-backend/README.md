@@ -2,6 +2,30 @@
 
 Complete self-hosted solution for the TempMail application using PHP/MySQL on cPanel hosting.
 
+## 🚀 Quick Start (5 Minutes)
+
+```bash
+# 1. Build the deployment package
+npm install
+node scripts/cpanel-package.mjs --out cpanel-package
+
+# 2. Upload cpanel-package/public_html/* to your cPanel public_html/
+
+# 3. Run the setup wizard
+# Visit: https://yourdomain.com/api/install.php
+
+# 4. Add cron jobs (in cPanel → Cron Jobs)
+*/2 * * * * /usr/bin/php /home/username/public_html/api/cron/imap-poll.php
+0 * * * * /usr/bin/php /home/username/public_html/api/cron/maintenance.php
+
+# 5. Delete install.php after setup!
+rm public_html/api/install.php
+```
+
+That's it! Your temp email service is now running.
+
+---
+
 ## Requirements
 
 - PHP 8.0+ with extensions: `pdo_mysql`, `openssl`, `mbstring`, `imap`, `json`, `curl`
@@ -417,6 +441,72 @@ The PHP backend includes a comprehensive error logging system:
 - Old logs are automatically cleaned up (keeps last 5 files)
 - Admin can clear logs from the Error Logs page
 
+## New Features (v2.0)
+
+### Scheduled Maintenance System
+
+Schedule and manage maintenance windows from the admin panel:
+
+1. Go to **Admin Panel → Maintenance**
+2. Click **Schedule Maintenance** to create a new window
+3. Set title, description, start/end times, and affected services
+4. Actions available:
+   - **Start Now**: Begin maintenance immediately
+   - **Complete**: Mark as finished (moves to history)
+   - **Cancel**: Cancel scheduled maintenance
+
+The public status page (`/status`) automatically shows:
+- Yellow banner for upcoming maintenance
+- Red alert during active maintenance
+- Maintenance history section
+
+### Uptime Badge Generator
+
+Embed live status badges on external sites:
+
+1. Visit your **Status Page** (`/status`)
+2. Scroll to **"Embed Status Badge"** section
+3. Choose service (Overall, IMAP, SMTP, Database)
+4. Select format (SVG, Markdown, HTML, JSON)
+5. Copy the embed code
+
+**Badge API Endpoint:**
+```
+GET /api/badge/uptime?service=overall&format=svg
+```
+
+Parameters:
+- `service`: `overall`, `imap`, `smtp`, `database`
+- `format`: `svg` (image), `json` (API data)
+
+### Comprehensive Rate Limits
+
+Configure rate limits per action type in **Admin → Rate Limits**:
+
+| Tab | Purpose |
+|-----|---------|
+| Email Creation | Limit temp email generation |
+| Login Attempts | Prevent brute force attacks |
+| Signup Attempts | Prevent spam registrations |
+| Password Reset | Limit reset requests |
+| API Requests | Throttle API usage |
+
+Each action type supports separate limits for guests vs. registered users.
+
+### New Database Tables
+
+The following tables are automatically created by the installer:
+
+| Table | Purpose |
+|-------|---------|
+| `scheduled_maintenance` | Maintenance windows |
+| `uptime_records` | Historical uptime data |
+| `cron_logs` | Cron job execution logs |
+| `email_restrictions` | Blocked domains/patterns |
+| `banners` | Ad/announcement banners |
+| `saved_emails` | User-saved emails |
+| `user_invoices` | Payment history |
+
 ## Support
 
 For issues or questions:
@@ -425,3 +515,8 @@ For issues or questions:
 3. Check PHP error logs in cPanel
 4. Test individual components (database, SMTP, IMAP) separately
 5. Verify all file permissions are correct
+
+## Version History
+
+- **v2.0** - Scheduled maintenance, uptime badges, comprehensive rate limits
+- **v1.0** - Initial release with full email functionality

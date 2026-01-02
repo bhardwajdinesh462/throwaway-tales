@@ -154,6 +154,19 @@ function handleAdminRoute($action, $body, $pdo, $config) {
             getCronLogs($body, $pdo);
             break;
 
+        // Deployment Health Check
+        case 'deployment-health':
+            getDeploymentHealth($pdo, $config);
+            break;
+
+        // Rate Limits Configuration
+        case 'rate-limits-config':
+            getRateLimitsConfig($pdo);
+            break;
+        case 'rate-limits-config-save':
+            saveRateLimitsConfig($body, $pdo, $userId);
+            break;
+
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Unknown admin action: ' . $action]);
@@ -1837,5 +1850,322 @@ function getCronLogs($body, $pdo) {
         } catch (PDOException $e2) {
             echo json_encode(['logs' => [], 'error' => 'Could not access cron logs']);
         }
+    }
+}
+
+// =========== DEPLOYMENT HEALTH CHECK ===========
+
+function getDeploymentHealth($pdo, $config) {
+    $health = [
+        'database' => getDatabaseHealth($pdo),
+        'php' => getPhpHealth(),
+        'filesystem' => getFilesystemHealth(),
+        'connectivity' => getConnectivityHealth($pdo),
+        'configuration' => getConfigurationHealth($config),
+        'cron' => getCronHealth($pdo)
+    ];
+    
+    echo json_encode(['health' => $health]);
+}
+
+function getDatabaseHealth($pdo) {
+    $result = [
+        'connected' => true,
+        'version' => '',
+        'tables' => [],
+        'missing_tables' => []
+    ];
+    
+    try {
+        // Get MySQL version
+        $stmt = $pdo->query('SELECT VERSION()');
+        $result['version'] = $stmt->fetchColumn();
+        
+        // Required tables
+        $requiredTables = [
+            'profiles', 'user_roles', 'temp_emails', 'received_emails', 
+            'email_attachments', 'domains', 'app_settings', 'rate_limits',
+            'email_forwarding', 'email_verifications', 'mailboxes', 'email_logs',
+            'user_2fa', 'user_subscriptions', 'subscription_tiers', 'user_invoices',
+            'user_suspensions', 'admin_audit_logs', 'blocked_ips', 'banners',
+            'blogs', 'backup_history', 'friendly_websites', 'email_templates',
+            'homepage_sections', 'push_subscriptions', 'email_stats', 'user_usage',
+            'email_restrictions', 'admin_role_requests'
+        ];
+        
+        // Get existing tables
+        $stmt = $pdo->query("SHOW TABLES");
+        $existingTables = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        foreach ($requiredTables as $table) {
+            $exists = in_array($table, $existingTables);
+            $rowCount = 0;
+            
+            if ($exists) {
+                try {
+                    $countStmt = $pdo->query("SELECT COUNT(*) FROM `$table`");
+                    $rowCount = $countStmt->fetchColumn();
+                } catch (Exception $e) {
+                    $rowCount = 0;
+                }
+            } else {
+                $result['missing_tables'][] = $table;
+            }
+            
+            $result['tables'][] = [
+                'name' => $table,
+                'exists' => $exists,
+                'row_count' => (int)$rowCount
+            ];
+        }
+        
+    } catch (PDOException $e) {
+        $result['connected'] = false;
+        $result['version'] = 'Error: ' . $e->getMessage();
+    }
+    
+    return $result;
+}
+
+function getPhpHealth() {
+    $requiredExtensions = [
+        ['name' => 'pdo_mysql', 'required' => true],
+        ['name' => 'json', 'required' => true],
+        ['name' => 'mbstring', 'required' => true],
+        ['name' => 'openssl', 'required' => true],
+        ['name' => 'imap', 'required' => false],
+        ['name' => 'curl', 'required' => false],
+        ['name' => 'zip', 'required' => false],
+    ];
+    
+    $extensions = [];
+    foreach ($requiredExtensions as $ext) {
+        $extensions[] = [
+            'name' => $ext['name'],
+            'loaded' => extension_loaded($ext['name']),
+            'required' => $ext['required']
+        ];
+    }
+    
+    return [
+        'version' => phpversion(),
+        'memory_limit' => ini_get('memory_limit'),
+        'max_execution_time' => (int)ini_get('max_execution_time'),
+        'extensions' => $extensions
+    ];
+}
+
+function getFilesystemHealth() {
+    $directories = [
+        ['path' => 'storage/', 'required' => true],
+        ['path' => 'logs/', 'required' => true],
+        ['path' => 'backups/', 'required' => false],
+    ];
+    
+    $results = [];
+    $basePath = dirname(__DIR__) . '/';
+    
+    foreach ($directories as $dir) {
+        $fullPath = $basePath . $dir['path'];
+        $exists = is_dir($fullPath);
+        $writable = $exists && is_writable($fullPath);
+        
+        $results[] = [
+            'path' => $dir['path'],
+            'exists' => $exists,
+            'writable' => $writable
+        ];
+    }
+    
+    return $results;
+}
+
+function getConnectivityHealth($pdo) {
+    $results = [];
+    
+    try {
+        // Get active mailboxes
+        $stmt = $pdo->query("SELECT id, name, smtp_host, smtp_port, imap_host, imap_port, is_active FROM mailboxes WHERE is_active = 1 LIMIT 5");
+        $mailboxes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        foreach ($mailboxes as $mailbox) {
+            // Test SMTP connectivity
+            if (!empty($mailbox['smtp_host'])) {
+                $smtpResult = testPortConnectivity($mailbox['smtp_host'], $mailbox['smtp_port'] ?: 587);
+                $results[] = [
+                    'name' => $mailbox['name'] . ' (SMTP)',
+                    'host' => $mailbox['smtp_host'],
+                    'port' => (int)($mailbox['smtp_port'] ?: 587),
+                    'reachable' => $smtpResult['success'],
+                    'latency_ms' => $smtpResult['latency_ms'],
+                    'error' => $smtpResult['error']
+                ];
+            }
+            
+            // Test IMAP connectivity
+            if (!empty($mailbox['imap_host'])) {
+                $imapResult = testPortConnectivity($mailbox['imap_host'], $mailbox['imap_port'] ?: 993);
+                $results[] = [
+                    'name' => $mailbox['name'] . ' (IMAP)',
+                    'host' => $mailbox['imap_host'],
+                    'port' => (int)($mailbox['imap_port'] ?: 993),
+                    'reachable' => $imapResult['success'],
+                    'latency_ms' => $imapResult['latency_ms'],
+                    'error' => $imapResult['error']
+                ];
+            }
+        }
+    } catch (Exception $e) {
+        // Ignore errors
+    }
+    
+    return $results;
+}
+
+function testPortConnectivity($host, $port) {
+    $startTime = microtime(true);
+    $timeout = 5;
+    
+    $socket = @fsockopen($host, $port, $errno, $errstr, $timeout);
+    $latency = round((microtime(true) - $startTime) * 1000);
+    
+    if ($socket) {
+        fclose($socket);
+        return ['success' => true, 'latency_ms' => $latency, 'error' => null];
+    }
+    
+    return ['success' => false, 'latency_ms' => $latency, 'error' => $errstr ?: 'Connection failed'];
+}
+
+function getConfigurationHealth($config) {
+    $requiredKeys = [
+        'JWT_SECRET',
+        'DB_HOST',
+        'DB_NAME',
+        'DB_USER'
+    ];
+    
+    $results = [];
+    
+    foreach ($requiredKeys as $key) {
+        $isSet = isset($config[$key]) && !empty($config[$key]);
+        $isDefault = false;
+        
+        // Check for common default values
+        if ($isSet) {
+            $value = $config[$key];
+            if ($key === 'JWT_SECRET' && (strlen($value) < 32 || $value === 'your-secret-key-here' || $value === 'change-me')) {
+                $isDefault = true;
+            }
+            if ($key === 'DB_HOST' && $value === 'localhost') {
+                $isDefault = false; // localhost is fine
+            }
+        }
+        
+        $results[] = [
+            'key' => $key,
+            'is_set' => $isSet,
+            'is_default' => $isDefault
+        ];
+    }
+    
+    return $results;
+}
+
+function getCronHealth($pdo) {
+    $result = [
+        'last_run' => null,
+        'is_running' => false
+    ];
+    
+    try {
+        // Check for recent cron logs
+        $stmt = $pdo->query("SELECT created_at FROM cron_logs ORDER BY created_at DESC LIMIT 1");
+        $lastLog = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($lastLog) {
+            $result['last_run'] = $lastLog['created_at'];
+            
+            // If last run was within 10 minutes, consider it running
+            $lastRunTime = strtotime($lastLog['created_at']);
+            $result['is_running'] = (time() - $lastRunTime) < 600;
+        }
+    } catch (Exception $e) {
+        // Cron logs table might not exist
+    }
+    
+    return $result;
+}
+
+// =========== RATE LIMITS CONFIGURATION ===========
+
+function getRateLimitsConfig($pdo) {
+    try {
+        $stmt = $pdo->prepare("SELECT value FROM app_settings WHERE `key` = 'rate_limits_config'");
+        $stmt->execute();
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($result) {
+            echo json_encode(['config' => json_decode($result['value'], true)]);
+        } else {
+            // Return default config
+            $defaultConfig = getDefaultRateLimitsConfig();
+            echo json_encode(['config' => $defaultConfig]);
+        }
+    } catch (Exception $e) {
+        echo json_encode(['config' => getDefaultRateLimitsConfig()]);
+    }
+}
+
+function getDefaultRateLimitsConfig() {
+    return [
+        'generate_email' => [
+            'registered' => ['max_requests' => 30, 'window_minutes' => 60],
+            'guest' => ['max_requests' => 10, 'window_minutes' => 60]
+        ],
+        'login_attempt' => [
+            'max_requests' => 5,
+            'window_minutes' => 15,
+            'lockout_minutes' => 30
+        ],
+        'signup_attempt' => [
+            'max_requests' => 5,
+            'window_minutes' => 60
+        ],
+        'password_reset' => [
+            'max_requests' => 3,
+            'window_minutes' => 60
+        ],
+        'api_request' => [
+            'max_requests' => 100,
+            'window_minutes' => 1
+        ]
+    ];
+}
+
+function saveRateLimitsConfig($body, $pdo, $adminId) {
+    $config = $body['config'] ?? null;
+    
+    if (!$config) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Config required']);
+        return;
+    }
+    
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO app_settings (id, `key`, value, updated_at)
+            VALUES (?, 'rate_limits_config', ?, NOW())
+            ON DUPLICATE KEY UPDATE value = ?, updated_at = NOW()
+        ");
+        $configJson = json_encode($config);
+        $stmt->execute([generateUUID(), $configJson, $configJson]);
+        
+        logAdminAction($pdo, $adminId, 'UPDATE_RATE_LIMITS_CONFIG', 'app_settings', null, []);
+        
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to save config: ' . $e->getMessage()]);
     }
 }

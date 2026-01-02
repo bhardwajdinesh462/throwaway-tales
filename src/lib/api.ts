@@ -1597,6 +1597,42 @@ export const admin = {
       body: JSON.stringify({ type })
     });
   },
+
+  // Deployment Health Check (PHP backend only)
+  async getDeploymentHealth(): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return { data: null, error: { message: 'Deployment health check requires PHP backend' } };
+    }
+    return fetchApi('/admin/deployment-health', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'deployment-health' })
+    });
+  },
+
+  // Rate Limits Configuration
+  async getRateLimitsConfig(): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.query('app_settings', { eq: { key: 'rate_limits_config' }, single: true });
+    }
+    return fetchApi('/admin/rate-limits-config', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'rate-limits-config' })
+    });
+  },
+
+  async saveRateLimitsConfig(config: any): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.upsert('app_settings', { 
+        key: 'rate_limits_config', 
+        value: config, 
+        updated_at: new Date().toISOString() 
+      }, { onConflict: 'key' });
+    }
+    return fetchApi('/admin/rate-limits-config-save', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'rate-limits-config-save', config })
+    });
+  },
 };
 
 // ============================================

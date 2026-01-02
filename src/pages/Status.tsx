@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Activity, CheckCircle2, AlertTriangle, XCircle, Clock, TrendingUp, Calendar, Bell } from "lucide-react";
+import { Activity, CheckCircle2, AlertTriangle, XCircle, Clock, TrendingUp, Calendar, Bell, Wrench } from "lucide-react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import SEOHead from "@/components/SEOHead";
 import StatusMonitor from "@/components/StatusMonitor";
+import StatusBadgeGenerator from "@/components/StatusBadgeGenerator";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
+import { formatDistanceToNow, format, isPast, isFuture } from "date-fns";
 
 interface UptimeStats {
   overall: number;
@@ -26,6 +28,16 @@ interface Incident {
   resolved_at?: string;
 }
 
+interface MaintenanceWindow {
+  id: string;
+  title: string;
+  description: string;
+  scheduled_start: string;
+  scheduled_end: string;
+  affected_services: string[];
+  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+}
+
 const Status = () => {
   const [uptimeStats, setUptimeStats] = useState<UptimeStats>({
     overall: 99.9,
@@ -34,25 +46,23 @@ const Status = () => {
     database: 100,
   });
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [maintenance, setMaintenance] = useState<MaintenanceWindow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch uptime stats
     const fetchStats = async () => {
       try {
-        // Try to fetch from API if PHP backend is available
-        if (api.isPhpBackend()) {
-          const response = await fetch(`${window.location.origin}/php-backend/index.php?action=public-status`);
-          const data = await response.json();
-          if (data?.uptime) {
-            setUptimeStats(data.uptime);
-          }
-          if (data?.incidents) {
-            setIncidents(data.incidents);
-          }
+        const response = await api.admin.getPublicStatus();
+        if (response.data?.uptime) {
+          setUptimeStats(response.data.uptime);
+        }
+        if (response.data?.incidents) {
+          setIncidents(response.data.incidents);
+        }
+        if (response.data?.maintenance) {
+          setMaintenance(response.data.maintenance);
         }
       } catch (error) {
-        // Use default/simulated data
         console.log('Using default uptime data');
       } finally {
         setLoading(false);
@@ -100,6 +110,12 @@ const Status = () => {
     }
   };
 
+  // Get active maintenance (in_progress or upcoming scheduled)
+  const activeMaintenance = maintenance.filter(m => m.status === 'in_progress');
+  const upcomingMaintenance = maintenance.filter(m => 
+    m.status === 'scheduled' && isFuture(new Date(m.scheduled_start))
+  );
+
   // Generate last 30 days for uptime visualization
   const last30Days = Array.from({ length: 30 }, (_, i) => {
     const date = new Date();
@@ -109,6 +125,11 @@ const Status = () => {
       status: Math.random() > 0.02 ? 'operational' : 'degraded',
     };
   });
+
+  // Determine current status for badge generator
+  const currentStatus = uptimeStats.overall >= 99.5 ? 'operational' 
+    : uptimeStats.overall >= 95 ? 'degraded' 
+    : 'outage';
 
   return (
     <>
@@ -123,6 +144,71 @@ const Status = () => {
         <div className="h-[104px]" />
         
         <main className="container mx-auto px-4 py-8 md:py-12">
+          {/* Active Maintenance Banner */}
+          {activeMaintenance.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-5xl mx-auto mb-6"
+            >
+              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <Wrench className="w-5 h-5 text-red-500 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-red-500">Maintenance In Progress</h3>
+                    {activeMaintenance.map((m) => (
+                      <div key={m.id} className="mt-2">
+                        <p className="text-foreground font-medium">{m.title}</p>
+                        {m.description && <p className="text-sm text-muted-foreground">{m.description}</p>}
+                        {m.affected_services?.length > 0 && (
+                          <div className="flex gap-1 mt-2">
+                            {m.affected_services.map(s => (
+                              <Badge key={s} variant="outline" className="text-xs">{s}</Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Upcoming Maintenance Banner */}
+          {upcomingMaintenance.length > 0 && activeMaintenance.length === 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-5xl mx-auto mb-6"
+            >
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <Calendar className="w-5 h-5 text-yellow-500 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-yellow-600">Scheduled Maintenance</h3>
+                    {upcomingMaintenance.slice(0, 2).map((m) => (
+                      <div key={m.id} className="mt-2">
+                        <p className="text-foreground font-medium">{m.title}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Starts {formatDistanceToNow(new Date(m.scheduled_start), { addSuffix: true })}
+                          {m.scheduled_end && ` • Ends ${format(new Date(m.scheduled_end), 'MMM d, h:mm a')}`}
+                        </p>
+                        {m.affected_services?.length > 0 && (
+                          <div className="flex gap-1 mt-1">
+                            {m.affected_services.map(s => (
+                              <Badge key={s} variant="outline" className="text-xs">{s}</Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {/* Hero Section */}
           <motion.div
             initial={{ opacity: 0, y: -20 }}
@@ -165,7 +251,9 @@ const Status = () => {
                       <CheckCircle2 className={`w-8 h-8 ${getStatusColor(uptimeStats.overall)}`} />
                     </div>
                     <div>
-                      <h2 className="text-2xl font-bold text-foreground">All Systems Operational</h2>
+                      <h2 className="text-2xl font-bold text-foreground">
+                        {activeMaintenance.length > 0 ? 'Maintenance In Progress' : 'All Systems Operational'}
+                      </h2>
                       <p className="text-muted-foreground">Last updated: just now</p>
                     </div>
                   </div>
@@ -306,6 +394,19 @@ const Status = () => {
                 )}
               </CardContent>
             </Card>
+          </motion.div>
+
+          {/* Status Badge Generator */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="max-w-5xl mx-auto mt-8"
+          >
+            <StatusBadgeGenerator 
+              currentStatus={currentStatus as 'operational' | 'degraded' | 'outage'}
+              uptime={uptimeStats.overall}
+            />
           </motion.div>
 
           {/* Info Section */}

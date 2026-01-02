@@ -39,6 +39,7 @@ import {
   Check,
   LucideIcon,
   DollarSign,
+  Wrench,
 } from "lucide-react";
 import {
   Sidebar,
@@ -125,6 +126,7 @@ const AdminSidebar = () => {
 
   const advancedMenuItems: MenuItem[] = [
     { title: "Alerts", url: "/admin/alerts", icon: Bell },
+    { title: "Maintenance", url: "/admin/maintenance", icon: Wrench },
     { title: "Announcement", url: "/admin/announcement", icon: Megaphone },
     { title: "Status Settings", url: "/admin/status-settings", icon: Activity },
     { title: "Mailbox Health", url: "/admin/mailbox-health", icon: Activity },

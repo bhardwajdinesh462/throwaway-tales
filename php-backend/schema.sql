@@ -373,6 +373,107 @@ CREATE TABLE IF NOT EXISTS status_incidents (
     INDEX idx_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Scheduled Maintenance
+CREATE TABLE IF NOT EXISTS scheduled_maintenance (
+    id CHAR(36) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    scheduled_start DATETIME NOT NULL,
+    scheduled_end DATETIME,
+    affected_services JSON,
+    status ENUM('scheduled', 'in_progress', 'completed', 'cancelled') DEFAULT 'scheduled',
+    created_by CHAR(36),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_status (status),
+    INDEX idx_start (scheduled_start)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Uptime Records (for historical tracking)
+CREATE TABLE IF NOT EXISTS uptime_records (
+    id CHAR(36) PRIMARY KEY,
+    service VARCHAR(50) NOT NULL,
+    status ENUM('operational', 'degraded', 'partial_outage', 'major_outage') DEFAULT 'operational',
+    response_time_ms INT,
+    checked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_service (service),
+    INDEX idx_checked (checked_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Cron Logs
+CREATE TABLE IF NOT EXISTS cron_logs (
+    id CHAR(36) PRIMARY KEY,
+    job_name VARCHAR(100) NOT NULL,
+    status VARCHAR(20) DEFAULT 'running',
+    message TEXT,
+    duration_ms INT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_job (job_name),
+    INDEX idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Email Restrictions
+CREATE TABLE IF NOT EXISTS email_restrictions (
+    id CHAR(36) PRIMARY KEY,
+    restriction_type VARCHAR(50) NOT NULL,
+    value VARCHAR(255) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by CHAR(36),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Banners
+CREATE TABLE IF NOT EXISTS banners (
+    id CHAR(36) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    position VARCHAR(50) NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    content TEXT NOT NULL,
+    image_url TEXT,
+    link_url TEXT,
+    size_name VARCHAR(50) DEFAULT 'leaderboard',
+    width INT DEFAULT 728,
+    height INT DEFAULT 90,
+    is_active BOOLEAN DEFAULT TRUE,
+    priority INT DEFAULT 0,
+    start_date DATETIME,
+    end_date DATETIME,
+    view_count INT DEFAULT 0,
+    click_count INT DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Saved Emails
+CREATE TABLE IF NOT EXISTS saved_emails (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    received_email_id CHAR(36) NOT NULL,
+    saved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- User Invoices
+CREATE TABLE IF NOT EXISTS user_invoices (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    stripe_invoice_id VARCHAR(100),
+    stripe_payment_intent_id VARCHAR(100),
+    amount_paid DECIMAL(10,2) DEFAULT 0,
+    currency VARCHAR(10) DEFAULT 'usd',
+    status VARCHAR(20) DEFAULT 'pending',
+    description TEXT,
+    invoice_url TEXT,
+    invoice_pdf TEXT,
+    period_start DATETIME,
+    period_end DATETIME,
+    paid_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Insert default data
 INSERT INTO email_stats (id, stat_key, stat_value) VALUES 
 (UUID(), 'total_emails_created', 0),

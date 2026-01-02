@@ -1684,6 +1684,109 @@ export const admin = {
   async completeDomainWizard(domainId: string): Promise<ApiResponse<any>> {
     return this.updateDomain(domainId, { is_active: true, setup_status: 'active' });
   },
+
+  // Scheduled Maintenance
+  async getMaintenance(): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.query('scheduled_maintenance', {
+        order: { column: 'scheduled_start', ascending: false }
+      }).then(res => ({
+        data: { maintenance: res.data || [] },
+        error: res.error
+      }));
+    }
+    return fetchApi('/admin/maintenance-list', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'maintenance-list' })
+    });
+  },
+
+  async createMaintenance(data: { title: string; description?: string; scheduled_start: string; scheduled_end?: string; affected_services?: string[] }): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.insert('scheduled_maintenance', {
+        ...data,
+        affected_services: data.affected_services || [],
+        status: 'scheduled'
+      });
+    }
+    return fetchApi('/admin/maintenance-create', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'maintenance-create', ...data })
+    });
+  },
+
+  async updateMaintenance(id: string, data: any): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.update('scheduled_maintenance', id, data);
+    }
+    return fetchApi('/admin/maintenance-update', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'maintenance-update', id, ...data })
+    });
+  },
+
+  async startMaintenance(id: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.update('scheduled_maintenance', id, { status: 'in_progress' });
+    }
+    return fetchApi('/admin/maintenance-start', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'maintenance-start', id })
+    });
+  },
+
+  async completeMaintenance(id: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.update('scheduled_maintenance', id, { status: 'completed' });
+    }
+    return fetchApi('/admin/maintenance-complete', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'maintenance-complete', id })
+    });
+  },
+
+  async cancelMaintenance(id: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.update('scheduled_maintenance', id, { status: 'cancelled' });
+    }
+    return fetchApi('/admin/maintenance-cancel', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'maintenance-cancel', id })
+    });
+  },
+
+  async deleteMaintenance(id: string): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      return db.delete('scheduled_maintenance', id);
+    }
+    return fetchApi('/admin/maintenance-delete', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'maintenance-delete', id })
+    });
+  },
+
+  // Public Status
+  async getPublicStatus(): Promise<ApiResponse<any>> {
+    if (USE_SUPABASE) {
+      // Get maintenance from database
+      const maintenance = await db.query('scheduled_maintenance', {
+        order: { column: 'scheduled_start', ascending: true }
+      });
+      const incidents = await db.query('status_incidents', {
+        order: { column: 'created_at', ascending: false },
+        limit: 10
+      });
+      return {
+        data: {
+          uptime: { overall: 99.9, imap: 99.8, smtp: 99.9, database: 100 },
+          incidents: incidents.data || [],
+          maintenance: (maintenance.data || []).filter((m: any) => m.status === 'scheduled' || m.status === 'in_progress')
+        },
+        error: null
+      };
+    }
+    return fetchApi('/public-status', { method: 'GET' }, false);
+  },
 };
 
 // ============================================

@@ -197,6 +197,14 @@ try {
             ]);
             break;
             
+        case 'public-status':
+            handlePublicStatus($pdo);
+            break;
+            
+        case 'badge':
+            handleBadge($segments[1] ?? '', $pdo);
+            break;
+            
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Not found']);
@@ -291,4 +299,180 @@ function sendEmail($to, $subject, $body, $config) {
     ];
     
     return @mail($to, $subject, $body, implode("\r\n", array_map(fn($k, $v) => "$k: $v", array_keys($headers), $headers)));
+}
+
+// =========== PUBLIC STATUS ENDPOINT ===========
+
+function handlePublicStatus($pdo) {
+    // Get uptime stats (calculate from uptime_records if available, otherwise use defaults)
+    $uptimeStats = [
+        'overall' => 99.9,
+        'imap' => 99.8,
+        'smtp' => 99.9,
+        'database' => 100,
+    ];
+    
+    try {
+        // Check uptime_records table
+        $stmt = $pdo->query("
+            SELECT service, 
+                   COUNT(*) as total,
+                   SUM(CASE WHEN status = 'operational' THEN 1 ELSE 0 END) as operational
+            FROM uptime_records 
+            WHERE checked_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+            GROUP BY service
+        ");
+        $records = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        foreach ($records as $record) {
+            $uptime = $record['total'] > 0 
+                ? round(($record['operational'] / $record['total']) * 100, 1)
+                : 99.9;
+            $service = strtolower($record['service']);
+            if (isset($uptimeStats[$service])) {
+                $uptimeStats[$service] = $uptime;
+            }
+        }
+        
+        // Calculate overall
+        $uptimeStats['overall'] = round(
+            ($uptimeStats['imap'] + $uptimeStats['smtp'] + $uptimeStats['database']) / 3, 
+            1
+        );
+    } catch (Exception $e) {
+        // Use defaults
+    }
+    
+    // Get active/recent incidents
+    $incidents = [];
+    try {
+        $stmt = $pdo->query("
+            SELECT id, title, status, service, created_at, resolved_at 
+            FROM status_incidents 
+            ORDER BY created_at DESC 
+            LIMIT 10
+        ");
+        $incidents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        // No incidents table yet
+    }
+    
+    // Get active maintenance
+    $maintenance = [];
+    try {
+        $stmt = $pdo->query("
+            SELECT id, title, description, scheduled_start, scheduled_end, 
+                   affected_services, status, created_at
+            FROM scheduled_maintenance 
+            WHERE status IN ('scheduled', 'in_progress')
+            ORDER BY scheduled_start ASC
+        ");
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $row) {
+            $row['affected_services'] = json_decode($row['affected_services'] ?? '[]', true);
+            $maintenance[] = $row;
+        }
+    } catch (Exception $e) {
+        // No maintenance table yet
+    }
+    
+    echo json_encode([
+        'uptime' => $uptimeStats,
+        'incidents' => $incidents,
+        'maintenance' => $maintenance,
+        'timestamp' => date('c')
+    ]);
+}
+
+// =========== UPTIME BADGE ENDPOINT ===========
+
+function handleBadge($type, $pdo) {
+    if ($type !== 'uptime') {
+        http_response_code(404);
+        echo json_encode(['error' => 'Unknown badge type']);
+        return;
+    }
+    
+    $service = $_GET['service'] ?? 'overall';
+    $format = $_GET['format'] ?? 'svg';
+    $size = $_GET['size'] ?? 'medium';
+    
+    // Get uptime for service
+    $uptime = 99.9;
+    $status = 'operational';
+    
+    try {
+        $stmt = $pdo->prepare("
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'operational' THEN 1 ELSE 0 END) as operational
+            FROM uptime_records 
+            WHERE service = ? AND checked_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+        ");
+        $stmt->execute([$service]);
+        $record = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($record && $record['total'] > 0) {
+            $uptime = round(($record['operational'] / $record['total']) * 100, 1);
+        }
+        
+        // Determine status
+        if ($uptime >= 99.5) {
+            $status = 'operational';
+        } elseif ($uptime >= 95) {
+            $status = 'degraded';
+        } else {
+            $status = 'outage';
+        }
+    } catch (Exception $e) {
+        // Use defaults
+    }
+    
+    if ($format === 'json') {
+        header('Content-Type: application/json');
+        header('Cache-Control: public, max-age=60');
+        echo json_encode([
+            'service' => $service,
+            'status' => $status,
+            'uptime' => $uptime,
+            'color' => $status === 'operational' ? 'green' : ($status === 'degraded' ? 'yellow' : 'red'),
+            'updated' => date('c')
+        ]);
+        return;
+    }
+    
+    // SVG Badge
+    header('Content-Type: image/svg+xml');
+    header('Cache-Control: public, max-age=60');
+    
+    $statusColor = $status === 'operational' ? '#22c55e' : ($status === 'degraded' ? '#eab308' : '#ef4444');
+    $statusText = $status;
+    
+    // Size configs
+    $sizes = [
+        'small' => ['width' => 90, 'height' => 18, 'fontSize' => 9],
+        'medium' => ['width' => 110, 'height' => 20, 'fontSize' => 11],
+        'large' => ['width' => 130, 'height' => 24, 'fontSize' => 13],
+    ];
+    $s = $sizes[$size] ?? $sizes['medium'];
+    
+    echo '<?xml version="1.0" encoding="UTF-8"?>';
+    echo '<svg xmlns="http://www.w3.org/2000/svg" width="' . $s['width'] . '" height="' . $s['height'] . '">';
+    echo '<linearGradient id="bg" x2="0" y2="100%">';
+    echo '<stop offset="0" stop-color="#bbb" stop-opacity=".1"/>';
+    echo '<stop offset="1" stop-opacity=".1"/>';
+    echo '</linearGradient>';
+    echo '<clipPath id="r"><rect width="' . $s['width'] . '" height="' . $s['height'] . '" rx="3" fill="#fff"/></clipPath>';
+    echo '<g clip-path="url(#r)">';
+    echo '<rect width="50" height="' . $s['height'] . '" fill="#555"/>';
+    echo '<rect x="50" width="' . ($s['width'] - 50) . '" height="' . $s['height'] . '" fill="' . $statusColor . '"/>';
+    echo '<rect width="' . $s['width'] . '" height="' . $s['height'] . '" fill="url(#bg)"/>';
+    echo '</g>';
+    echo '<g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="' . $s['fontSize'] . '">';
+    echo '<text x="25" y="' . ($s['height'] * 0.7) . '" fill="#010101" fill-opacity=".3">status</text>';
+    echo '<text x="25" y="' . ($s['height'] * 0.65) . '">status</text>';
+    echo '<text x="' . (($s['width'] + 50) / 2) . '" y="' . ($s['height'] * 0.7) . '" fill="#010101" fill-opacity=".3">' . $statusText . '</text>';
+    echo '<text x="' . (($s['width'] + 50) / 2) . '" y="' . ($s['height'] * 0.65) . '">' . $statusText . '</text>';
+    echo '</g>';
+    echo '</svg>';
 }

@@ -167,6 +167,29 @@ function handleAdminRoute($action, $body, $pdo, $config) {
             saveRateLimitsConfig($body, $pdo, $userId);
             break;
 
+        // Scheduled Maintenance
+        case 'maintenance-list':
+            getMaintenanceList($pdo);
+            break;
+        case 'maintenance-create':
+            createMaintenance($body, $pdo, $userId);
+            break;
+        case 'maintenance-update':
+            updateMaintenance($body, $pdo, $userId);
+            break;
+        case 'maintenance-start':
+            startMaintenance($body, $pdo, $userId);
+            break;
+        case 'maintenance-complete':
+            completeMaintenance($body, $pdo, $userId);
+            break;
+        case 'maintenance-cancel':
+            cancelMaintenance($body, $pdo, $userId);
+            break;
+        case 'maintenance-delete':
+            deleteMaintenance($body, $pdo, $userId);
+            break;
+
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Unknown admin action: ' . $action]);
@@ -2167,5 +2190,211 @@ function saveRateLimitsConfig($body, $pdo, $adminId) {
     } catch (Exception $e) {
         http_response_code(500);
         echo json_encode(['error' => 'Failed to save config: ' . $e->getMessage()]);
+    }
+}
+
+// =========== SCHEDULED MAINTENANCE ===========
+
+function getMaintenanceList($pdo) {
+    try {
+        $stmt = $pdo->query("
+            SELECT id, title, description, scheduled_start, scheduled_end, 
+                   affected_services, status, created_by, created_at, updated_at
+            FROM scheduled_maintenance 
+            ORDER BY scheduled_start DESC
+        ");
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Parse JSON fields
+        foreach ($rows as &$row) {
+            $row['affected_services'] = json_decode($row['affected_services'] ?? '[]', true);
+        }
+        
+        echo json_encode(['maintenance' => $rows]);
+    } catch (Exception $e) {
+        echo json_encode(['maintenance' => [], 'error' => $e->getMessage()]);
+    }
+}
+
+function createMaintenance($body, $pdo, $adminId) {
+    $title = $body['title'] ?? '';
+    $description = $body['description'] ?? '';
+    $scheduledStart = $body['scheduled_start'] ?? null;
+    $scheduledEnd = $body['scheduled_end'] ?? null;
+    $affectedServices = $body['affected_services'] ?? [];
+    
+    if (empty($title) || empty($scheduledStart)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Title and scheduled_start are required']);
+        return;
+    }
+    
+    $id = generateUUID();
+    
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO scheduled_maintenance 
+            (id, title, description, scheduled_start, scheduled_end, affected_services, status, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?, NOW())
+        ");
+        $stmt->execute([
+            $id, 
+            $title, 
+            $description, 
+            $scheduledStart, 
+            $scheduledEnd ?: null, 
+            json_encode($affectedServices),
+            $adminId
+        ]);
+        
+        logAdminAction($pdo, $adminId, 'CREATE_MAINTENANCE', 'scheduled_maintenance', $id, ['title' => $title]);
+        
+        echo json_encode(['success' => true, 'id' => $id]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to create maintenance: ' . $e->getMessage()]);
+    }
+}
+
+function updateMaintenance($body, $pdo, $adminId) {
+    $id = $body['id'] ?? '';
+    
+    if (empty($id)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Maintenance ID required']);
+        return;
+    }
+    
+    $updates = [];
+    $params = [];
+    
+    if (isset($body['title'])) {
+        $updates[] = 'title = ?';
+        $params[] = $body['title'];
+    }
+    if (isset($body['description'])) {
+        $updates[] = 'description = ?';
+        $params[] = $body['description'];
+    }
+    if (isset($body['scheduled_start'])) {
+        $updates[] = 'scheduled_start = ?';
+        $params[] = $body['scheduled_start'];
+    }
+    if (isset($body['scheduled_end'])) {
+        $updates[] = 'scheduled_end = ?';
+        $params[] = $body['scheduled_end'];
+    }
+    if (isset($body['affected_services'])) {
+        $updates[] = 'affected_services = ?';
+        $params[] = json_encode($body['affected_services']);
+    }
+    
+    if (empty($updates)) {
+        echo json_encode(['success' => true]);
+        return;
+    }
+    
+    $updates[] = 'updated_at = NOW()';
+    $params[] = $id;
+    
+    try {
+        $sql = 'UPDATE scheduled_maintenance SET ' . implode(', ', $updates) . ' WHERE id = ?';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        
+        logAdminAction($pdo, $adminId, 'UPDATE_MAINTENANCE', 'scheduled_maintenance', $id, []);
+        
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to update maintenance: ' . $e->getMessage()]);
+    }
+}
+
+function startMaintenance($body, $pdo, $adminId) {
+    $id = $body['id'] ?? '';
+    
+    if (empty($id)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Maintenance ID required']);
+        return;
+    }
+    
+    try {
+        $stmt = $pdo->prepare("UPDATE scheduled_maintenance SET status = 'in_progress', updated_at = NOW() WHERE id = ?");
+        $stmt->execute([$id]);
+        
+        logAdminAction($pdo, $adminId, 'START_MAINTENANCE', 'scheduled_maintenance', $id, []);
+        
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to start maintenance: ' . $e->getMessage()]);
+    }
+}
+
+function completeMaintenance($body, $pdo, $adminId) {
+    $id = $body['id'] ?? '';
+    
+    if (empty($id)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Maintenance ID required']);
+        return;
+    }
+    
+    try {
+        $stmt = $pdo->prepare("UPDATE scheduled_maintenance SET status = 'completed', updated_at = NOW() WHERE id = ?");
+        $stmt->execute([$id]);
+        
+        logAdminAction($pdo, $adminId, 'COMPLETE_MAINTENANCE', 'scheduled_maintenance', $id, []);
+        
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to complete maintenance: ' . $e->getMessage()]);
+    }
+}
+
+function cancelMaintenance($body, $pdo, $adminId) {
+    $id = $body['id'] ?? '';
+    
+    if (empty($id)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Maintenance ID required']);
+        return;
+    }
+    
+    try {
+        $stmt = $pdo->prepare("UPDATE scheduled_maintenance SET status = 'cancelled', updated_at = NOW() WHERE id = ?");
+        $stmt->execute([$id]);
+        
+        logAdminAction($pdo, $adminId, 'CANCEL_MAINTENANCE', 'scheduled_maintenance', $id, []);
+        
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to cancel maintenance: ' . $e->getMessage()]);
+    }
+}
+
+function deleteMaintenance($body, $pdo, $adminId) {
+    $id = $body['id'] ?? '';
+    
+    if (empty($id)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Maintenance ID required']);
+        return;
+    }
+    
+    try {
+        $stmt = $pdo->prepare("DELETE FROM scheduled_maintenance WHERE id = ?");
+        $stmt->execute([$id]);
+        
+        logAdminAction($pdo, $adminId, 'DELETE_MAINTENANCE', 'scheduled_maintenance', $id, []);
+        
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to delete maintenance: ' . $e->getMessage()]);
     }
 }

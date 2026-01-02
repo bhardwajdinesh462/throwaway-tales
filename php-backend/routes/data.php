@@ -163,7 +163,7 @@ function handleSelect($table, $pdo, $userId, $isAdmin) {
     }
 
     // Apply RLS-like filtering
-    $where = applyRowLevelSecurity($table, $where, $params, $userId, $isAdmin);
+    $where = applyRowLevelSecurity($table, $where, $params, $userId, $isAdmin, $pdo);
 
     // Build query
     $sql = "SELECT $select FROM $table";
@@ -379,7 +379,7 @@ function handleUpsert($table, $body, $pdo, $userId, $isAdmin) {
     }
 }
 
-function applyRowLevelSecurity($table, $where, &$params, $userId, $isAdmin) {
+function applyRowLevelSecurity($table, $where, &$params, $userId, $isAdmin, $pdo) {
     if ($isAdmin) return $where;
 
     switch ($table) {
@@ -391,18 +391,23 @@ function applyRowLevelSecurity($table, $where, &$params, $userId, $isAdmin) {
                 $where[] = 'is_premium = 0';
             } else {
                 // Check if user has active paid subscription
-                $subStmt = $pdo->prepare("
-                    SELECT st.name FROM user_subscriptions us
-                    JOIN subscription_tiers st ON us.tier_id = st.id
-                    WHERE us.user_id = ? AND us.status = 'active' AND LOWER(st.name) != 'free'
-                ");
-                $subStmt->execute([$userId]);
-                $hasPaidSub = $subStmt->fetch();
-                if (!$hasPaidSub) {
-                    // Free tier users: only free domains
+                try {
+                    $subStmt = $pdo->prepare("
+                        SELECT st.name FROM user_subscriptions us
+                        JOIN subscription_tiers st ON us.tier_id = st.id
+                        WHERE us.user_id = ? AND us.status = 'active' AND LOWER(st.name) != 'free'
+                    ");
+                    $subStmt->execute([$userId]);
+                    $hasPaidSub = $subStmt->fetch();
+                    if (!$hasPaidSub) {
+                        // Free tier users: only free domains
+                        $where[] = 'is_premium = 0';
+                    }
+                    // Paid users: see all domains (no additional filter)
+                } catch (PDOException $e) {
+                    // On error, default to free domains only
                     $where[] = 'is_premium = 0';
                 }
-                // Paid users: see all domains (no additional filter)
             }
             break;
         case 'banners':

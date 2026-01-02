@@ -6,6 +6,10 @@
  * - Uses fetch-based REST API when running on self-hosted PHP backend
  */
 
+// Explicit self-hosted flag (set during cPanel build)
+const FORCE_SELF_HOSTED = import.meta.env.VITE_SELF_HOSTED === 'true' || 
+                          Boolean(import.meta.env.VITE_PHP_API_URL);
+
 // Auto-detect PHP backend by checking if we're on a non-Lovable domain
 const isLovableDomain = typeof window !== 'undefined' && (
   window.location.hostname.includes('lovable.app') ||
@@ -13,12 +17,11 @@ const isLovableDomain = typeof window !== 'undefined' && (
   window.location.hostname === 'localhost'
 );
 
-// Detect which backend to use
-const USE_SUPABASE = Boolean(
+// Detect which backend to use - FORCE_SELF_HOSTED takes priority
+const USE_SUPABASE = !FORCE_SELF_HOSTED && Boolean(
   isLovableDomain &&
   import.meta.env.VITE_SUPABASE_URL && 
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY &&
-  !import.meta.env.VITE_PHP_API_URL // Explicit PHP override
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 );
 
 // PHP API URL - auto-detect from current domain or use env variable

@@ -237,11 +237,15 @@ async function main() {
   console.log("✅ PHP syntax validation passed\n");
 
   if (!SKIP_BUILD) {
-    console.log("📦 Building React app...\n");
+    console.log("📦 Building React app for self-hosted deployment...\n");
     const userAgent = process.env.npm_config_user_agent ?? "";
     const isBun = userAgent.startsWith("bun");
 
-    const buildEnv = API_URL ? { VITE_PHP_API_URL: API_URL } : {};
+    // Always set self-hosted flag for cPanel builds
+    const buildEnv = { 
+      VITE_SELF_HOSTED: "true",
+      ...(API_URL ? { VITE_PHP_API_URL: API_URL } : {})
+    };
 
     if (isBun) {
       await run("bun", ["run", "build"], { env: buildEnv });

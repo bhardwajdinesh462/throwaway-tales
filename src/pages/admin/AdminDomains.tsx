@@ -75,12 +75,15 @@ const AdminDomains = () => {
 
   const addDomainMutation = useMutation({
     mutationFn: async ({ name, isPremium }: { name: string; isPremium: boolean }) => {
-      const { error } = await api.admin.addDomain(name, isPremium);
+      const { data, error } = await api.admin.addDomain(name, isPremium);
       if (error) throw new Error(error.message);
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Force immediate refetch instead of just invalidation
+      refetch();
       queryClient.invalidateQueries({ queryKey: ['admin', 'domains'] });
-      toast.success("Domain added successfully");
+      toast.success(`Domain ${data?.name || 'added'} successfully`);
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to add domain");
@@ -145,9 +148,10 @@ const AdminDomains = () => {
           setDialogOpen(false);
           // Invalidate public domains cache as well
           queryClient.invalidateQueries({ queryKey: ['domains'] });
-          // Clear localStorage cached domains
+          // Clear all domain-related localStorage caches
           try {
             localStorage.removeItem('nullsto_domains_cache');
+            localStorage.removeItem('cached_domains');
           } catch (e) {}
         },
       }

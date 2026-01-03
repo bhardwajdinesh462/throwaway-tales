@@ -209,6 +209,42 @@ export type Database = {
         }
         Relationships: []
       }
+      blocked_emails: {
+        Row: {
+          blocked_at: string
+          blocked_by: string
+          created_at: string
+          email_pattern: string
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          is_regex: boolean
+          reason: string | null
+        }
+        Insert: {
+          blocked_at?: string
+          blocked_by: string
+          created_at?: string
+          email_pattern: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          is_regex?: boolean
+          reason?: string | null
+        }
+        Update: {
+          blocked_at?: string
+          blocked_by?: string
+          created_at?: string
+          email_pattern?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          is_regex?: boolean
+          reason?: string | null
+        }
+        Relationships: []
+      }
       blocked_ips: {
         Row: {
           blocked_at: string
@@ -761,6 +797,7 @@ export type Database = {
           email: string | null
           email_verified: boolean | null
           id: string
+          registration_ip: string | null
           updated_at: string
           user_id: string
         }
@@ -771,6 +808,7 @@ export type Database = {
           email?: string | null
           email_verified?: boolean | null
           id?: string
+          registration_ip?: string | null
           updated_at?: string
           user_id: string
         }
@@ -781,6 +819,7 @@ export type Database = {
           email?: string | null
           email_verified?: boolean | null
           id?: string
+          registration_ip?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -1410,6 +1449,7 @@ export type Database = {
           email: string | null
           email_verified: boolean | null
           id: string
+          registration_ip: string | null
           updated_at: string
           user_id: string
         }[]
@@ -1573,6 +1613,7 @@ export type Database = {
         Args: { p_mailbox_id: string }
         Returns: string
       }
+      get_registration_ip: { Args: never; Returns: string }
       get_suspended_users: {
         Args: never
         Returns: {
@@ -1603,6 +1644,7 @@ export type Database = {
         Returns: undefined
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      is_email_blocked: { Args: { p_email: string }; Returns: boolean }
       is_guest_temp_email: {
         Args: { _temp_email_id: string }
         Returns: boolean

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     display_name VARCHAR(100),
     avatar_url TEXT,
     email_verified BOOLEAN DEFAULT FALSE,
+    registration_ip VARCHAR(45),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_id (user_id)
@@ -339,9 +340,26 @@ CREATE TABLE IF NOT EXISTS blocked_ips (
     blocked_by CHAR(36),
     is_active BOOLEAN DEFAULT TRUE,
     expires_at DATETIME,
+    blocked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_ip (ip_address),
+    INDEX idx_active (is_active),
+    INDEX idx_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Blocked Emails for registration restriction
+CREATE TABLE IF NOT EXISTS blocked_emails (
+    id CHAR(36) PRIMARY KEY,
+    email_pattern VARCHAR(255) NOT NULL,
+    reason TEXT,
+    blocked_by CHAR(36),
+    is_active BOOLEAN DEFAULT TRUE,
+    is_regex BOOLEAN DEFAULT FALSE,
+    expires_at DATETIME,
+    blocked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_pattern (email_pattern),
     INDEX idx_active (is_active),
     INDEX idx_expires (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

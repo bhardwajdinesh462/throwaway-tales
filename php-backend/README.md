@@ -541,10 +541,27 @@ The following tables are automatically created by the installer:
 | `scheduled_maintenance` | Maintenance windows |
 | `uptime_records` | Historical uptime data |
 | `cron_logs` | Cron job execution logs |
-| `email_restrictions` | Blocked domains/patterns |
+| `email_restrictions` | Blocked words/min characters |
+| `blocked_emails` | Blocked email patterns for registration |
+| `blocked_ips` | Blocked IP addresses |
 | `banners` | Ad/announcement banners |
 | `saved_emails` | User-saved emails |
 | `user_invoices` | Payment history |
+
+### IP & Email Blocking (v2.1)
+
+Block specific IP addresses and email patterns from registering:
+
+1. **IP Blocking**: Go to **Admin → IP Blocking** to block suspicious IPs
+   - Supports IPv4 and IPv6
+   - Set expiration time or permanent blocks
+   - Automatically captures registration IP on user signup
+
+2. **Email Blocking**: Go to **Admin → Email Blocking** to block email patterns
+   - Block exact emails: `spam@example.com`
+   - Use wildcards: `*@spam.com` blocks entire domain
+   - Use regex patterns for complex matching
+   - Set temporary or permanent blocks
 
 ## Support
 
@@ -557,5 +574,6 @@ For issues or questions:
 
 ## Version History
 
+- **v2.1** - IP capture on registration, email/IP blocking admin tools
 - **v2.0** - Scheduled maintenance, uptime badges, comprehensive rate limits
 - **v1.0** - Initial release with full email functionality

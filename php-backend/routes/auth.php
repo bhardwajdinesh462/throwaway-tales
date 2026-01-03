@@ -60,6 +60,13 @@ function handleSignup($body, $pdo, $config) {
         return;
     }
 
+    // Check if client's country is blocked (requires rpc.php functions)
+    if (function_exists('isClientCountryBlocked') && isClientCountryBlocked($pdo)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Registration from your region is currently restricted.']);
+        return;
+    }
+
     // Check if email is blocked
     if (isEmailBlocked($pdo, $email)) {
         http_response_code(403);

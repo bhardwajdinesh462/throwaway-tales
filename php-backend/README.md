@@ -544,6 +544,7 @@ The following tables are automatically created by the installer:
 | `email_restrictions` | Blocked words/min characters |
 | `blocked_emails` | Blocked email patterns for registration |
 | `blocked_ips` | Blocked IP addresses |
+| `blocked_countries` | Geographic/country blocks |
 | `banners` | Ad/announcement banners |
 | `saved_emails` | User-saved emails |
 | `user_invoices` | Payment history |
@@ -572,6 +573,21 @@ Block specific IP addresses and email patterns from registering and creating tem
    - Quick-block suspicious IPs directly from the list
    - Real-time updates when new users register
 
+### Geographic (Country) Blocking (v2.3)
+
+Block entire countries or regions from accessing the site:
+
+1. **Geo Blocking**: Go to **Admin → Geo Blocking** to block countries
+   - Select from a list of 60+ countries
+   - Set temporary or permanent blocks
+   - Uses IP geolocation API to determine user's country
+   - Blocks country during:
+     - User registration
+     - Temp email creation
+   - Real-time updates in admin panel
+
+**Note**: Geographic blocking uses the free ip-api.com service (45 requests/minute limit). For high-traffic sites, consider implementing caching or using a paid geolocation service.
+
 All blocking features work in **real-time** and are checked during:
 - User registration
 - Temp email creation
@@ -588,6 +604,7 @@ For issues or questions:
 
 ## Version History
 
+- **v2.3** - Geographic/country blocking with IP geolocation
 - **v2.2** - Bulk IP blocking, email blocking in temp email creation, registration IPs viewer with export
 - **v2.1** - IP capture on registration, email/IP blocking admin tools
 - **v2.0** - Scheduled maintenance, uptime badges, comprehensive rate limits

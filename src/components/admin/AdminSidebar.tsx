@@ -136,6 +136,7 @@ const AdminSidebar = () => {
     { title: "Webhooks", url: "/admin/webhooks", icon: Globe },
     { title: "Audit Logs", url: "/admin/audit-logs", icon: Clock },
     { title: "IP Blocking", url: "/admin/ip-blocking", icon: ShieldCheck },
+    { title: "Geo Blocking", url: "/admin/geo-blocking", icon: Globe },
     { title: "Email Blocking", url: "/admin/email-blocking", icon: Ban },
     { title: "Registration IPs", url: "/admin/registration-ips", icon: Globe },
     { title: "Rate Limits", url: "/admin/rate-limits", icon: Clock },

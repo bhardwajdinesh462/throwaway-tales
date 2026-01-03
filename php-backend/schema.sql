@@ -364,6 +364,22 @@ CREATE TABLE IF NOT EXISTS blocked_emails (
     INDEX idx_expires (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Blocked Countries for geographic blocking
+CREATE TABLE IF NOT EXISTS blocked_countries (
+    id CHAR(36) PRIMARY KEY,
+    country_code CHAR(2) NOT NULL,
+    country_name VARCHAR(100) NOT NULL,
+    reason TEXT,
+    blocked_by CHAR(36),
+    is_active BOOLEAN DEFAULT TRUE,
+    expires_at DATETIME,
+    blocked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_country (country_code),
+    INDEX idx_active (is_active),
+    INDEX idx_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Alert Logs for automated email alerts
 CREATE TABLE IF NOT EXISTS alert_logs (
     id CHAR(36) PRIMARY KEY,

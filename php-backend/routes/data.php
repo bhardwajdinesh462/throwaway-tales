@@ -39,7 +39,7 @@ function handleData($path, $method, $body, $pdo, $config) {
     
     $adminOnlyTables = [
         'admin_audit_logs', 'admin_role_requests', 'backup_history', 'blocked_ips',
-        'blocked_emails', 'email_logs', 'email_restrictions', 'mailboxes', 'rate_limits',
+        'blocked_emails', 'blocked_countries', 'email_logs', 'email_restrictions', 'mailboxes', 'rate_limits',
         'user_roles', 'user_suspensions'
     ];
 

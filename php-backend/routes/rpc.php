@@ -87,6 +87,13 @@ function createTempEmail($params, $pdo, $userId) {
         return;
     }
 
+    // Check if client's country is blocked
+    if (isClientCountryBlocked($pdo)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Access from your region is currently restricted.']);
+        return;
+    }
+
     // Check if email address pattern is blocked
     if (isEmailPatternBlocked($pdo, $address)) {
         http_response_code(403);
@@ -681,4 +688,72 @@ function logAdminAccess($params, $pdo, $adminUserId, $isAdmin) {
     $stmt->execute([$id, $adminUserId, $action, $tableName, $recordId, json_encode($details)]);
 
     echo json_encode($id);
+}
+
+/**
+ * Check if a country is blocked based on country code
+ */
+function isCountryBlocked($pdo, $countryCode) {
+    if (empty($countryCode)) {
+        return false;
+    }
+    
+    $stmt = $pdo->prepare('
+        SELECT 1 FROM blocked_countries 
+        WHERE country_code = ? 
+        AND is_active = 1 
+        AND (expires_at IS NULL OR expires_at > NOW())
+        LIMIT 1
+    ');
+    $stmt->execute([strtoupper($countryCode)]);
+    return $stmt->fetch() !== false;
+}
+
+/**
+ * Get country code from IP using free IP geolocation API
+ * Uses ip-api.com (free tier: 45 requests per minute)
+ */
+function getCountryFromIP($ip) {
+    // Skip for local/private IPs
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+        return null;
+    }
+    
+    try {
+        $url = "http://ip-api.com/json/{$ip}?fields=countryCode,status";
+        $context = stream_context_create([
+            'http' => [
+                'timeout' => 2,
+                'method' => 'GET'
+            ]
+        ]);
+        
+        $response = @file_get_contents($url, false, $context);
+        if ($response === false) {
+            return null;
+        }
+        
+        $data = json_decode($response, true);
+        if ($data && $data['status'] === 'success' && !empty($data['countryCode'])) {
+            return $data['countryCode'];
+        }
+    } catch (Exception $e) {
+        error_log("Failed to get country from IP: " . $e->getMessage());
+    }
+    
+    return null;
+}
+
+/**
+ * Check if client's country is blocked
+ */
+function isClientCountryBlocked($pdo) {
+    $ip = getClientIP();
+    $countryCode = getCountryFromIP($ip);
+    
+    if ($countryCode) {
+        return isCountryBlocked($pdo, $countryCode);
+    }
+    
+    return false;
 }

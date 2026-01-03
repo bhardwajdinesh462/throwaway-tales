@@ -209,6 +209,42 @@ export type Database = {
         }
         Relationships: []
       }
+      blocked_countries: {
+        Row: {
+          blocked_at: string
+          blocked_by: string
+          country_code: string
+          country_name: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          reason: string | null
+        }
+        Insert: {
+          blocked_at?: string
+          blocked_by: string
+          country_code: string
+          country_name: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          reason?: string | null
+        }
+        Update: {
+          blocked_at?: string
+          blocked_by?: string
+          country_code?: string
+          country_name?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          reason?: string | null
+        }
+        Relationships: []
+      }
       blocked_emails: {
         Row: {
           blocked_at: string
@@ -1644,6 +1680,7 @@ export type Database = {
         Returns: undefined
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      is_country_blocked: { Args: { p_country_code: string }; Returns: boolean }
       is_email_blocked: { Args: { p_email: string }; Returns: boolean }
       is_guest_temp_email: {
         Args: { _temp_email_id: string }

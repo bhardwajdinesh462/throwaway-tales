@@ -116,25 +116,42 @@ const EmailLimitModal = ({ isOpen, onClose, resetAt, limit }: EmailLimitModalPro
 
               {/* Upgrade Options */}
               <div className="p-6 space-y-4">
-                <p className="text-center text-sm text-muted-foreground mb-4">
-                  Upgrade now to get unlimited emails instantly!
-                </p>
-
+                {/* Always show a primary CTA button */}
                 <div className="space-y-3">
-                  {hasPaidPaymentMethod && (
+                  {/* Primary CTA: Always visible */}
+                  {hasPaidPaymentMethod ? (
                     <Button 
                       onClick={handleUpgrade} 
-                      className="w-full gap-2"
+                      className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
                       size="lg"
                     >
                       <Crown className="w-5 h-5" />
-                      View Upgrade Options
+                      Upgrade Now
+                    </Button>
+                  ) : telegramEnabled ? (
+                    <Button
+                      onClick={() => window.open(telegramLink, '_blank')}
+                      className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+                      size="lg"
+                    >
+                      <MessageCircle className="w-5 h-5" />
+                      Upgrade via Telegram
+                    </Button>
+                  ) : (
+                    <Button 
+                      onClick={handleUpgrade} 
+                      className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+                      size="lg"
+                    >
+                      <Crown className="w-5 h-5" />
+                      View Plans
                     </Button>
                   )}
 
-                  {telegramEnabled && (
+                  {/* Secondary CTA: Show Telegram if paid method is primary */}
+                  {hasPaidPaymentMethod && telegramEnabled && (
                     <Button
-                      variant={hasPaidPaymentMethod ? "outline" : "default"}
+                      variant="outline"
                       onClick={() => window.open(telegramLink, '_blank')}
                       className="w-full gap-2"
                       size="lg"
@@ -143,13 +160,11 @@ const EmailLimitModal = ({ isOpen, onClose, resetAt, limit }: EmailLimitModalPro
                       Contact on Telegram
                     </Button>
                   )}
-
-                  {!hasPaidPaymentMethod && !telegramEnabled && (
-                    <p className="text-center text-sm text-muted-foreground">
-                      Please wait until your limit resets, or contact support.
-                    </p>
-                  )}
                 </div>
+
+                <p className="text-center text-xs text-muted-foreground">
+                  Get unlimited emails instantly after upgrading
+                </p>
 
                 {/* Tier comparison */}
                 <div className="mt-6 p-4 rounded-lg bg-primary/5 border border-primary/20">

@@ -93,10 +93,11 @@ Deno.serve(async (req) => {
     }
 
     if (!settings.secretKey) {
-      console.error('Captcha enabled but no secret key configured');
+      // FAIL-SAFE: If captcha is enabled but misconfigured, allow through with warning
+      console.warn('⚠️ Captcha enabled but no secret key configured - allowing request (misconfigured)');
       return new Response(
-        JSON.stringify({ success: false, error: "Captcha misconfigured - no secret key" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ success: true, skipped: true, reason: "misconfigured - no secret key" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -136,11 +137,18 @@ Deno.serve(async (req) => {
       const errorCodes = verifyData['error-codes'] || [];
       console.error('reCAPTCHA verification failed with error codes:', errorCodes);
       
-      // Provide more specific error messages
-      let errorMessage = "reCAPTCHA verification failed";
+      // FAIL-SAFE: If secret key is invalid, allow through with warning (misconfigured)
       if (errorCodes.includes('invalid-input-secret')) {
-        errorMessage = "Invalid reCAPTCHA secret key configured";
-      } else if (errorCodes.includes('invalid-input-response')) {
+        console.warn('⚠️ Invalid reCAPTCHA secret key - allowing request (misconfigured)');
+        return new Response(
+          JSON.stringify({ success: true, skipped: true, reason: "misconfigured - invalid secret key" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      
+      // Provide more specific error messages for user-fixable errors
+      let errorMessage = "reCAPTCHA verification failed";
+      if (errorCodes.includes('invalid-input-response')) {
         errorMessage = "Invalid reCAPTCHA token - please try again";
       } else if (errorCodes.includes('timeout-or-duplicate')) {
         errorMessage = "reCAPTCHA token expired - please try again";

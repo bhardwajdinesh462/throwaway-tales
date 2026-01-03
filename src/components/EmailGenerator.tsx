@@ -495,6 +495,13 @@ const EmailGenerator = () => {
       return;
     }
 
+    // *** CRITICAL: Check daily limit before creating custom email ***
+    const currentLimit = user ? rateLimitSettings.max_requests : rateLimitSettings.guest_max_requests;
+    if (currentLimit !== 9999 && emailUsage.remaining <= 0) {
+      setShowLimitModal(true);
+      return;
+    }
+
     // Verify captcha before creating custom email
     if (!await verifyCaptcha('custom_email')) {
       return;
@@ -576,7 +583,13 @@ const EmailGenerator = () => {
                     animate={isGenerating ? { opacity: [1, 0.5, 1] } : {}}
                     transition={{ duration: 0.5, repeat: isGenerating ? Infinity : 0 }}
                   >
-                    {currentEmail?.address || "generating..."}
+                    {isGenerating 
+                      ? "Generating..." 
+                      : currentEmail?.address 
+                        ? currentEmail.address 
+                        : domains.length === 0 
+                          ? "Loading domains..." 
+                          : "Click Generate to create email"}
                   </motion.p>
                 </div>
               </motion.div>

@@ -6,29 +6,31 @@
  * - Uses fetch-based REST API when running on self-hosted PHP backend
  */
 
-// Explicit self-hosted flag (set during cPanel build)
+// Explicit self-hosted flag (set during cPanel build or via env var)
 const FORCE_SELF_HOSTED = import.meta.env.VITE_SELF_HOSTED === 'true' || 
                           Boolean(import.meta.env.VITE_PHP_API_URL);
 
-// Auto-detect PHP backend by checking if we're on a non-Lovable domain
-const isLovableDomain = typeof window !== 'undefined' && (
-  window.location.hostname.includes('lovable.app') ||
-  window.location.hostname.includes('lovableproject.com') ||
-  window.location.hostname === 'localhost'
-);
-
-// Detect which backend to use - FORCE_SELF_HOSTED takes priority
+// Detect which backend to use:
+// - Use Cloud backend when env vars are set AND not explicitly forcing self-hosted
+// - The hostname check was removed to ensure custom domains still use Cloud backend
 const USE_SUPABASE = !FORCE_SELF_HOSTED && Boolean(
-  isLovableDomain &&
   import.meta.env.VITE_SUPABASE_URL && 
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 );
 
-// PHP API URL - auto-detect from current domain or use env variable
+// PHP API URL - only used when self-hosted mode is active
 const PHP_API_URL = import.meta.env.VITE_PHP_API_URL || 
-  (typeof window !== 'undefined' && !isLovableDomain 
+  (FORCE_SELF_HOSTED && typeof window !== 'undefined' 
     ? `${window.location.origin}/api` 
-    : 'https://myserver.com/api');
+    : '');
+
+// Log backend mode on startup for debugging
+if (typeof window !== 'undefined') {
+  console.info(`[API] Backend mode: ${USE_SUPABASE ? 'Cloud (Supabase)' : 'Self-hosted (PHP)'}`);
+  if (!USE_SUPABASE && FORCE_SELF_HOSTED) {
+    console.info(`[API] PHP API URL: ${PHP_API_URL}`);
+  }
+}
 
 // Token storage keys for PHP backend
 const AUTH_TOKEN_KEY = 'nullsto_auth_token';

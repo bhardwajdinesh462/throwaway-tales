@@ -548,20 +548,34 @@ The following tables are automatically created by the installer:
 | `saved_emails` | User-saved emails |
 | `user_invoices` | Payment history |
 
-### IP & Email Blocking (v2.1)
+### IP & Email Blocking (v2.2)
 
-Block specific IP addresses and email patterns from registering:
+Block specific IP addresses and email patterns from registering and creating temp emails:
 
 1. **IP Blocking**: Go to **Admin → IP Blocking** to block suspicious IPs
    - Supports IPv4 and IPv6
    - Set expiration time or permanent blocks
    - Automatically captures registration IP on user signup
+   - **Bulk IP Blocking**: Upload CSV/TXT files or paste multiple IPs to block at once
+   - Blocked IPs are prevented from creating temp emails
 
 2. **Email Blocking**: Go to **Admin → Email Blocking** to block email patterns
    - Block exact emails: `spam@example.com`
    - Use wildcards: `*@spam.com` blocks entire domain
    - Use regex patterns for complex matching
    - Set temporary or permanent blocks
+   - Blocked patterns are checked during temp email creation
+
+3. **Registration IPs**: Go to **Admin → Registration IPs** to view all user registration IPs
+   - Filter and search by email, name, or IP
+   - Export data to CSV
+   - Quick-block suspicious IPs directly from the list
+   - Real-time updates when new users register
+
+All blocking features work in **real-time** and are checked during:
+- User registration
+- Temp email creation
+- API requests
 
 ## Support
 
@@ -574,6 +588,7 @@ For issues or questions:
 
 ## Version History
 
+- **v2.2** - Bulk IP blocking, email blocking in temp email creation, registration IPs viewer with export
 - **v2.1** - IP capture on registration, email/IP blocking admin tools
 - **v2.0** - Scheduled maintenance, uptime badges, comprehensive rate limits
 - **v1.0** - Initial release with full email functionality

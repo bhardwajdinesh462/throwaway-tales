@@ -79,6 +79,21 @@ function createTempEmail($params, $pdo, $userId) {
         return;
     }
 
+    // Check if the requester's IP is blocked
+    $clientIP = getClientIP();
+    if (isIPBlockedForEmail($pdo, $clientIP)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Your IP address has been blocked from creating emails.']);
+        return;
+    }
+
+    // Check if email address pattern is blocked
+    if (isEmailPatternBlocked($pdo, $address)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'This email address pattern is not allowed.']);
+        return;
+    }
+
     // Check if email already exists
     $stmt = $pdo->prepare('SELECT * FROM temp_emails WHERE address = ? AND is_active = 1 AND expires_at > NOW()');
     $stmt->execute([$address]);
@@ -272,6 +287,67 @@ function trackEmailCreation($pdo, $identifier) {
         ");
         $stmt->execute([generateUUID(), $identifier, $windowStart]);
     }
+}
+
+/**
+ * Check if IP is blocked for email creation
+ */
+function isIPBlockedForEmail($pdo, $ipAddress) {
+    if (empty($ipAddress)) return false;
+    
+    $stmt = $pdo->prepare("
+        SELECT 1 FROM blocked_ips 
+        WHERE ip_address = ? 
+        AND is_active = 1 
+        AND (expires_at IS NULL OR expires_at > NOW())
+        LIMIT 1
+    ");
+    $stmt->execute([$ipAddress]);
+    return (bool) $stmt->fetch();
+}
+
+/**
+ * Check if email pattern is blocked
+ */
+function isEmailPatternBlocked($pdo, $emailAddress) {
+    if (empty($emailAddress)) return false;
+    
+    // Get all active blocked patterns
+    $stmt = $pdo->prepare("
+        SELECT email_pattern, is_regex 
+        FROM blocked_emails 
+        WHERE is_active = 1 
+        AND (expires_at IS NULL OR expires_at > NOW())
+    ");
+    $stmt->execute();
+    $patterns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    foreach ($patterns as $pattern) {
+        if ($pattern['is_regex']) {
+            // Regex pattern matching
+            if (@preg_match('/' . $pattern['email_pattern'] . '/i', $emailAddress)) {
+                return true;
+            }
+        } else {
+            // Exact match or wildcard
+            $pat = strtolower($pattern['email_pattern']);
+            $email = strtolower($emailAddress);
+            
+            if ($email === $pat) {
+                return true;
+            }
+            
+            // Wildcard matching (e.g., *@spam.com)
+            if (strpos($pat, '*') !== false) {
+                $regexPattern = '/^' . str_replace(['*', '.'], ['.*', '\\.'], $pat) . '$/i';
+                if (preg_match($regexPattern, $email)) {
+                    return true;
+                }
+            }
+        }
+    }
+    
+    return false;
 }
 
 function isAdminRpc($params, $pdo) {

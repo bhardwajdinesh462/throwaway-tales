@@ -62,6 +62,26 @@ const AdminEmailBlocking = () => {
 
   useEffect(() => {
     loadBlockedEmails();
+    
+    // Setup realtime subscription
+    const channel = supabase
+      .channel('blocked-emails-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'blocked_emails'
+        },
+        () => {
+          loadBlockedEmails();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const loadBlockedEmails = async () => {

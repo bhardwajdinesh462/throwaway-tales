@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useSupabaseAuth";
-import { Shield, Ban, Plus, Trash2, Clock, AlertTriangle, RefreshCw } from "lucide-react";
+import { Shield, Ban, Plus, Trash2, Clock, AlertTriangle, RefreshCw, Upload } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -56,15 +56,42 @@ const AdminIPBlocking = () => {
   const [blockedIPs, setBlockedIPs] = useState<BlockedIP[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isBulkDialogOpen, setIsBulkDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Form state
   const [ipAddress, setIpAddress] = useState("");
   const [reason, setReason] = useState("");
   const [expiration, setExpiration] = useState("permanent");
+  
+  // Bulk form state
+  const [bulkIPs, setBulkIPs] = useState("");
+  const [bulkReason, setBulkReason] = useState("");
+  const [bulkExpiration, setBulkExpiration] = useState("permanent");
 
   useEffect(() => {
     loadBlockedIPs();
+    
+    // Setup realtime subscription
+    const channel = supabase
+      .channel('blocked-ips-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'blocked_ips'
+        },
+        () => {
+          loadBlockedIPs();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const loadBlockedIPs = async () => {
@@ -160,6 +187,95 @@ const AdminIPBlocking = () => {
     }
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      // Parse CSV or plain text (one IP per line)
+      const ips = content
+        .split(/[\n,]/)
+        .map(ip => ip.trim())
+        .filter(ip => ip && !ip.toLowerCase().includes('ip'));
+      setBulkIPs(ips.join('\n'));
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleBulkBlock = async () => {
+    if (!user) {
+      toast.error("You must be logged in");
+      return;
+    }
+
+    const ips = bulkIPs
+      .split('\n')
+      .map(ip => ip.trim())
+      .filter(ip => ip);
+
+    if (ips.length === 0) {
+      toast.error("Please enter at least one IP address");
+      return;
+    }
+
+    // Validate all IPs
+    const invalidIPs: string[] = [];
+    const validIPs: string[] = [];
+    
+    for (const ip of ips) {
+      try {
+        ipSchema.parse(ip);
+        validIPs.push(ip);
+      } catch {
+        invalidIPs.push(ip);
+      }
+    }
+
+    if (invalidIPs.length > 0) {
+      toast.warning(`${invalidIPs.length} invalid IPs skipped: ${invalidIPs.slice(0, 3).join(', ')}${invalidIPs.length > 3 ? '...' : ''}`);
+    }
+
+    if (validIPs.length === 0) {
+      toast.error("No valid IP addresses to block");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    let expiresAt: string | null = null;
+    if (bulkExpiration !== "permanent") {
+      const hours = parseInt(bulkExpiration);
+      expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+    }
+
+    const insertData = validIPs.map(ip => ({
+      ip_address: ip,
+      reason: bulkReason.trim() || null,
+      blocked_by: user.id,
+      expires_at: expiresAt,
+    }));
+
+    const { error } = await supabase
+      .from("blocked_ips")
+      .upsert(insertData, { onConflict: 'ip_address' });
+
+    if (error) {
+      toast.error("Failed to block IPs: " + error.message);
+    } else {
+      toast.success(`Successfully blocked ${validIPs.length} IP addresses`);
+      setBulkIPs("");
+      setBulkReason("");
+      setBulkExpiration("permanent");
+      setIsBulkDialogOpen(false);
+      loadBlockedIPs();
+    }
+
+    setIsSubmitting(false);
+  };
+
   const getExpirationStatus = (expiresAt: string | null, isActive: boolean) => {
     if (!isActive) {
       return <Badge variant="secondary">Inactive</Badge>;
@@ -188,22 +304,109 @@ const AdminIPBlocking = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Ban className="w-8 h-8 text-destructive" />
+          <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
+            <Ban className="w-6 h-6 sm:w-8 sm:h-8 text-destructive" />
             IP Blocking
           </h1>
-          <p className="text-muted-foreground">Block suspicious IP addresses from accessing the site</p>
+          <p className="text-muted-foreground text-sm sm:text-base">Block suspicious IP addresses from accessing the site</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={loadBlockedIPs}>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={loadBlockedIPs} size="sm">
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
+          
+          {/* Bulk Block Dialog */}
+          <Dialog open={isBulkDialogOpen} onOpenChange={setIsBulkDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Upload className="w-4 h-4 mr-2" />
+                Bulk Block
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Upload className="w-5 h-5 text-destructive" />
+                  Bulk Block IPs
+                </DialogTitle>
+                <DialogDescription>
+                  Block multiple IP addresses at once. Enter one IP per line or upload a CSV file.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>IP Addresses (one per line)</Label>
+                  <Textarea
+                    value={bulkIPs}
+                    onChange={(e) => setBulkIPs(e.target.value)}
+                    placeholder="192.168.1.1&#10;10.0.0.1&#10;172.16.0.1"
+                    rows={6}
+                    className="font-mono text-sm"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">or</span>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept=".csv,.txt"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Upload CSV/TXT
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  <Label>Reason (optional)</Label>
+                  <Input
+                    value={bulkReason}
+                    onChange={(e) => setBulkReason(e.target.value)}
+                    placeholder="Reason for blocking..."
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Block Duration</Label>
+                  <Select value={bulkExpiration} onValueChange={setBulkExpiration}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 hour</SelectItem>
+                      <SelectItem value="24">24 hours</SelectItem>
+                      <SelectItem value="168">7 days</SelectItem>
+                      <SelectItem value="720">30 days</SelectItem>
+                      <SelectItem value="permanent">Permanent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsBulkDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  onClick={handleBulkBlock}
+                  disabled={!bulkIPs.trim() || isSubmitting}
+                >
+                  {isSubmitting ? "Blocking..." : "Block All"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          
+          {/* Single Block Dialog */}
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button>
+              <Button size="sm">
                 <Plus className="w-4 h-4 mr-2" />
                 Block IP
               </Button>

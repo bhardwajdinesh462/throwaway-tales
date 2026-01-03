@@ -97,34 +97,24 @@ const AdminPayments = () => {
 
       if (isPhpBackend) {
         await api.admin.updateSettings('payment_settings', settingsJson);
-        toast.success("Payment settings saved!");
       } else {
-        const { data: existing } = await supabase
+        const { error } = await supabase
           .from('app_settings')
-          .select('id')
-          .eq('key', 'payment_settings')
-          .maybeSingle();
-
-        let error;
-        if (existing) {
-          const result = await supabase
-            .from('app_settings')
-            .update({ value: settingsJson, updated_at: new Date().toISOString() })
-            .eq('key', 'payment_settings');
-          error = result.error;
-        } else {
-          const result = await supabase
-            .from('app_settings')
-            .insert([{ key: 'payment_settings', value: settingsJson }]);
-          error = result.error;
-        }
+          .upsert(
+            { key: 'payment_settings', value: settingsJson, updated_at: new Date().toISOString() },
+            { onConflict: 'key' }
+          );
 
         if (error) {
+          console.error('Error saving settings:', error);
           toast.error('Failed to save settings');
-        } else {
-          toast.success("Payment settings saved!");
+          return;
         }
       }
+
+      // Dispatch event to notify other components
+      window.dispatchEvent(new CustomEvent('settings-changed'));
+      toast.success("Payment settings saved!");
     } catch (e) {
       console.error('Error saving settings:', e);
       toast.error('Failed to save settings');

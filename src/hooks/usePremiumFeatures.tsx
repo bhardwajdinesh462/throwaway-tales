@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -58,16 +58,19 @@ export const usePremiumFeatures = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
-  const [lastFetchTime, setLastFetchTime] = useState<number>(0);
+  
+  // Use refs for values that shouldn't trigger re-renders/effect loops
+  const lastFetchTimeRef = useRef<number>(0);
+  const lastUserIdRef = useRef<string | null>(null);
 
   const fetchSubscription = useCallback(async (forceRefresh = false) => {
     // Prevent rapid refetching unless forced - reduced debounce to 500ms for responsiveness
     const now = Date.now();
-    if (!forceRefresh && now - lastFetchTime < 500) {
+    if (!forceRefresh && now - lastFetchTimeRef.current < 500) {
       console.log('[PremiumFeatures] Skipping fetch - too soon');
       return;
     }
-    setLastFetchTime(now);
+    lastFetchTimeRef.current = now;
 
     if (!user) {
       console.log('[PremiumFeatures] No user, setting free tier');
@@ -76,6 +79,7 @@ export const usePremiumFeatures = () => {
       setExpiresAt(null);
       setSubscriptionId(null);
       setIsLoading(false);
+      lastUserIdRef.current = null;
       return;
     }
 
@@ -151,6 +155,8 @@ export const usePremiumFeatures = () => {
         setExpiresAt(null);
         setSubscriptionId(null);
       }
+      
+      lastUserIdRef.current = user.id;
     } catch (err) {
       console.error('[PremiumFeatures] Error checking subscription:', err);
       setTier('free');
@@ -158,12 +164,19 @@ export const usePremiumFeatures = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [user, lastFetchTime]);
+  }, [user]);
 
-  // Initial fetch
+  // Initial fetch and refetch when user changes (critical for auth fix!)
   useEffect(() => {
-    fetchSubscription();
-  }, [fetchSubscription]);
+    // If user changed, force refresh immediately
+    if (user?.id !== lastUserIdRef.current) {
+      console.log('[PremiumFeatures] User changed, forcing refresh:', lastUserIdRef.current, '->', user?.id);
+      lastFetchTimeRef.current = 0; // Reset debounce
+      fetchSubscription(true);
+    } else {
+      fetchSubscription();
+    }
+  }, [user?.id, fetchSubscription]);
 
   // Real-time subscription to user_subscriptions changes
   useEffect(() => {
@@ -182,7 +195,7 @@ export const usePremiumFeatures = () => {
         (payload) => {
           console.log('[PremiumFeatures] Subscription changed via realtime:', payload);
           // Force refetch immediately when subscription changes
-          setLastFetchTime(0); // Reset debounce to allow immediate fetch
+          lastFetchTimeRef.current = 0; // Reset debounce to allow immediate fetch
           fetchSubscription(true);
         }
       )
@@ -207,7 +220,7 @@ export const usePremiumFeatures = () => {
         (payload) => {
           console.log('[PremiumFeatures] Subscription tiers changed via realtime:', payload);
           // Force refetch immediately when tier definitions change
-          setLastFetchTime(0);
+          lastFetchTimeRef.current = 0;
           fetchSubscription(true);
         }
       )

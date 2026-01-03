@@ -8,8 +8,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
 import { supabase } from "@/integrations/supabase/client";
-import { Settings, Save } from "lucide-react";
+import { Settings, Save, AlertTriangle, Eye } from "lucide-react";
 import { useSettings } from "@/contexts/SettingsContext";
+import { useLimitModalSettings, defaultLimitModalConfig, LimitModalConfig } from "@/hooks/useLimitModalSettings";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const GENERAL_SETTINGS_KEY = 'trashmails_general_settings';
 
@@ -41,6 +49,16 @@ const AdminGeneralSettings = () => {
   const [settings, setSettings] = useState<GeneralSettings>(defaultSettings);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [showPreview, setShowPreview] = useState(false);
+
+  // Limit modal settings
+  const {
+    config: limitModalConfig,
+    isLoading: isLoadingModal,
+    isSaving: isSavingModal,
+    updateConfig: updateModalConfig,
+    saveConfig: saveModalConfig,
+  } = useLimitModalSettings();
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -119,6 +137,15 @@ const AdminGeneralSettings = () => {
       toast.error('Failed to save settings');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveLimitModal = async () => {
+    const success = await saveModalConfig(limitModalConfig);
+    if (success) {
+      toast.success("Limit modal settings saved!");
+    } else {
+      toast.error("Failed to save limit modal settings");
     }
   };
 
@@ -244,6 +271,146 @@ const AdminGeneralSettings = () => {
                   onChange={(e) => updateSetting('dateFormat', e.target.value)}
                 />
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Email Limit Modal Configuration */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-amber-500" />
+                  Email Limit Modal
+                </CardTitle>
+                <CardDescription>Configure the popup shown when users reach their daily email limit</CardDescription>
+              </div>
+              <Button onClick={handleSaveLimitModal} disabled={isSavingModal} size="sm">
+                <Save className="w-4 h-4 mr-2" />
+                {isSavingModal ? 'Saving...' : 'Save Modal Settings'}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Enable Limit Modal</Label>
+                <p className="text-xs text-muted-foreground">Show popup when users hit their daily email limit</p>
+              </div>
+              <Switch
+                checked={limitModalConfig.enabled}
+                onCheckedChange={(checked) => updateModalConfig('enabled', checked)}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="modalTitle">Modal Title</Label>
+                <Input
+                  id="modalTitle"
+                  value={limitModalConfig.title}
+                  onChange={(e) => updateModalConfig('title', e.target.value)}
+                  placeholder="Daily Limit Reached"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ctaText">CTA Button Text</Label>
+                <Input
+                  id="ctaText"
+                  value={limitModalConfig.ctaText}
+                  onChange={(e) => updateModalConfig('ctaText', e.target.value)}
+                  placeholder="Upgrade Now"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="modalDescription">Description</Label>
+              <Textarea
+                id="modalDescription"
+                value={limitModalConfig.description}
+                onChange={(e) => updateModalConfig('description', e.target.value)}
+                placeholder="You've used all {limit} temporary emails for today"
+                rows={2}
+              />
+              <p className="text-xs text-muted-foreground">
+                Use {'{limit}'} to insert the user's email limit dynamically
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Modal Theme</Label>
+              <Select
+                value={limitModalConfig.theme}
+                onValueChange={(value) => updateModalConfig('theme', value as LimitModalConfig['theme'])}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Default (Amber Warning)</SelectItem>
+                  <SelectItem value="urgent">Urgent (Red Alert)</SelectItem>
+                  <SelectItem value="friendly">Friendly (Blue Info)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center justify-between p-4 border rounded-lg bg-secondary/30">
+                <div className="space-y-0.5">
+                  <Label>Show Countdown Timer</Label>
+                  <p className="text-xs text-muted-foreground">Display time until limit resets</p>
+                </div>
+                <Switch
+                  checked={limitModalConfig.showTimer}
+                  onCheckedChange={(checked) => updateModalConfig('showTimer', checked)}
+                />
+              </div>
+              <div className="flex items-center justify-between p-4 border rounded-lg bg-secondary/30">
+                <div className="space-y-0.5">
+                  <Label>Show Premium Benefits</Label>
+                  <p className="text-xs text-muted-foreground">List benefits of upgrading</p>
+                </div>
+                <Switch
+                  checked={limitModalConfig.showBenefits}
+                  onCheckedChange={(checked) => updateModalConfig('showBenefits', checked)}
+                />
+              </div>
+            </div>
+
+            {/* Preview */}
+            <div className="mt-4 p-4 border rounded-lg bg-muted/30">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-medium text-sm">Preview</h4>
+                <Button variant="outline" size="sm" onClick={() => setShowPreview(!showPreview)}>
+                  <Eye className="w-4 h-4 mr-2" />
+                  {showPreview ? 'Hide' : 'Show'} Preview
+                </Button>
+              </div>
+              {showPreview && (
+                <div className="p-4 bg-card border rounded-lg text-center">
+                  <div className={`inline-flex p-3 rounded-full mb-3 ${
+                    limitModalConfig.theme === 'urgent' ? 'bg-red-500/20' :
+                    limitModalConfig.theme === 'friendly' ? 'bg-blue-500/20' :
+                    'bg-amber-500/20'
+                  }`}>
+                    <AlertTriangle className={`w-6 h-6 ${
+                      limitModalConfig.theme === 'urgent' ? 'text-red-500' :
+                      limitModalConfig.theme === 'friendly' ? 'text-blue-500' :
+                      'text-amber-500'
+                    }`} />
+                  </div>
+                  <h3 className="font-bold text-lg">{limitModalConfig.title}</h3>
+                  <p className="text-muted-foreground text-sm mt-1">
+                    {limitModalConfig.description.replace('{limit}', '5')}
+                  </p>
+                  {limitModalConfig.showTimer && (
+                    <div className="mt-3 text-primary font-mono">23h 45m 30s</div>
+                  )}
+                  <Button className="mt-4" size="sm">{limitModalConfig.ctaText}</Button>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

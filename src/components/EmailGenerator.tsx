@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles, User, Mail, Zap, Clock } from "lucide-react";
+import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles, User, Mail, Zap, Clock, Crown } from "lucide-react";
 import { useAdminRole } from "@/hooks/useAdminRole";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { tooltips } from "@/lib/tooltips";
 import EmailLimitBanner from "@/components/EmailLimitBanner";
 import EmailLimitModal from "@/components/EmailLimitModal";
+import { usePremiumFeatures } from "@/hooks/usePremiumFeatures";
 
 interface RateLimitSettings {
   max_requests: number;
@@ -50,6 +51,7 @@ const EmailGenerator = () => {
   const { user } = useAuth();
   const { isAdmin } = useAdminRole();
   const { t } = useLanguage();
+  const { tier, limits, isPremium, getTierBadgeColor } = usePremiumFeatures();
   const {
     domains,
     currentEmail,
@@ -657,6 +659,35 @@ const EmailGenerator = () => {
                     </Button>
                   )}
                 </div>
+
+                {/* Tier Badge */}
+                {user && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-white text-[11px] font-medium cursor-help ${getTierBadgeColor(tier)}`}>
+                        {isPremium && <Crown className="w-3 h-3" />}
+                        <span className="capitalize">{tier}</span>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <div className="text-xs space-y-1">
+                        <p className="font-medium flex items-center gap-1">
+                          <Crown className="w-3 h-3" />
+                          {tier.charAt(0).toUpperCase() + tier.slice(1)} Plan
+                        </p>
+                        <p className="text-muted-foreground">
+                          {limits.maxTempEmails === -1 ? 'Unlimited' : limits.maxTempEmails} emails/day
+                        </p>
+                        <p className="text-muted-foreground">
+                          {limits.emailExpiryHours}h email expiry
+                        </p>
+                        {!isPremium && (
+                          <p className="text-primary mt-1">Upgrade for more features!</p>
+                        )}
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
 
                 {/* Usage Counter - Inline with Tooltip */}
                 <Tooltip>

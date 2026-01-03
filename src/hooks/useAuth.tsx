@@ -1,5 +1,5 @@
 import { useState, useEffect, createContext, useContext, ReactNode, useCallback } from 'react';
-import { api, User, Session, clearAuthTokens, getAuthToken } from '@/lib/api';
+import { api, User, Session, setAuthTokens } from '@/lib/api';
 import { toast } from 'sonner';
 
 interface Profile {
@@ -59,21 +59,50 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     let isMounted = true;
 
-    const initAuth = async () => {
-      // Check if we have a stored token
-      const token = getAuthToken();
-      if (!token) {
+    // Set up auth state change listener FIRST (critical for Cloud mode!)
+    const { unsubscribe } = api.auth.onAuthStateChange((event, newSession) => {
+      if (!isMounted) return;
+      
+      console.log('[Auth] State change:', event, newSession?.user?.email);
+      
+      if (event === 'SIGNED_OUT' || !newSession) {
+        setUser(null);
+        setSession(null);
+        setProfile(null);
+        setIsAdmin(false);
         setIsLoading(false);
         return;
       }
 
-      // Validate session with backend
+      // SIGNED_IN, TOKEN_REFRESHED, INITIAL_SESSION
+      const sessionUser = newSession.user;
+      setUser(sessionUser);
+      setSession(newSession);
+      
+      // Fetch profile and admin status (use setTimeout to avoid deadlock)
+      if (sessionUser?.id) {
+        setTimeout(() => {
+          if (isMounted) {
+            Promise.all([
+              fetchProfile(sessionUser.id),
+              checkAdminStatus(sessionUser.id),
+            ]).finally(() => {
+              if (isMounted) setIsLoading(false);
+            });
+          }
+        }, 0);
+      } else {
+        setIsLoading(false);
+      }
+    });
+
+    // THEN check for existing session
+    const initAuth = async () => {
       const { user: sessionUser, session: sessionData, error } = await api.auth.getSession();
 
       if (!isMounted) return;
 
       if (error || !sessionUser) {
-        clearAuthTokens();
         setIsLoading(false);
         return;
       }
@@ -94,7 +123,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     initAuth();
 
-    // Check for OAuth callback
+    // Check for OAuth callback (PHP backend only)
     const urlParams = new URLSearchParams(window.location.search);
     const authToken = urlParams.get('token');
     const refreshToken = urlParams.get('refresh_token');
@@ -112,6 +141,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     return () => {
       isMounted = false;
+      unsubscribe();
     };
   }, [fetchProfile, checkAdminStatus]);
 

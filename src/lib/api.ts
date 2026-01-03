@@ -79,6 +79,23 @@ export interface AuthResponse {
 
 export const getAuthToken = (): string | null => {
   try {
+    // For Cloud mode, check Supabase's token storage format first
+    if (USE_SUPABASE) {
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+      if (projectId) {
+        const supabaseKey = `sb-${projectId}-auth-token`;
+        const supabaseSession = localStorage.getItem(supabaseKey);
+        if (supabaseSession) {
+          try {
+            const parsed = JSON.parse(supabaseSession);
+            return parsed?.access_token || null;
+          } catch {
+            // Invalid JSON, continue to fallback
+          }
+        }
+      }
+    }
+    // Fallback to PHP backend token
     return localStorage.getItem(AUTH_TOKEN_KEY);
   } catch {
     return null;

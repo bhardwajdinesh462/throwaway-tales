@@ -105,6 +105,7 @@ const AdminSettingsOverview = lazyWithRetry(() => import("./pages/admin/AdminSet
 const AdminRegistration = lazyWithRetry(() => import("./pages/admin/AdminRegistration"));
 const AdminPayments = lazyWithRetry(() => import("./pages/admin/AdminPayments"));
 const AdminIPBlocking = lazyWithRetry(() => import("./pages/admin/AdminIPBlocking"));
+const AdminEmailBlocking = lazyWithRetry(() => import("./pages/admin/AdminEmailBlocking"));
 const AdminSubscriptions = lazyWithRetry(() => import("./pages/admin/AdminSubscriptions"));
 const AdminEmailRestrictions = lazyWithRetry(() => import("./pages/admin/AdminEmailRestrictions"));
 const AdminMailboxes = lazyWithRetry(() => import("./pages/admin/AdminMailboxes"));
@@ -311,6 +312,7 @@ const App = () => (
                             <Route path="registration" element={<AdminRegistration />} />
                             <Route path="payments" element={<AdminPayments />} />
                             <Route path="ip-blocking" element={<AdminIPBlocking />} />
+                            <Route path="email-blocking" element={<AdminEmailBlocking />} />
                             <Route path="admins" element={<AdminAdmins />} />
                             <Route path="seo" element={<AdminSEO />} />
                             <Route path="blog-settings" element={<AdminBlogSettings />} />

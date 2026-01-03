@@ -50,6 +50,23 @@ function handleSignup($body, $pdo, $config) {
     $displayName = $body['display_name'] ?? null;
     $captchaToken = $body['captcha_token'] ?? null;
 
+    // Get client IP
+    $clientIp = getClientIP();
+
+    // Check if IP is blocked
+    if (isIPBlocked($pdo, $clientIp)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Access denied. Your IP address has been blocked.']);
+        return;
+    }
+
+    // Check if email is blocked
+    if (isEmailBlocked($pdo, $email)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'This email address is not allowed for registration.']);
+        return;
+    }
+
     // Verify CAPTCHA if enabled for registration
     if (!verifyCaptchaIfEnabled($pdo, $config, $captchaToken, 'registration', 'signup')) {
         http_response_code(400);
@@ -93,12 +110,12 @@ function handleSignup($body, $pdo, $config) {
         ');
         $stmt->execute([$userId, $email, $hashedPassword, $displayName, $now, $now]);
 
-        // Create profile
+        // Create profile with registration IP
         $stmt = $pdo->prepare('
-            INSERT INTO profiles (id, user_id, email, display_name, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO profiles (id, user_id, email, display_name, registration_ip, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ');
-        $stmt->execute([generateUUID(), $userId, $email, $displayName, $now, $now]);
+        $stmt->execute([generateUUID(), $userId, $email, $displayName, $clientIp, $now, $now]);
 
         // Create default user role
         $stmt = $pdo->prepare('
@@ -762,4 +779,94 @@ function base32Decode($input) {
     }
     
     return $output;
+}
+
+/**
+ * Get client IP address
+ */
+function getClientIP() {
+    $headers = [
+        'HTTP_CF_CONNECTING_IP',     // Cloudflare
+        'HTTP_X_FORWARDED_FOR',      // Proxies
+        'HTTP_X_REAL_IP',            // Nginx
+        'HTTP_CLIENT_IP',
+        'REMOTE_ADDR'
+    ];
+    
+    foreach ($headers as $header) {
+        if (!empty($_SERVER[$header])) {
+            $ips = explode(',', $_SERVER[$header]);
+            $ip = trim($ips[0]);
+            if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                return $ip;
+            }
+        }
+    }
+    
+    return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+}
+
+/**
+ * Check if IP is blocked
+ */
+function isIPBlocked($pdo, $ip) {
+    try {
+        $stmt = $pdo->prepare('
+            SELECT id FROM blocked_ips 
+            WHERE ip_address = ? 
+            AND is_active = 1 
+            AND (expires_at IS NULL OR expires_at > NOW())
+            LIMIT 1
+        ');
+        $stmt->execute([$ip]);
+        return $stmt->fetch() !== false;
+    } catch (PDOException $e) {
+        // Table might not exist - continue
+        return false;
+    }
+}
+
+/**
+ * Check if email is blocked
+ */
+function isEmailBlocked($pdo, $email) {
+    try {
+        $stmt = $pdo->prepare('
+            SELECT email_pattern, is_regex FROM blocked_emails 
+            WHERE is_active = 1 
+            AND (expires_at IS NULL OR expires_at > NOW())
+        ');
+        $stmt->execute();
+        $patterns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        foreach ($patterns as $pattern) {
+            if ($pattern['is_regex']) {
+                // Regex pattern matching
+                if (@preg_match('/' . $pattern['email_pattern'] . '/i', $email)) {
+                    return true;
+                }
+            } else {
+                // Wildcard or exact match
+                $patternValue = strtolower($pattern['email_pattern']);
+                $emailLower = strtolower($email);
+                
+                if ($patternValue === $emailLower) {
+                    return true;
+                }
+                
+                // Convert wildcard to regex
+                if (strpos($patternValue, '*') !== false) {
+                    $regex = '/^' . str_replace(['*', '.'], ['.*', '\\.'], $patternValue) . '$/i';
+                    if (preg_match($regex, $email)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        return false;
+    } catch (PDOException $e) {
+        // Table might not exist - continue
+        return false;
+    }
 }

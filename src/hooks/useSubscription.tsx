@@ -188,34 +188,24 @@ export const useSubscription = () => {
       return true;
     }
 
-    // For paid tiers, this would redirect to Stripe
-    toast.info('Payment integration coming soon! For now, enjoy Pro features free.');
-    
-    // Temporary: Give them the tier for demo purposes
-    const endDate = new Date();
-    endDate.setMonth(endDate.getMonth() + 1);
-    
-    const { error } = await supabase
-      .from('user_subscriptions')
-      .upsert({
-        user_id: user.id,
-        tier_id: tierId,
-        status: 'active',
-        current_period_start: new Date().toISOString(),
-        current_period_end: endDate.toISOString(),
-      }, {
-        onConflict: 'user_id',
-      });
-    
-    if (error) {
-      toast.error('Failed to update subscription');
-      return false;
-    }
-    
-    await fetchSubscription();
-    toast.success(`Upgraded to ${tier.name}!`);
-    return true;
-  }, [user, tiers, fetchSubscription]);
+    // For paid tiers, show Telegram contact message - don't upgrade without payment
+    toast.info(
+      <div className="space-y-2">
+        <p className="font-medium">Premium plans require payment setup!</p>
+        <p className="text-sm">Contact us on Telegram to upgrade your account:</p>
+        <a 
+          href="https://t.me/digitalselling023" 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          className="text-primary underline font-medium block"
+        >
+          t.me/digitalselling023
+        </a>
+      </div>,
+      { duration: 15000 }
+    );
+    return false;
+  }, [user, tiers]);
 
   // Cancel subscription
   const cancelSubscription = useCallback(async () => {

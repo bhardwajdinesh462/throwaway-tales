@@ -97,11 +97,11 @@ const FeatureGate = ({
       
       <Button 
         variant="neon"
-        onClick={() => navigate('/pricing')}
+        onClick={() => window.open('https://t.me/digitalselling023', '_blank')}
         className="min-w-[160px]"
       >
         <Crown className="w-4 h-4 mr-2" />
-        Upgrade Now
+        Contact to Upgrade
       </Button>
     </div>
   );

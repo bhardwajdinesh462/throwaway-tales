@@ -393,12 +393,21 @@ const EmailGenerator = () => {
     // Pre-flight check: Verify user hasn't reached their limit before making API call
     const currentLimit = user ? rateLimitSettings.max_requests : rateLimitSettings.guest_max_requests;
     if (currentLimit !== 9999 && emailUsage.remaining <= 0) {
-      toast.error("You've reached your daily email limit. Upgrade your plan for more emails!", {
-        action: {
-          label: "Upgrade",
-          onClick: () => window.location.href = "/pricing",
-        },
-      });
+      toast.error(
+        <div className="space-y-2">
+          <p className="font-medium">You've reached your daily email limit!</p>
+          <p className="text-sm">Contact us on Telegram to upgrade:</p>
+          <a 
+            href="https://t.me/digitalselling023" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-primary underline font-medium"
+          >
+            t.me/digitalselling023
+          </a>
+        </div>,
+        { duration: 10000 }
+      );
       return;
     }
 

@@ -19,9 +19,9 @@ const UpgradePrompt = ({ isOpen, onClose, feature, requiredTier = 'pro' }: Upgra
     { name: 'business', label: 'Business', icon: Crown, color: 'text-amber-500' },
   ];
 
-  const handleUpgrade = (tier: SubscriptionTier) => {
-    // Redirect to pricing page for Stripe checkout
-    window.location.href = '/pricing';
+  const handleUpgrade = () => {
+    // Open Telegram contact for upgrades
+    window.open('https://t.me/digitalselling023', '_blank');
     onClose();
   };
 
@@ -159,9 +159,9 @@ const UpgradePrompt = ({ isOpen, onClose, feature, requiredTier = 'pro' }: Upgra
                           <Button
                             variant={isRecommended ? 'default' : 'outline'}
                             className="w-full"
-                            onClick={() => handleUpgrade(tierInfo.name)}
+                            onClick={() => handleUpgrade()}
                           >
-                            Upgrade to {tierInfo.label}
+                            Contact to Upgrade
                           </Button>
                         )}
                       </motion.div>

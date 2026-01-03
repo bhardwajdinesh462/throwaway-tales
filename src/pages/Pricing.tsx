@@ -88,7 +88,21 @@ const PricingPage = () => {
     }
 
     if (!stripeEnabled && !paypalEnabled) {
-      toast.error('Payment methods are not configured. Please contact support.');
+      toast.info(
+        <div className="space-y-2">
+          <p className="font-medium">Payment methods coming soon!</p>
+          <p className="text-sm">Contact us on Telegram to upgrade your account:</p>
+          <a 
+            href="https://t.me/digitalselling023" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-primary underline font-medium block"
+          >
+            t.me/digitalselling023
+          </a>
+        </div>,
+        { duration: 15000 }
+      );
       return;
     }
 

@@ -299,6 +299,39 @@ export const useSubscription = () => {
     };
   }, [fetchTiers]);
 
+  // Subscribe to realtime subscription changes for instant tier upgrades
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('user_subscription_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_subscriptions',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          console.log('[useSubscription] Subscription realtime event:', {
+            event: payload.eventType,
+            new: payload.new,
+            timestamp: new Date().toISOString(),
+          });
+          // Refetch subscription when it changes (e.g., after payment)
+          fetchSubscription();
+        }
+      )
+      .subscribe((status) => {
+        console.log('[useSubscription] User subscription realtime status:', status);
+      });
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [user, fetchSubscription]);
+
   return {
     tiers,
     subscription,

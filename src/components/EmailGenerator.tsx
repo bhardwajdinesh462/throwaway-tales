@@ -29,6 +29,8 @@ import EmailExpiryTimer from "@/components/EmailExpiryTimer";
 import { useRecaptcha } from "@/hooks/useRecaptcha";
 import { supabase } from "@/integrations/supabase/client";
 import { tooltips } from "@/lib/tooltips";
+import EmailLimitBanner from "@/components/EmailLimitBanner";
+import EmailLimitModal from "@/components/EmailLimitModal";
 
 interface RateLimitSettings {
   max_requests: number;
@@ -68,6 +70,7 @@ const EmailGenerator = () => {
   const [customUsername, setCustomUsername] = useState("");
   const [selectedCustomDomain, setSelectedCustomDomain] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
   const [rateLimitSettings, setRateLimitSettings] = useState<RateLimitSettings>({
     max_requests: 30,
     window_minutes: 60,
@@ -393,21 +396,8 @@ const EmailGenerator = () => {
     // Pre-flight check: Verify user hasn't reached their limit before making API call
     const currentLimit = user ? rateLimitSettings.max_requests : rateLimitSettings.guest_max_requests;
     if (currentLimit !== 9999 && emailUsage.remaining <= 0) {
-      toast.error(
-        <div className="space-y-2">
-          <p className="font-medium">You've reached your daily email limit!</p>
-          <p className="text-sm">Contact us on Telegram to upgrade:</p>
-          <a 
-            href="https://t.me/digitalselling023" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="text-primary underline font-medium"
-          >
-            t.me/digitalselling023
-          </a>
-        </div>,
-        { duration: 10000 }
-      );
+      // Show the limit modal instead of just a toast
+      setShowLimitModal(true);
       return;
     }
 
@@ -530,6 +520,22 @@ const EmailGenerator = () => {
       className="w-full max-w-3xl mx-auto"
     >
       <div className="relative">
+        {/* Email Limit Banner */}
+        <EmailLimitBanner 
+          used={emailUsage.used}
+          limit={emailUsage.limit}
+          resetAt={emailUsage.resetAt}
+          onUpgrade={() => window.location.href = '/pricing'}
+        />
+
+        {/* Email Limit Modal */}
+        <EmailLimitModal
+          isOpen={showLimitModal}
+          onClose={() => setShowLimitModal(false)}
+          resetAt={emailUsage.resetAt}
+          limit={emailUsage.limit}
+        />
+
         {/* Decorative Elements */}
         <div className="absolute -top-4 -left-4 w-24 h-24 bg-primary/10 rounded-full blur-2xl" />
         <div className="absolute -bottom-4 -right-4 w-32 h-32 bg-accent/10 rounded-full blur-2xl" />

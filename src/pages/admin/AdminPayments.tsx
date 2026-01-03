@@ -6,9 +6,16 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { CreditCard, Save, AlertTriangle, CheckCircle, ExternalLink, Key, Wallet } from "lucide-react";
+import { CreditCard, Save, AlertTriangle, CheckCircle, ExternalLink, Key, Wallet, MessageCircle } from "lucide-react";
 import { api } from "@/lib/api";
 
 interface PaymentSettings {
@@ -21,6 +28,9 @@ interface PaymentSettings {
   paypalClientSecret: string;
   paypalWebhookId: string;
   paypalMode: 'sandbox' | 'live';
+  telegramUpgradeEnabled: boolean;
+  telegramLink: string;
+  defaultPaymentMethod: 'stripe' | 'paypal' | 'telegram';
   testMode: boolean;
   currency: string;
 }
@@ -35,6 +45,9 @@ const defaultSettings: PaymentSettings = {
   paypalClientSecret: '',
   paypalWebhookId: '',
   paypalMode: 'sandbox',
+  telegramUpgradeEnabled: true,
+  telegramLink: 'https://t.me/digitalselling023',
+  defaultPaymentMethod: 'telegram',
   testMode: true,
   currency: 'usd',
 };
@@ -312,9 +325,63 @@ const AdminPayments = () => {
         <TabsContent value="general" className="space-y-4">
           <Card>
             <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageCircle className="w-5 h-5" />
+                Telegram Upgrade Option
+              </CardTitle>
+              <CardDescription>Allow users to contact via Telegram to upgrade</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/30 border border-border">
+                <div>
+                  <Label className="text-base font-medium">Enable Telegram Upgrades</Label>
+                  <p className="text-sm text-muted-foreground">Show Telegram contact option for manual upgrades</p>
+                </div>
+                <Switch
+                  checked={settings.telegramUpgradeEnabled}
+                  onCheckedChange={(checked) => updateSetting('telegramUpgradeEnabled', checked)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Telegram Link</Label>
+                <Input
+                  value={settings.telegramLink}
+                  onChange={(e) => updateSetting('telegramLink', e.target.value)}
+                  placeholder="https://t.me/yourusername"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Your Telegram contact link for upgrade inquiries
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>General Settings</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Default Payment Method</Label>
+                <Select
+                  value={settings.defaultPaymentMethod}
+                  onValueChange={(value: 'stripe' | 'paypal' | 'telegram') => updateSetting('defaultPaymentMethod', value)}
+                >
+                  <SelectTrigger className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="stripe">Stripe (Card)</SelectItem>
+                    <SelectItem value="paypal">PayPal</SelectItem>
+                    <SelectItem value="telegram">Telegram (Manual)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  The pre-selected payment method on the pricing page
+                </p>
+              </div>
+
               <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/30 border border-border">
                 <div>
                   <Label className="text-base font-medium">Test Mode</Label>
@@ -353,7 +420,7 @@ const AdminPayments = () => {
               <CardTitle>Integration Status</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <div className="p-4 rounded-lg bg-secondary/30 border border-border text-center">
                   <p className="text-sm text-muted-foreground">Stripe</p>
                   <p className={`font-semibold ${settings.stripeEnabled && settings.stripeSecretKey ? 'text-green-500' : 'text-red-500'}`}>
@@ -364,6 +431,12 @@ const AdminPayments = () => {
                   <p className="text-sm text-muted-foreground">PayPal</p>
                   <p className={`font-semibold ${settings.paypalEnabled && settings.paypalClientSecret ? 'text-green-500' : 'text-red-500'}`}>
                     {settings.paypalEnabled && settings.paypalClientSecret ? 'Ready' : 'Not Ready'}
+                  </p>
+                </div>
+                <div className="p-4 rounded-lg bg-secondary/30 border border-border text-center">
+                  <p className="text-sm text-muted-foreground">Telegram</p>
+                  <p className={`font-semibold ${settings.telegramUpgradeEnabled ? 'text-green-500' : 'text-red-500'}`}>
+                    {settings.telegramUpgradeEnabled ? 'Enabled' : 'Disabled'}
                   </p>
                 </div>
                 <div className="p-4 rounded-lg bg-secondary/30 border border-border text-center">

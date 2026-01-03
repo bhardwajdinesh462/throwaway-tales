@@ -7,6 +7,8 @@ const corsHeaders = {
 };
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+const PAYPAL_CLIENT_ID = Deno.env.get("PAYPAL_CLIENT_ID");
+const PAYPAL_CLIENT_SECRET = Deno.env.get("PAYPAL_CLIENT_SECRET");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
@@ -17,18 +19,6 @@ serve(async (req) => {
   }
 
   try {
-    // Check if Stripe is configured
-    if (!STRIPE_SECRET_KEY) {
-      console.log("Stripe secret key not configured");
-      return new Response(
-        JSON.stringify({ 
-          error: "Stripe is not configured. Please add your Stripe API keys in the admin panel.",
-          code: "STRIPE_NOT_CONFIGURED"
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
     // Get authorization header
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
@@ -63,7 +53,7 @@ serve(async (req) => {
       );
     }
 
-    const { tier_id, billing_cycle, success_url, cancel_url } = await req.json();
+    const { tier_id, billing_cycle, success_url, cancel_url, payment_method } = await req.json();
 
     if (!tier_id || !billing_cycle) {
       return new Response(
@@ -96,7 +86,131 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Creating checkout session for user ${user.id}, tier: ${tier.name}, price: $${price}`);
+    // Get payment settings
+    const { data: settings } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "payment_settings")
+      .maybeSingle();
+
+    const paymentSettings = settings?.value || {};
+    const paypalMode = paymentSettings.paypalMode || 'sandbox';
+
+    // Handle PayPal checkout
+    if (payment_method === "paypal") {
+      if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
+        console.log("PayPal credentials not configured");
+        return new Response(
+          JSON.stringify({ 
+            error: "PayPal is not configured. Please add your PayPal API keys in the admin panel.",
+            code: "PAYPAL_NOT_CONFIGURED"
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const paypalBaseUrl = paypalMode === 'live' 
+        ? 'https://api-m.paypal.com' 
+        : 'https://api-m.sandbox.paypal.com';
+
+      // Get PayPal access token
+      const tokenResponse = await fetch(`${paypalBaseUrl}/v1/oauth2/token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${btoa(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`)}`,
+        },
+        body: 'grant_type=client_credentials',
+      });
+
+      const tokenData = await tokenResponse.json();
+      if (!tokenResponse.ok) {
+        console.error("PayPal token error:", tokenData);
+        return new Response(
+          JSON.stringify({ error: "Failed to authenticate with PayPal" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const accessToken = tokenData.access_token;
+
+      // Create PayPal order
+      const successRedirect = success_url || `${req.headers.get("origin")}/dashboard?checkout=success`;
+      const cancelRedirect = cancel_url || `${req.headers.get("origin")}/pricing?checkout=cancelled`;
+
+      const orderPayload = {
+        intent: 'CAPTURE',
+        purchase_units: [{
+          reference_id: `${user.id}:${tier_id}:${billing_cycle}`,
+          custom_id: `${user.id}:${tier_id}:${billing_cycle}`,
+          description: `${tier.name} Plan - ${billing_cycle === 'yearly' ? 'Yearly' : 'Monthly'}`,
+          amount: {
+            currency_code: 'USD',
+            value: price.toFixed(2),
+          },
+        }],
+        application_context: {
+          brand_name: 'TempMail Pro',
+          landing_page: 'BILLING',
+          user_action: 'PAY_NOW',
+          return_url: successRedirect,
+          cancel_url: cancelRedirect,
+        },
+      };
+
+      const orderResponse = await fetch(`${paypalBaseUrl}/v2/checkout/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(orderPayload),
+      });
+
+      const orderData = await orderResponse.json();
+      
+      if (!orderResponse.ok) {
+        console.error("PayPal order error:", orderData);
+        return new Response(
+          JSON.stringify({ error: "Failed to create PayPal order" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Find approval URL
+      const approvalUrl = orderData.links?.find((link: any) => link.rel === 'approve')?.href;
+      
+      if (!approvalUrl) {
+        return new Response(
+          JSON.stringify({ error: "No PayPal approval URL received" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      console.log(`PayPal order created: ${orderData.id} for user ${user.id}`);
+
+      return new Response(
+        JSON.stringify({ 
+          approval_url: approvalUrl,
+          order_id: orderData.id 
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Handle Stripe checkout (default)
+    if (!STRIPE_SECRET_KEY) {
+      console.log("Stripe secret key not configured");
+      return new Response(
+        JSON.stringify({ 
+          error: "Stripe is not configured. Please add your Stripe API keys in the admin panel.",
+          code: "STRIPE_NOT_CONFIGURED"
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log(`Creating Stripe checkout session for user ${user.id}, tier: ${tier.name}, price: $${price}`);
 
     // Create Stripe checkout session using fetch
     const stripeResponse = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -133,7 +247,7 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Checkout session created: ${session.id}`);
+    console.log(`Stripe checkout session created: ${session.id}`);
 
     return new Response(
       JSON.stringify({ 

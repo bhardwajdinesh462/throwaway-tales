@@ -1145,6 +1145,8 @@ export type Database = {
           invoice_pdf: string | null
           invoice_url: string | null
           paid_at: string | null
+          payment_provider: string | null
+          paypal_order_id: string | null
           period_end: string | null
           period_start: string | null
           status: string
@@ -1161,6 +1163,8 @@ export type Database = {
           invoice_pdf?: string | null
           invoice_url?: string | null
           paid_at?: string | null
+          payment_provider?: string | null
+          paypal_order_id?: string | null
           period_end?: string | null
           period_start?: string | null
           status?: string
@@ -1177,6 +1181,8 @@ export type Database = {
           invoice_pdf?: string | null
           invoice_url?: string | null
           paid_at?: string | null
+          payment_provider?: string | null
+          paypal_order_id?: string | null
           period_end?: string | null
           period_start?: string | null
           status?: string
@@ -1214,6 +1220,8 @@ export type Database = {
           current_period_end: string
           current_period_start: string
           id: string
+          payment_provider: string | null
+          paypal_subscription_id: string | null
           status: string
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
@@ -1227,6 +1235,8 @@ export type Database = {
           current_period_end?: string
           current_period_start?: string
           id?: string
+          payment_provider?: string | null
+          paypal_subscription_id?: string | null
           status?: string
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
@@ -1240,6 +1250,8 @@ export type Database = {
           current_period_end?: string
           current_period_start?: string
           id?: string
+          payment_provider?: string | null
+          paypal_subscription_id?: string | null
           status?: string
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null

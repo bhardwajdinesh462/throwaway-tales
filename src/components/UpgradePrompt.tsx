@@ -1,7 +1,9 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Crown, Check, X, Sparkles, Zap, Shield } from "lucide-react";
+import { Crown, Check, X, Sparkles, Zap, Shield, MessageCircle, CreditCard, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SubscriptionTier, usePremiumFeatures } from "@/hooks/usePremiumFeatures";
+import { usePaymentSettings } from "@/hooks/usePaymentSettings";
+import { useNavigate } from "react-router-dom";
 
 interface UpgradePromptProps {
   isOpen: boolean;
@@ -11,7 +13,15 @@ interface UpgradePromptProps {
 }
 
 const UpgradePrompt = ({ isOpen, onClose, feature, requiredTier = 'pro' }: UpgradePromptProps) => {
+  const navigate = useNavigate();
   const { tier: currentTier, tierPrices, tierLimits } = usePremiumFeatures();
+  const { 
+    stripeEnabled, 
+    paypalEnabled, 
+    telegramEnabled, 
+    telegramLink,
+    hasPaidPaymentMethod 
+  } = usePaymentSettings();
 
   const tiers: { name: SubscriptionTier; label: string; icon: typeof Crown; color: string }[] = [
     { name: 'free', label: 'Free', icon: Zap, color: 'text-muted-foreground' },
@@ -20,8 +30,16 @@ const UpgradePrompt = ({ isOpen, onClose, feature, requiredTier = 'pro' }: Upgra
   ];
 
   const handleUpgrade = () => {
-    // Open Telegram contact for upgrades
-    window.open('https://t.me/digitalselling023', '_blank');
+    if (hasPaidPaymentMethod) {
+      navigate('/pricing');
+    } else if (telegramEnabled) {
+      window.open(telegramLink, '_blank');
+    }
+    onClose();
+  };
+
+  const handleTelegram = () => {
+    window.open(telegramLink, '_blank');
     onClose();
   };
 
@@ -156,13 +174,28 @@ const UpgradePrompt = ({ isOpen, onClose, feature, requiredTier = 'pro' }: Upgra
                             Free Forever
                           </Button>
                         ) : (
-                          <Button
-                            variant={isRecommended ? 'default' : 'outline'}
-                            className="w-full"
-                            onClick={() => handleUpgrade()}
-                          >
-                            Contact to Upgrade
-                          </Button>
+                          <div className="space-y-2">
+                            {hasPaidPaymentMethod && (
+                              <Button
+                                variant={isRecommended ? 'default' : 'outline'}
+                                className="w-full gap-1"
+                                onClick={handleUpgrade}
+                              >
+                                <CreditCard className="w-4 h-4" />
+                                Upgrade Now
+                              </Button>
+                            )}
+                            {telegramEnabled && (
+                              <Button
+                                variant="outline"
+                                className="w-full gap-1"
+                                onClick={handleTelegram}
+                              >
+                                <MessageCircle className="w-4 h-4" />
+                                Contact on Telegram
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </motion.div>
                     );

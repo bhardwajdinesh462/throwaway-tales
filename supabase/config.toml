@@ -80,3 +80,6 @@ verify_jwt = false
 
 [functions.smtp-failover-test]
 verify_jwt = false
+
+[functions.paypal-webhook]
+verify_jwt = false

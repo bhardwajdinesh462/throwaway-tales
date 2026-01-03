@@ -79,6 +79,7 @@ export function useRealtimeSettings(options: UseRealtimeSettingsOptions = {}) {
         await queryClient.invalidateQueries({ queryKey: ['registration'] });
         await queryClient.invalidateQueries({ queryKey: ['subscription_tiers'] });
         await queryClient.invalidateQueries({ queryKey: ['rate_limits'] });
+        await queryClient.invalidateQueries({ queryKey: ['payment_settings'] });
         
         // Clear localStorage caches
         const keysToInvalidate = [

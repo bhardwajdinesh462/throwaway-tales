@@ -145,12 +145,37 @@ const Header = () => {
   };
 
   const navItems = [
-    { label: t('features'), href: "/features", icon: Sparkles },
-    { label: t('pricing'), href: "/pricing", icon: DollarSign },
-    { label: t('blog'), href: "/blog", icon: BookOpen },
-    { label: t('about'), href: "/about", icon: Info },
-    { label: t('contact'), href: "/contact", icon: Mail },
+    { label: t('features'), href: "/#features", icon: Sparkles, isSection: true },
+    { label: t('howItWorks') || 'How It Works', href: "/#how-it-works", icon: Sparkles, isSection: true },
+    { label: t('faq') || 'FAQ', href: "/#faq", icon: Info, isSection: true },
+    { label: t('pricing'), href: "/pricing", icon: DollarSign, isSection: false },
+    { label: t('blog'), href: "/blog", icon: BookOpen, isSection: false },
+    { label: t('contact'), href: "/contact", icon: Mail, isSection: false },
   ];
+
+  const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, item: typeof navItems[0]) => {
+    if (item.isSection) {
+      e.preventDefault();
+      const sectionId = item.href.replace('/#', '');
+      
+      // If we're not on the homepage, navigate there first
+      if (window.location.pathname !== '/') {
+        navigate('/');
+        setTimeout(() => {
+          const element = document.getElementById(sectionId);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }, 100);
+      } else {
+        const element = document.getElementById(sectionId);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+      setMobileMenuOpen(false);
+    }
+  };
 
   const handleSignOut = async () => {
     await signOut();
@@ -239,7 +264,8 @@ const Header = () => {
                   <a
                     key={item.label}
                     href={item.href}
-                    className="relative px-4 py-2 text-muted-foreground hover:text-foreground transition-colors text-sm font-medium group"
+                    onClick={(e) => handleNavClick(e, item)}
+                    className="relative px-4 py-2 text-muted-foreground hover:text-foreground transition-colors text-sm font-medium group cursor-pointer"
                   >
                     {item.label}
                     <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-0.5 bg-gradient-to-r from-primary to-accent group-hover:w-3/4 transition-all duration-300 rounded-full" />
@@ -612,8 +638,8 @@ const Header = () => {
                     initial={{ x: 50, opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
                     transition={{ delay: index * 0.05 }}
-                    className="flex items-center gap-3 px-4 py-3.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all"
-                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-3 px-4 py-3.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all cursor-pointer"
+                    onClick={(e) => handleNavClick(e, item)}
                   >
                     <item.icon className="w-5 h-5" />
                     <span className="font-medium">{item.label}</span>

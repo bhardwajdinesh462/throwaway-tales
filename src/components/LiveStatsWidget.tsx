@@ -168,9 +168,10 @@ const LiveStatsWidget = () => {
     };
   }, [updateStats]);
 
-  // Subscribe to realtime changes on email_stats for live counter updates (persistent counter)
+  // Subscribe to realtime changes on email_stats and temp_emails for live counter updates
   useEffect(() => {
-    const channel = supabase
+    // Channel for email_stats updates
+    const statsChannel = supabase
       .channel('email-stats-updates')
       .on(
         'postgres_changes',
@@ -178,14 +179,12 @@ const LiveStatsWidget = () => {
           event: 'UPDATE',
           schema: 'public',
           table: 'email_stats',
-          filter: 'stat_key=eq.total_emails_generated'
+          filter: 'stat_key=eq.total_temp_emails_created'
         },
         (payload) => {
-          // Only animate after initial load
           if (!initialLoadRef.current && payload.new) {
             const newValue = parseStatValue((payload.new as { stat_value?: number }).stat_value);
             updateStats({ totalEmailsGenerated: newValue });
-            // Trigger animation on "Emails Generated" (index 1)
             setAnimatingIndex(1);
             setTimeout(() => setAnimatingIndex(null), 500);
           }
@@ -193,8 +192,68 @@ const LiveStatsWidget = () => {
       )
       .subscribe();
 
+    // Channel for real-time temp_emails inserts
+    const tempEmailsChannel = supabase
+      .channel('temp-emails-live')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'temp_emails'
+        },
+        () => {
+          if (!initialLoadRef.current) {
+            // Increment the counter on new temp email creation
+            setStats(prev => {
+              const next = {
+                ...prev,
+                totalEmailsGenerated: prev.totalEmailsGenerated + 1,
+                totalInboxesCreated: prev.totalInboxesCreated + 1,
+                activeAddresses: prev.activeAddresses + 1,
+              };
+              saveCachedStats(next);
+              return next;
+            });
+            setAnimatingIndex(1);
+            setTimeout(() => setAnimatingIndex(null), 500);
+          }
+        }
+      )
+      .subscribe();
+
+    // Channel for received_emails inserts  
+    const receivedEmailsChannel = supabase
+      .channel('received-emails-live')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'received_emails'
+        },
+        () => {
+          if (!initialLoadRef.current) {
+            setStats(prev => {
+              const next = {
+                ...prev,
+                emailsToday: prev.emailsToday + 1,
+                totalEmails: prev.totalEmails + 1,
+              };
+              saveCachedStats(next);
+              return next;
+            });
+            setAnimatingIndex(0);
+            setTimeout(() => setAnimatingIndex(null), 500);
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
-      channel.unsubscribe();
+      statsChannel.unsubscribe();
+      tempEmailsChannel.unsubscribe();
+      receivedEmailsChannel.unsubscribe();
     };
   }, [updateStats]);
 

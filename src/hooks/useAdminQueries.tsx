@@ -1,7 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/queryClient";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 // Extended query keys for admin
 const adminQueryKeys = {
@@ -77,8 +79,28 @@ export const useAdminUsers = (page: number, searchQuery: string, pageSize: numbe
   });
 };
 
-// Hook for fetching mailboxes with caching
+// Hook for fetching mailboxes with caching and realtime updates
 export const useAdminMailboxes = () => {
+  const queryClient = useQueryClient();
+
+  // Realtime subscription for mailboxes
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin-mailboxes-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'mailboxes' },
+        () => {
+          queryClient.invalidateQueries({ queryKey: adminQueryKeys.mailboxes() });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
+
   return useQuery({
     queryKey: adminQueryKeys.mailboxes(),
     queryFn: async () => {

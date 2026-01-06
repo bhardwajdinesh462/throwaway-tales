@@ -115,8 +115,28 @@ export const useAdminMailboxes = () => {
   });
 };
 
-// Hook for fetching domains with caching
+// Hook for fetching domains with caching and realtime updates
 export const useAdminDomains = () => {
+  const queryClient = useQueryClient();
+
+  // Realtime subscription for domains
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin-domains-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'domains' },
+        () => {
+          queryClient.invalidateQueries({ queryKey: adminQueryKeys.domains() });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
+
   return useQuery({
     queryKey: adminQueryKeys.domains(),
     queryFn: async () => {
@@ -131,8 +151,28 @@ export const useAdminDomains = () => {
   });
 };
 
-// Hook for fetching blogs with caching
+// Hook for fetching blogs with caching and realtime updates
 export const useAdminBlogs = () => {
+  const queryClient = useQueryClient();
+
+  // Realtime subscription for blogs
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin-blogs-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'blogs' },
+        () => {
+          queryClient.invalidateQueries({ queryKey: adminQueryKeys.blogs() });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
+
   return useQuery({
     queryKey: adminQueryKeys.blogs(),
     queryFn: async () => {

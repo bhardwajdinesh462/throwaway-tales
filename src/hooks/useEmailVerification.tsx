@@ -85,15 +85,43 @@ export const useEmailVerification = () => {
 
         if (error) {
           console.error('Error fetching email verification status:', error);
-          // If profile doesn't exist, consider as not verified
+          // If we can't read the profile, default to NOT verified (safer)
           if (emailVerified === null) {
             setEmailVerified(false);
           }
         } else if (!data) {
-          // No profile found - user needs to complete profile setup
-          // Don't show verification banner for missing profile
-          console.log('[useEmailVerification] No profile found for user, treating as verified');
-          setEmailVerified(true); // Treat as verified to avoid showing banner
+          // No profile row yet (common right after signup). Fall back to auth email confirmation.
+          const { data: authData, error: authError } = await supabase.auth.getUser();
+          const confirmed =
+            !authError &&
+            Boolean(
+              (authData.user as any)?.email_confirmed_at ||
+                (authData.user as any)?.confirmed_at
+            );
+
+          setEmailVerified(confirmed);
+
+          // If auth says confirmed, also create/update profile so the rest of the app can rely on it.
+          if (confirmed && user.email) {
+            const { data: existingProfile } = await supabase
+              .from('profiles')
+              .select('id')
+              .eq('user_id', user.id)
+              .maybeSingle();
+
+            if (existingProfile?.id) {
+              await supabase
+                .from('profiles')
+                .update({ email_verified: true, email: user.email })
+                .eq('user_id', user.id);
+            } else {
+              await supabase.from('profiles').insert({
+                user_id: user.id,
+                email: user.email,
+                email_verified: true,
+              });
+            }
+          }
         } else {
           const verified = data?.email_verified ?? false;
           setEmailVerified(verified);

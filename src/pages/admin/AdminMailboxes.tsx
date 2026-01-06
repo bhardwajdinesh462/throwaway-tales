@@ -239,6 +239,31 @@ const AdminMailboxes = () => {
     return Math.min(100, (sent / limit) * 100);
   };
 
+  // Helper function to check if mailbox has missing passwords
+  const getMailboxWarnings = (mailbox: Mailbox) => {
+    const warnings: string[] = [];
+    
+    // Check SMTP password
+    if (mailbox.smtp_host && mailbox.smtp_user && !mailbox.smtp_password) {
+      warnings.push("SMTP password not configured - emails cannot be sent");
+    }
+    
+    // Check IMAP password
+    if (mailbox.imap_host && mailbox.imap_user && !mailbox.imap_password) {
+      warnings.push("IMAP password not configured - emails cannot be received");
+    }
+    
+    // Check if both are completely unconfigured
+    if (!mailbox.smtp_host && !mailbox.imap_host) {
+      warnings.push("No SMTP or IMAP configured");
+    }
+    
+    return warnings;
+  };
+
+  // Check if any mailbox has missing passwords
+  const mailboxesWithWarnings = mailboxes.filter(mb => getMailboxWarnings(mb).length > 0);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -282,8 +307,29 @@ const AdminMailboxes = () => {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4">
-          {mailboxes.map((mailbox) => (
+        <div className="space-y-4">
+          {/* Global warning banner for mailboxes with missing passwords */}
+          {mailboxesWithWarnings.length > 0 && (
+            <Card className="border-amber-500/50 bg-amber-500/10">
+              <CardContent className="flex items-start gap-3 py-4">
+                <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
+                <div className="space-y-1">
+                  <p className="font-medium text-amber-600 dark:text-amber-400">
+                    Configuration Required
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {mailboxesWithWarnings.length} mailbox{mailboxesWithWarnings.length > 1 ? 'es' : ''} {mailboxesWithWarnings.length > 1 ? 'have' : 'has'} missing passwords. 
+                    Click "Edit" on a mailbox to configure SMTP and IMAP passwords for email functionality.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
+          <div className="grid gap-4">
+          {mailboxes.map((mailbox) => {
+            const warnings = getMailboxWarnings(mailbox);
+            return (
             <motion.div
               key={mailbox.id}
               initial={{ opacity: 0, y: 20 }}
@@ -474,10 +520,37 @@ const AdminMailboxes = () => {
                       )}
                     </div>
                   </div>
+                  
+                  {/* Per-mailbox password warnings */}
+                  {warnings.length > 0 && (
+                    <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                        <div className="space-y-1">
+                          {warnings.map((warning, idx) => (
+                            <p key={idx} className="text-sm text-amber-600 dark:text-amber-400">
+                              {warning}
+                            </p>
+                          ))}
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="mt-2 border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                            onClick={() => openDialog(mailbox)}
+                          >
+                            <Edit2 className="w-3 h-3 mr-1" />
+                            Configure Passwords
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
-          ))}
+          );
+          })}
+          </div>
         </div>
       )}
 

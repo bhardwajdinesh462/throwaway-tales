@@ -496,12 +496,12 @@ serve(async (req: Request): Promise<Response> => {
         }
       }
 
-      // Fallback to environment variables if no database mailboxes worked
+      // Fallback to environment variables if no database mailboxes worked or none available
       const envHost = Deno.env.get("SMTP_HOST");
       const envUser = Deno.env.get("SMTP_USER");
       const envPass = Deno.env.get("SMTP_PASSWORD");
 
-      if (envHost && envUser && envPass && triedMailboxIds.length > 0) {
+      if (envHost && envUser && envPass) {
         console.log(`[send-test-email] Attempting fallback to environment variables`);
         
         const envPort = parseInt(Deno.env.get("SMTP_PORT") || "587");

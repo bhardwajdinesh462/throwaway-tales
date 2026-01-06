@@ -41,6 +41,8 @@ import EmailVerificationBanner from "@/components/EmailVerificationBanner";
 import EmailAliases from "@/components/EmailAliases";
 import WebhookNotifications from "@/components/WebhookNotifications";
 import EmailTemplates from "@/components/EmailTemplates";
+import AdminSetupWizard from "@/components/AdminSetupWizard";
+import { useAdminExists } from "@/hooks/useAdminExists";
 
 interface TempEmail {
   id: string;
@@ -62,9 +64,11 @@ const Dashboard = () => {
     subscribeTier,
     isPremium 
   } = useSubscription();
+  const { hasAdmin, isLoading: adminCheckLoading, refetch: refetchAdmin } = useAdminExists();
   
   const [tempEmails, setTempEmails] = useState<TempEmail[]>([]);
   const [totalEmailsReceived, setTotalEmailsReceived] = useState(0);
+  const [adminSetupComplete, setAdminSetupComplete] = useState(false);
 
   // Fetch user's temp emails
   useEffect(() => {
@@ -115,11 +119,23 @@ const Dashboard = () => {
     }
   };
 
-  if (authLoading || subLoading || !user) {
+  if (authLoading || subLoading || adminCheckLoading || !user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
+    );
+  }
+
+  // Show admin setup wizard if no admins exist and user is logged in
+  if (hasAdmin === false && !adminSetupComplete) {
+    return (
+      <AdminSetupWizard 
+        onComplete={() => {
+          setAdminSetupComplete(true);
+          refetchAdmin();
+        }} 
+      />
     );
   }
 

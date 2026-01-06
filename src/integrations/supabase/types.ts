@@ -1479,6 +1479,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      admin_exists: { Args: never; Returns: boolean }
       admin_get_all_profiles: {
         Args: never
         Returns: {
@@ -1531,6 +1532,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      claim_first_admin: { Args: never; Returns: boolean }
       cleanup_old_rate_limits: { Args: never; Returns: undefined }
       create_temp_email: {
         Args: {

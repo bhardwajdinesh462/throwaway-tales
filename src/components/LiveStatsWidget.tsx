@@ -91,7 +91,18 @@ const LiveStatsWidget = () => {
   const [stats, setStats] = useState<Stats>(loadCachedStats);
   const [isLoading, setIsLoading] = useState(true);
   const [animatingIndex, setAnimatingIndex] = useState<number | null>(null);
+  const [pulsingIndex, setPulsingIndex] = useState<number | null>(null);
   const initialLoadRef = useRef(true);
+
+  // Trigger pulse animation for a specific card
+  const triggerPulse = (index: number) => {
+    setPulsingIndex(index);
+    setAnimatingIndex(index);
+    setTimeout(() => {
+      setPulsingIndex(null);
+      setAnimatingIndex(null);
+    }, 800);
+  };
 
   // Update stats - for API responses, trust the server value for monotonic counters
   // Only use Math.max for realtime incremental updates
@@ -185,8 +196,7 @@ const LiveStatsWidget = () => {
           if (!initialLoadRef.current && payload.new) {
             const newValue = parseStatValue((payload.new as { stat_value?: number }).stat_value);
             updateStats({ totalEmailsGenerated: newValue });
-            setAnimatingIndex(1);
-            setTimeout(() => setAnimatingIndex(null), 500);
+            triggerPulse(1);
           }
         }
       )
@@ -215,8 +225,7 @@ const LiveStatsWidget = () => {
               saveCachedStats(next);
               return next;
             });
-            setAnimatingIndex(1);
-            setTimeout(() => setAnimatingIndex(null), 500);
+            triggerPulse(1);
           }
         }
       )
@@ -243,8 +252,7 @@ const LiveStatsWidget = () => {
               saveCachedStats(next);
               return next;
             });
-            setAnimatingIndex(0);
-            setTimeout(() => setAnimatingIndex(null), 500);
+            triggerPulse(0);
           }
         }
       )
@@ -292,6 +300,15 @@ const LiveStatsWidget = () => {
     },
   ];
 
+  // Get pulse color based on item color class
+  const getPulseColor = (colorClass: string) => {
+    if (colorClass === 'text-primary') return 'hsl(var(--primary))';
+    if (colorClass === 'text-green-500') return 'rgb(34, 197, 94)';
+    if (colorClass === 'text-blue-500') return 'rgb(59, 130, 246)';
+    if (colorClass === 'text-accent') return 'hsl(var(--accent))';
+    return 'hsl(var(--primary))';
+  };
+
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       {statItems.map((item, index) => (
@@ -303,8 +320,38 @@ const LiveStatsWidget = () => {
               transition={{ duration: 0.5, delay: index * 0.1 }}
               className="relative group cursor-help"
             >
-              <div className="relative overflow-hidden rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-4 hover:border-primary/30 transition-all duration-300">
-                {/* Pulse effect */}
+              {/* Outer glow pulse effect */}
+              <motion.div
+                className="absolute -inset-1 rounded-xl pointer-events-none"
+                initial={{ opacity: 0 }}
+                animate={pulsingIndex === index ? {
+                  opacity: [0, 0.8, 0],
+                  boxShadow: [
+                    `0 0 0 0 transparent`,
+                    `0 0 30px 8px ${getPulseColor(item.color)}`,
+                    `0 0 0 0 transparent`
+                  ]
+                } : { opacity: 0 }}
+                transition={{ duration: 0.6, ease: "easeOut" }}
+              />
+              
+              <motion.div 
+                className="relative overflow-hidden rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-4 hover:border-primary/30 transition-all duration-300"
+                animate={pulsingIndex === index ? { scale: [1, 1.02, 1] } : { scale: 1 }}
+                transition={{ duration: 0.4 }}
+              >
+                {/* Flash background on update */}
+                <motion.div
+                  className="absolute inset-0 rounded-xl pointer-events-none"
+                  initial={{ opacity: 0 }}
+                  animate={pulsingIndex === index ? {
+                    opacity: [0, 0.25, 0],
+                    backgroundColor: getPulseColor(item.color)
+                  } : { opacity: 0 }}
+                  transition={{ duration: 0.5 }}
+                />
+
+                {/* Live indicator pulse */}
                 <div className="absolute top-2 right-2">
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
@@ -312,11 +359,11 @@ const LiveStatsWidget = () => {
                   </span>
                 </div>
 
-                <div className={`inline-flex p-2 rounded-lg ${item.bgColor} mb-3`}>
+                <div className={`inline-flex p-2 rounded-lg ${item.bgColor} mb-3 relative z-10`}>
                   <item.icon className={`w-5 h-5 ${item.color}`} />
                 </div>
 
-                <div className="space-y-1">
+                <div className="space-y-1 relative z-10">
                   <p className="text-2xl md:text-3xl font-bold text-foreground">
                     {isLoading ? (
                       <span className="inline-block w-12 h-8 bg-secondary animate-pulse rounded" />
@@ -329,7 +376,7 @@ const LiveStatsWidget = () => {
 
                 {/* Hover gradient */}
                 <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl" />
-              </div>
+              </motion.div>
             </motion.div>
           </TooltipTrigger>
           <TooltipContent>

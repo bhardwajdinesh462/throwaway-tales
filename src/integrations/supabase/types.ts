@@ -738,6 +738,7 @@ export type Database = {
           imap_port: number | null
           imap_user: string | null
           is_active: boolean | null
+          is_primary: boolean | null
           last_day_reset: string | null
           last_error: string | null
           last_error_at: string | null
@@ -771,6 +772,7 @@ export type Database = {
           imap_port?: number | null
           imap_user?: string | null
           is_active?: boolean | null
+          is_primary?: boolean | null
           last_day_reset?: string | null
           last_error?: string | null
           last_error_at?: string | null
@@ -804,6 +806,7 @@ export type Database = {
           imap_port?: number | null
           imap_user?: string | null
           is_active?: boolean | null
+          is_primary?: boolean | null
           last_day_reset?: string | null
           last_error?: string | null
           last_error_at?: string | null

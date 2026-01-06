@@ -12,6 +12,7 @@ import BannerDisplay from "@/components/BannerDisplay";
 import LiveStatsWidget from "@/components/LiveStatsWidget";
 import FriendlyWebsitesWidget from "@/components/FriendlyWebsitesWidget";
 import BackendHealthBanner from "@/components/BackendHealthBanner";
+import ScrollToTop from "@/components/ScrollToTop";
 import { motion } from "framer-motion";
 import { useHomepageContent } from "@/hooks/useHomepageContent";
 
@@ -160,6 +161,9 @@ const Index = () => {
       
       {/* Friendly Websites Sidebar Widget */}
       <FriendlyWebsitesWidget />
+      
+      {/* Scroll to Top Button */}
+      <ScrollToTop />
     </div>
   );
 };

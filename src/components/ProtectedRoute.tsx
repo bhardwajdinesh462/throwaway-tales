@@ -59,11 +59,49 @@ const ProtectedRoute = ({
           .from('profiles')
           .select('email_verified')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
 
         if (cancelled) return;
 
-        const verified = !error && data?.email_verified === true;
+        let verified = !error && data?.email_verified === true;
+
+        // If profile row is missing OR not marked verified, fall back to auth provider confirmation.
+        if (!verified) {
+          const { data: authData, error: authError } = await supabase.auth.getUser();
+          const confirmed =
+            !authError &&
+            Boolean(
+              (authData.user as any)?.email_confirmed_at ||
+                (authData.user as any)?.confirmed_at
+            );
+
+          if (confirmed) {
+            verified = true;
+
+            // Persist so subsequent checks are fast and consistent.
+            if (user.email) {
+              const { data: existingProfile } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('user_id', user.id)
+                .maybeSingle();
+
+              if (existingProfile?.id) {
+                await supabase
+                  .from('profiles')
+                  .update({ email_verified: true, email: user.email })
+                  .eq('user_id', user.id);
+              } else {
+                await supabase.from('profiles').insert({
+                  user_id: user.id,
+                  email: user.email,
+                  email_verified: true,
+                });
+              }
+            }
+          }
+        }
+
         setEmailVerified(verified);
 
         // If email not verified and confirmation is required, redirect to verify page
@@ -71,9 +109,9 @@ const ProtectedRoute = ({
           // Check if user is admin - admins bypass email verification
           const { data: isAdmin } = await supabase.rpc("is_admin", { _user_id: user.id });
           if (!isAdmin) {
-            navigate("/verify-email", { 
+            navigate("/verify-email", {
               replace: true,
-              state: { email: user.email, from: location.pathname }
+              state: { email: user.email, from: location.pathname },
             });
           } else {
             setEmailVerified(true); // Admins are always considered verified

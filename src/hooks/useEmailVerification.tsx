@@ -203,27 +203,76 @@ export const useEmailVerification = () => {
     }
   }, [user?.email, user?.id, user?.user_metadata?.display_name]);
 
-  // Refresh verification status
+  // Refresh verification status (bypass cache, force fresh fetch)
   const refreshVerificationStatus = useCallback(async () => {
     if (!user?.id) return;
     
+    // Clear cache first
+    try {
+      localStorage.removeItem(CACHE_KEY);
+    } catch {
+      // ignore
+    }
+    
+    // Reset fetchedRef to allow a fresh fetch
+    fetchedRef.current = false;
+    
     setLoading(true);
     try {
+      // First check auth provider for latest status
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const confirmed =
+        !authError &&
+        Boolean(
+          (authData.user as any)?.email_confirmed_at ||
+            (authData.user as any)?.confirmed_at
+        );
+
+      // Then check profiles table
       const { data, error } = await supabase
         .from('profiles')
         .select('email_verified')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
-      if (!error && data) {
-        setEmailVerified(data.email_verified ?? false);
+      let verified = !error && data?.email_verified === true;
+
+      // If profile says not verified but auth says confirmed, update profile
+      if (!verified && confirmed && user.email) {
+        verified = true;
+        
+        if (data) {
+          await supabase
+            .from('profiles')
+            .update({ email_verified: true, email: user.email })
+            .eq('user_id', user.id);
+        } else {
+          await supabase.from('profiles').insert({
+            user_id: user.id,
+            email: user.email,
+            email_verified: true,
+          });
+        }
+      }
+
+      setEmailVerified(verified);
+      
+      // Update cache with new value
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify({
+          userId: user.id,
+          verified,
+          timestamp: Date.now()
+        }));
+      } catch {
+        // ignore
       }
     } catch (err) {
       console.error('Error refreshing verification status:', err);
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, user?.email]);
 
   return {
     isEmailVerified,

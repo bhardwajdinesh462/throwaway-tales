@@ -670,20 +670,29 @@ const Header = () => {
 
               {/* Nav Items with Icons */}
               <div className="space-y-1">
-                {navItems.map((item, index) => (
-                  <motion.a
-                    key={item.label}
-                    href={item.href}
-                    initial={{ x: 50, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="flex items-center gap-3 px-4 py-3.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all cursor-pointer"
-                    onClick={(e) => handleNavClick(e, item)}
-                  >
-                    <item.icon className="w-5 h-5" />
-                    <span className="font-medium">{item.label}</span>
-                  </motion.a>
-                ))}
+                {navItems.map((item, index) => {
+                  const sectionId = item.href.replace('/#', '');
+                  const isActive = item.isSection && activeSection === sectionId;
+                  
+                  return (
+                    <motion.a
+                      key={item.label}
+                      href={item.href}
+                      initial={{ x: 50, opacity: 0 }}
+                      animate={{ x: 0, opacity: 1 }}
+                      transition={{ delay: index * 0.05 }}
+                      className={`flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all cursor-pointer ${
+                        isActive
+                          ? 'text-primary bg-primary/10 border-l-2 border-primary'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-secondary/80'
+                      }`}
+                      onClick={(e) => handleNavClick(e, item)}
+                    >
+                      <item.icon className={`w-5 h-5 ${isActive ? 'text-primary' : ''}`} />
+                      <span className="font-medium">{item.label}</span>
+                    </motion.a>
+                  );
+                })}
               </div>
 
               {/* User Section */}

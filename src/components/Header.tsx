@@ -30,6 +30,7 @@ const Header = () => {
   const [previewThemeId, setPreviewThemeId] = useState<string | null>(null);
   const [mobileThemeOpen, setMobileThemeOpen] = useState(false);
   const [mobileLanguageOpen, setMobileLanguageOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<string | null>(null);
   const originalThemeRef = useRef<string | null>(null);
   
   const { user, isAdmin, signOut } = useAuth();
@@ -39,12 +40,39 @@ const Header = () => {
   const { settings: generalSettings } = useGeneralSettings();
   const navigate = useNavigate();
 
-  // Scroll detection for header effects
+  // Scroll detection for header effects and active section tracking
   useEffect(() => {
+    const sectionIds = ['features', 'how-it-works', 'faq', 'cta'];
+    
     const handleScroll = () => {
       setScrolled(window.scrollY > 20);
+      
+      // Only track sections on homepage
+      if (window.location.pathname !== '/') {
+        setActiveSection(null);
+        return;
+      }
+      
+      // Find which section is currently in view
+      let currentSection: string | null = null;
+      const headerOffset = 150; // Account for fixed header
+      
+      for (const id of sectionIds) {
+        const element = document.getElementById(id);
+        if (element) {
+          const rect = element.getBoundingClientRect();
+          if (rect.top <= headerOffset && rect.bottom > headerOffset) {
+            currentSection = id;
+            break;
+          }
+        }
+      }
+      
+      setActiveSection(currentSection);
     };
+    
     window.addEventListener("scroll", handleScroll);
+    handleScroll(); // Initial check
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
@@ -260,17 +288,28 @@ const Header = () => {
 
               {/* Desktop Navigation */}
               <nav className={`hidden md:flex items-center gap-1 ${isRTL ? 'flex-row-reverse' : ''}`}>
-                {navItems.map((item) => (
-                  <a
-                    key={item.label}
-                    href={item.href}
-                    onClick={(e) => handleNavClick(e, item)}
-                    className="relative px-4 py-2 text-muted-foreground hover:text-foreground transition-colors text-sm font-medium group cursor-pointer"
-                  >
-                    {item.label}
-                    <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-0.5 bg-gradient-to-r from-primary to-accent group-hover:w-3/4 transition-all duration-300 rounded-full" />
-                  </a>
-                ))}
+                {navItems.map((item) => {
+                  const sectionId = item.href.replace('/#', '');
+                  const isActive = item.isSection && activeSection === sectionId;
+                  
+                  return (
+                    <a
+                      key={item.label}
+                      href={item.href}
+                      onClick={(e) => handleNavClick(e, item)}
+                      className={`relative px-4 py-2 transition-colors text-sm font-medium group cursor-pointer ${
+                        isActive 
+                          ? 'text-primary' 
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {item.label}
+                      <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 bg-gradient-to-r from-primary to-accent transition-all duration-300 rounded-full ${
+                        isActive ? 'w-3/4' : 'w-0 group-hover:w-3/4'
+                      }`} />
+                    </a>
+                  );
+                })}
               </nav>
 
               {/* Right Side */}

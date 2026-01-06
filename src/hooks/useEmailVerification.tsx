@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { useState, useCallback, useEffect, useRef } from "react";
 
 const CACHE_KEY = 'email_verification_status';
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes (shorter for faster updates)
 
 interface CachedStatus {
   userId: string;
@@ -20,6 +20,16 @@ export const useEmailVerification = () => {
   const [loading, setLoading] = useState(true);
   const [verificationChecked, setVerificationChecked] = useState(false);
   const fetchedRef = useRef(false);
+  const lastUserIdRef = useRef<string | null>(null);
+
+  // Clear cache when user changes or on verification success
+  const clearVerificationCache = useCallback(() => {
+    try {
+      localStorage.removeItem(CACHE_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // Fetch email_verified from profiles table with caching
   useEffect(() => {
@@ -28,7 +38,15 @@ export const useEmailVerification = () => {
         setEmailVerified(null);
         setLoading(false);
         setVerificationChecked(true);
+        lastUserIdRef.current = null;
         return;
+      }
+
+      // If user changed, reset the fetch ref
+      if (lastUserIdRef.current !== user.id) {
+        fetchedRef.current = false;
+        lastUserIdRef.current = user.id;
+        clearVerificationCache(); // Clear old cache for new user
       }
 
       // Check cache first to prevent flicker
@@ -37,10 +55,17 @@ export const useEmailVerification = () => {
         if (cached) {
           const parsed: CachedStatus = JSON.parse(cached);
           if (parsed.userId === user.id && Date.now() - parsed.timestamp < CACHE_DURATION) {
+            // If cached as verified, trust it
+            if (parsed.verified) {
+              setEmailVerified(true);
+              setLoading(false);
+              setVerificationChecked(true);
+              return; // Don't fetch again if verified
+            }
+            // If cached as NOT verified, still fetch to check for updates
             setEmailVerified(parsed.verified);
             setLoading(false);
             setVerificationChecked(true);
-            // Still fetch in background to update
           }
         }
       } catch {
@@ -56,14 +81,19 @@ export const useEmailVerification = () => {
           .from('profiles')
           .select('email_verified')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle(); // Use maybeSingle to handle missing profile
 
         if (error) {
           console.error('Error fetching email verification status:', error);
-          // Only set to false if we haven't already set from cache
+          // If profile doesn't exist, consider as not verified
           if (emailVerified === null) {
             setEmailVerified(false);
           }
+        } else if (!data) {
+          // No profile found - user needs to complete profile setup
+          // Don't show verification banner for missing profile
+          console.log('[useEmailVerification] No profile found for user, treating as verified');
+          setEmailVerified(true); // Treat as verified to avoid showing banner
         } else {
           const verified = data?.email_verified ?? false;
           setEmailVerified(verified);
@@ -92,9 +122,9 @@ export const useEmailVerification = () => {
     fetchVerificationStatus();
     
     return () => {
-      fetchedRef.current = false;
+      // Don't reset fetchedRef on cleanup - only when user changes
     };
-  }, [user?.id]);
+  }, [user?.id, clearVerificationCache]);
 
   const isEmailVerified = useCallback(() => {
     if (!user) return false;

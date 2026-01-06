@@ -79,7 +79,7 @@ serve(async (req) => {
       supabase
         .from('email_stats')
         .select('stat_value')
-        .eq('stat_key', 'total_emails_generated')
+        .eq('stat_key', 'total_temp_emails_created')
         .maybeSingle(),
     ]);
 

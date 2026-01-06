@@ -44,7 +44,7 @@ function sleep(ms: number): Promise<void> {
 async function getAllMailboxes(supabase: any): Promise<MailboxConfig[]> {
   const { data, error } = await supabase
     .from('mailboxes')
-    .select('id, smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, last_error, last_error_at')
+    .select('id, smtp_host, smtp_port, smtp_user, smtp_from, last_error, last_error_at')
     .eq('is_active', true)
     .not('smtp_host', 'is', null)
     .order('priority', { ascending: true });
@@ -57,21 +57,36 @@ async function getAllMailboxes(supabase: any): Promise<MailboxConfig[]> {
   // Filter out mailboxes with recent errors (within 30 minutes)
   const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
   
-  return data
-    .filter((mb: any) => {
-      // If no recent error, include it
-      if (!mb.last_error_at) return true;
-      // If error was more than 30 mins ago, include it (allow retry)
-      return mb.last_error_at < thirtyMinutesAgo;
-    })
-    .map((mb: any) => ({
+  const validMailboxes = data.filter((mb: any) => {
+    // If no recent error, include it
+    if (!mb.last_error_at) return true;
+    // If error was more than 30 mins ago, include it (allow retry)
+    return mb.last_error_at < thirtyMinutesAgo;
+  });
+
+  // Fetch passwords using RPC (which now allows service role)
+  const mailboxConfigs: MailboxConfig[] = [];
+  for (const mb of validMailboxes) {
+    const { data: password, error: pwError } = await supabase.rpc('get_mailbox_smtp_password', {
+      p_mailbox_id: mb.id
+    });
+    
+    if (pwError || !password) {
+      console.log(`[send-verification-email] Could not get password for mailbox ${mb.id}:`, pwError?.message);
+      continue;
+    }
+    
+    mailboxConfigs.push({
       mailbox_id: mb.id,
       smtp_host: mb.smtp_host,
       smtp_port: mb.smtp_port,
       smtp_user: mb.smtp_user,
-      smtp_password: mb.smtp_password,
+      smtp_password: password,
       smtp_from: mb.smtp_from || mb.smtp_user,
-    }));
+    });
+  }
+
+  return mailboxConfigs;
 }
 
 // Mark a mailbox as unhealthy

@@ -4,6 +4,7 @@ import { Mail, Users, Globe, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { tooltips } from "@/lib/tooltips";
+import { useNotificationSounds } from "@/hooks/useNotificationSounds";
 
 const STATS_STORAGE_KEY = 'trashmails_live_stats';
 
@@ -93,11 +94,14 @@ const LiveStatsWidget = () => {
   const [animatingIndex, setAnimatingIndex] = useState<number | null>(null);
   const [pulsingIndex, setPulsingIndex] = useState<number | null>(null);
   const initialLoadRef = useRef(true);
+  const { playSound } = useNotificationSounds();
 
-  // Trigger pulse animation for a specific card
+  // Trigger pulse animation and sound for a specific card
   const triggerPulse = (index: number) => {
     setPulsingIndex(index);
     setAnimatingIndex(index);
+    // Play notification sound
+    playSound('pop');
     setTimeout(() => {
       setPulsingIndex(null);
       setAnimatingIndex(null);

@@ -174,8 +174,6 @@ const Header = () => {
 
   const navItems = [
     { label: t('features'), href: "/#features", icon: Sparkles, isSection: true },
-    { label: t('howItWorks') || 'How It Works', href: "/#how-it-works", icon: Sparkles, isSection: true },
-    { label: t('faq') || 'FAQ', href: "/#faq", icon: Info, isSection: true },
     { label: t('pricing'), href: "/pricing", icon: DollarSign, isSection: false },
     { label: t('blog'), href: "/blog", icon: BookOpen, isSection: false },
     { label: t('contact'), href: "/contact", icon: Mail, isSection: false },

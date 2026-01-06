@@ -147,7 +147,7 @@ const Dashboard = () => {
           </Button>
 
           {/* Email Verification Banner */}
-          <EmailVerificationBanner />
+          <EmailVerificationBanner showVerifiedStatus={true} />
 
           {/* Welcome Header */}
           <motion.div

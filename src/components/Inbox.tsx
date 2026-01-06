@@ -21,6 +21,7 @@ import { useNotificationSounds } from "@/hooks/useNotificationSounds";
 import { getErrorMessage } from "@/lib/errorHandler";
 import { useAdminRole } from "@/hooks/useAdminRole";
 import InboxDiagnostics from "@/components/InboxDiagnostics";
+import RealtimeDebugPanel from "@/components/RealtimeDebugPanel";
 import { tooltips } from "@/lib/tooltips";
 interface NotificationPreferences {
   soundEnabled: boolean;
@@ -707,6 +708,9 @@ const Inbox = () => {
 
         {/* Diagnostics Panel - Only for admins */}
         {isAdmin && <InboxDiagnostics />}
+        
+        {/* Realtime Debug Panel - Only for admins */}
+        {isAdmin && <RealtimeDebugPanel tempEmailId={currentEmail?.id} className="mx-4 mb-4" />}
       </div>
 
       {/* Keyboard Shortcuts Help Modal */}

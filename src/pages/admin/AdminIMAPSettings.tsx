@@ -21,7 +21,10 @@ import {
   AlertCircle,
   Server,
   Star,
+  Timer,
 } from "lucide-react";
+import IMAPHealthTable from "@/components/admin/IMAPHealthTable";
+import IMAPTestWorkflow from "@/components/admin/IMAPTestWorkflow";
 import {
   Select,
   SelectContent,
@@ -616,6 +619,47 @@ const AdminIMAPSettings = () => {
         </CardContent>
       </Card>
 
+      {/* IMAP Health Table */}
+      <IMAPHealthTable onRefresh={fetchMailboxes} />
+
+      {/* Test Workflow */}
+      <IMAPTestWorkflow />
+
+      {/* Automatic Polling Info */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Timer className="w-5 h-5 text-primary" />
+            Automatic IMAP Polling
+          </CardTitle>
+          <CardDescription>
+            IMAP polling runs automatically every 2 minutes via database cron
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+            <div className="flex items-center gap-2 text-green-600 font-medium">
+              <CheckCircle className="w-5 h-5" />
+              Automatic Polling Active
+            </div>
+            <p className="text-sm text-muted-foreground mt-2">
+              The system automatically polls all active IMAP mailboxes every 2 minutes using pg_cron. 
+              No manual setup required - emails are fetched and stored automatically.
+            </p>
+          </div>
+          
+          <div className="space-y-2">
+            <h4 className="font-medium">How it works:</h4>
+            <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
+              <li>A database cron job triggers the fetch-imap-emails function every 2 minutes</li>
+              <li>The function tries all active mailboxes in priority order (primary first)</li>
+              <li>Mailboxes with recent errors are skipped for 15 minutes (cooldown)</li>
+              <li>New emails are stored and trigger realtime notifications instantly</li>
+            </ul>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Setup Instructions</CardTitle>
@@ -635,11 +679,10 @@ const AdminIMAPSettings = () => {
             </p>
           </div>
           <div className="space-y-2">
-            <h4 className="font-medium">3. Set Up Cron Job</h4>
+            <h4 className="font-medium">3. Add Mailbox in Admin</h4>
             <p className="text-sm text-muted-foreground">
-              The IMAP polling script runs periodically to fetch new emails. Set up a cron job in cPanel → Cron Jobs to run every minute:
+              Add your IMAP credentials above. Set one mailbox as Primary. The automatic cron job handles the rest!
             </p>
-            <code className="block p-2 bg-muted rounded text-sm">* * * * * php /home/username/public_html/api/cron/imap-poll.php</code>
           </div>
         </CardContent>
       </Card>

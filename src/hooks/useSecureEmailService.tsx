@@ -140,8 +140,40 @@ export const useSecureEmailService = () => {
   // Debug / instance identity (helps verify there is only one provider instance)
   const instanceIdRef = useRef(`${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
-  // Ref to prevent duplicate initialization
+  // Ref to prevent duplicate initialization - check sessionStorage on init
   const initStartedRef = useRef(false);
+  
+  // Check sessionStorage on mount to see if we already initialized this session
+  useEffect(() => {
+    try {
+      const alreadyStarted = sessionStorage.getItem('nullsto_email_init_started') === 'true';
+      if (alreadyStarted) {
+        initStartedRef.current = true;
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Mark initialization as started in both ref and sessionStorage
+  const markInitStarted = useCallback(() => {
+    initStartedRef.current = true;
+    try {
+      sessionStorage.setItem('nullsto_email_init_started', 'true');
+    } catch {
+      // ignore
+    }
+  }, []);
+  
+  // Clear init flag (for when email not found and needs regeneration)
+  const clearInitStarted = useCallback(() => {
+    initStartedRef.current = false;
+    try {
+      sessionStorage.removeItem('nullsto_email_init_started');
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // Refs to avoid stale async updates when switching addresses
   const currentEmailRef = useRef<TempEmail | null>(null);
@@ -156,7 +188,9 @@ export const useSecureEmailService = () => {
   // Debug logs
   useEffect(() => {
     console.info(`[email-service:${instanceIdRef.current}] mounted`);
-    return () => console.info(`[email-service:${instanceIdRef.current}] unmounted`);
+    return () => {
+      console.info(`[email-service:${instanceIdRef.current}] unmounted`);
+    };
   }, []);
 
   useEffect(() => {
@@ -401,7 +435,7 @@ export const useSecureEmailService = () => {
       }
 
       // Mark initialization as started immediately
-      initStartedRef.current = true;
+      markInitStarted();
       console.log('[email-service] Starting initialization...');
 
       // Check localStorage for existing session email
@@ -502,7 +536,7 @@ export const useSecureEmailService = () => {
     };
 
     void initializeEmail();
-  }, [domains, currentEmail, generateEmail]);
+  }, [domains, currentEmail, generateEmail, markInitStarted]);
 
   // Clear stale tokens and email from storage
   const clearStaleEmail = useCallback((emailId: string) => {
@@ -579,7 +613,7 @@ export const useSecureEmailService = () => {
           console.warn('[email-service] Temp email not found, clearing stale data and regenerating...');
           clearStaleEmail(email.id);
           setCurrentEmail(null);
-          initStartedRef.current = false; // Allow re-initialization
+          clearInitStarted(); // Allow re-initialization
           return;
         }
         console.error('Error fetching emails:', error);
@@ -592,7 +626,7 @@ export const useSecureEmailService = () => {
           console.warn('[email-service] Temp email not found (from response), clearing stale data...');
           clearStaleEmail(email.id);
           setCurrentEmail(null);
-          initStartedRef.current = false;
+          clearInitStarted();
           return;
         }
         console.error('Error from function:', data.error);
@@ -609,12 +643,12 @@ export const useSecureEmailService = () => {
         console.warn('[email-service] Temp email not found (caught), clearing stale data...');
         clearStaleEmail(email.id);
         setCurrentEmail(null);
-        initStartedRef.current = false;
+        clearInitStarted();
         return;
       }
       console.error('Error in fetchSecureEmails:', error);
     }
-  }, [clearStaleEmail]);
+  }, [clearStaleEmail, clearInitStarted]);
 
   const fetchSecureEmails = useCallback(async () => {
     const email = currentEmailRef.current;

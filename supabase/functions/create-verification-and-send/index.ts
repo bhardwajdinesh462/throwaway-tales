@@ -167,6 +167,31 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log("[create-verification-and-send] Verification record created successfully");
 
+    // Ensure profile exists with email_verified=false (so verify-email-token can update it)
+    const displayName = name || email.split('@')[0];
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert(
+        {
+          user_id: userId,
+          email: email,
+          display_name: displayName,
+          email_verified: false,
+          updated_at: new Date().toISOString()
+        },
+        {
+          onConflict: 'user_id',
+          ignoreDuplicates: true // Don't overwrite if profile already exists
+        }
+      );
+
+    if (profileError) {
+      console.log("[create-verification-and-send] Profile upsert note:", profileError.message);
+      // Don't fail - profile might already exist from handle_new_user trigger
+    } else {
+      console.log("[create-verification-and-send] Profile ensured for user:", userId);
+    }
+
     // Get site settings for email - check both 'general' and 'general_settings' keys
     let siteName = "Nullsto";
     let siteUrl = "https://nullsto.edu.pl"; // Default to correct domain

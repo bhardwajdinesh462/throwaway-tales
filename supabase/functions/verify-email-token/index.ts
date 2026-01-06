@@ -73,26 +73,29 @@ serve(async (req: Request): Promise<Response> => {
       console.error('[verify-email-token] Failed to update verification:', updateVerificationError);
     }
 
-    // Update the user's profile to mark email as verified
-    const { error: updateProfileError } = await supabase
+    // UPSERT the user's profile to ensure it exists and mark email as verified
+    // This fixes the bug where UPDATE on non-existent row silently does nothing
+    const { error: upsertProfileError } = await supabase
       .from('profiles')
-      .update({ email_verified: true })
-      .eq('user_id', verification.user_id);
-
-    if (updateProfileError) {
-      console.error('[verify-email-token] Failed to update profile:', updateProfileError);
-      // Try to create profile if it doesn't exist
-      const { error: insertError } = await supabase
-        .from('profiles')
-        .insert({ 
+      .upsert(
+        { 
           user_id: verification.user_id, 
           email: verification.email,
-          email_verified: true 
-        });
-      
-      if (insertError) {
-        console.error('[verify-email-token] Failed to insert profile:', insertError);
-      }
+          email_verified: true,
+          updated_at: new Date().toISOString()
+        },
+        { 
+          onConflict: 'user_id',
+          ignoreDuplicates: false
+        }
+      );
+
+    if (upsertProfileError) {
+      console.error('[verify-email-token] Failed to upsert profile:', upsertProfileError);
+      // Don't fail the verification - the email_verifications table is updated
+      // The profile might be created by handle_new_user trigger
+    } else {
+      console.log(`[verify-email-token] Profile upserted with email_verified=true for user ${verification.user_id}`);
     }
 
     console.log(`[verify-email-token] Email verified successfully for user ${verification.user_id}`);

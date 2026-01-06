@@ -47,6 +47,14 @@ const VerifyEmail = () => {
       } else {
         setVerificationStatus('success');
         toast.success("Email verified successfully!");
+        
+        // Clear verification cache so dashboard shows verified status immediately
+        try {
+          localStorage.removeItem('email_verification_status');
+        } catch (e) {
+          // Ignore localStorage errors
+        }
+        
         // Redirect to dashboard after 2 seconds
         setTimeout(() => {
           navigate("/dashboard");

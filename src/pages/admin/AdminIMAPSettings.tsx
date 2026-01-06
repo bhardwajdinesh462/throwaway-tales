@@ -8,7 +8,20 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
 import { api } from "@/lib/api";
-import { Mail, Save, Eye, EyeOff, RefreshCw, CheckCircle, XCircle, Download, Loader2, AlertCircle, Server } from "lucide-react";
+import {
+  Mail,
+  Save,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  CheckCircle,
+  XCircle,
+  Download,
+  Loader2,
+  AlertCircle,
+  Server,
+  Star,
+} from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -16,13 +29,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-const IMAP_SETTINGS_KEY = 'trashmails_imap_settings';
+const IMAP_SETTINGS_KEY = "trashmails_imap_settings";
 
 interface IMAPSettings {
   host: string;
@@ -43,38 +52,38 @@ interface Mailbox {
   imap_host: string | null;
   imap_port: number | null;
   imap_user: string | null;
-  imap_password?: string | null;
   is_active: boolean | null;
+  is_primary: boolean | null;
   last_polled_at: string | null;
   last_error: string | null;
+  last_error_at: string | null;
 }
 
 const defaultSettings: IMAPSettings = {
-  host: '',
+  host: "",
   port: 993,
-  username: '',
-  password: '',
+  username: "",
+  password: "",
   useTLS: true,
   useSSL: true,
-  mailbox: 'INBOX',
+  mailbox: "INBOX",
   pollingInterval: 60,
   deleteAfterFetch: false,
   enabled: false,
 };
 
 const AdminIMAPSettings = () => {
-  const [settings, setSettings] = useState<IMAPSettings>(() =>
-    storage.get(IMAP_SETTINGS_KEY, defaultSettings)
-  );
+  const [settings, setSettings] = useState<IMAPSettings>(() => storage.get(IMAP_SETTINGS_KEY, defaultSettings));
   const [isSaving, setIsSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const [fetchResult, setFetchResult] = useState<{ 
-    success: boolean; 
-    message: string; 
-    stats?: { totalMessages: number; unseenMessages: number; stored: number; failed: number } 
+  const [isSettingPrimary, setIsSettingPrimary] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle");
+  const [fetchResult, setFetchResult] = useState<{
+    success: boolean;
+    message: string;
+    stats?: { totalMessages: number; unseenMessages: number; stored: number; failed: number };
   } | null>(null);
 
   // Mailbox state
@@ -82,7 +91,7 @@ const AdminIMAPSettings = () => {
   const [selectedMailboxId, setSelectedMailboxId] = useState<string | null>(null);
   const [isLoadingMailboxes, setIsLoadingMailboxes] = useState(false);
   const [isSavingToDb, setIsSavingToDb] = useState(false);
-  const [syncSource, setSyncSource] = useState<'local' | 'database'>('local');
+  const [syncSource, setSyncSource] = useState<"local" | "database">("local");
 
   useEffect(() => {
     fetchMailboxes();
@@ -93,14 +102,28 @@ const AdminIMAPSettings = () => {
     try {
       const { data, error } = await api.admin.getMailboxes();
       if (error) throw new Error(error.message);
-      const mailboxData = data || [];
+
+      const mailboxData: Mailbox[] = (data || []) as Mailbox[];
+
+      // Prefer primary mailbox first in the UI
+      mailboxData.sort((a, b) => {
+        const ap = a.is_primary ? 1 : 0;
+        const bp = b.is_primary ? 1 : 0;
+        if (ap !== bp) return bp - ap;
+        const aa = a.is_active ? 1 : 0;
+        const ba = b.is_active ? 1 : 0;
+        return ba - aa;
+      });
+
       setMailboxes(mailboxData);
-      
+
       if (mailboxData.length > 0 && !selectedMailboxId) {
-        const firstActive = mailboxData.find((m: Mailbox) => m.is_active);
-        if (firstActive) {
-          setSelectedMailboxId(firstActive.id);
-          loadMailboxToForm(firstActive);
+        const primary = mailboxData.find((m) => m.is_primary);
+        const firstActive = mailboxData.find((m) => m.is_active);
+        const pick = primary || firstActive;
+        if (pick) {
+          setSelectedMailboxId(pick.id);
+          loadMailboxToForm(pick);
         }
       }
     } catch (error: any) {
@@ -112,25 +135,26 @@ const AdminIMAPSettings = () => {
 
   const loadMailboxToForm = (mailbox: Mailbox) => {
     setSettings({
-      host: mailbox.imap_host || '',
+      host: mailbox.imap_host || "",
       port: mailbox.imap_port || 993,
-      username: mailbox.imap_user || '',
-      password: mailbox.imap_password || '',
+      username: mailbox.imap_user || "",
+      // Password is never loaded back from the database (stored securely). Re-enter to update.
+      password: "",
       useTLS: true,
       useSSL: (mailbox.imap_port || 993) === 993,
-      mailbox: 'INBOX',
+      mailbox: "INBOX",
       pollingInterval: 60,
       deleteAfterFetch: false,
       enabled: mailbox.is_active ?? false,
     });
-    setSyncSource('database');
-    setConnectionStatus('idle');
+    setSyncSource("database");
+    setConnectionStatus("idle");
     toast.success(`Loaded mailbox: ${mailbox.name}`);
   };
 
   const handleSelectMailbox = (mailboxId: string) => {
     setSelectedMailboxId(mailboxId);
-    const mailbox = mailboxes.find(m => m.id === mailboxId);
+    const mailbox = mailboxes.find((m) => m.id === mailboxId);
     if (mailbox) {
       loadMailboxToForm(mailbox);
     }
@@ -139,16 +163,44 @@ const AdminIMAPSettings = () => {
   const handleSave = () => {
     setIsSaving(true);
     storage.set(IMAP_SETTINGS_KEY, settings);
-    setSyncSource('local');
+    setSyncSource("local");
     setTimeout(() => {
       setIsSaving(false);
       toast.success("IMAP settings saved locally!");
     }, 500);
   };
 
+  const handleSetPrimary = async () => {
+    if (!selectedMailboxId) return;
+
+    setIsSettingPrimary(true);
+    try {
+      // Unset any previous primary
+      const { error: clearError } = await api.db.update("mailboxes", { is_primary: false }, { is_primary: true });
+      if (clearError) throw new Error(clearError.message);
+
+      // Set selected as primary
+      const { error: setError } = await api.db.update("mailboxes", { is_primary: true }, { id: selectedMailboxId });
+      if (setError) throw new Error(setError.message);
+
+      toast.success("Primary mailbox updated");
+      await fetchMailboxes();
+    } catch (error: any) {
+      console.error("Error setting primary mailbox:", error);
+      toast.error(error.message || "Failed to set primary mailbox");
+    } finally {
+      setIsSettingPrimary(false);
+    }
+  };
+
   const handleSaveToDatabase = async () => {
-    if (!settings.host || !settings.username || !settings.password) {
-      toast.error("Please fill in host, username, and password");
+    if (!settings.host || !settings.username) {
+      toast.error("Please fill in host and username");
+      return;
+    }
+
+    if (!selectedMailboxId) {
+      toast.error("Please select or create a mailbox first in SMTP Settings");
       return;
     }
 
@@ -159,19 +211,25 @@ const AdminIMAPSettings = () => {
         imap_host: settings.host,
         imap_port: settings.port,
         imap_user: settings.username,
-        imap_password: settings.password,
         is_active: settings.enabled,
       };
 
-      if (selectedMailboxId) {
-        const { error } = await api.admin.saveMailbox(mailboxData);
-        if (error) throw new Error(error.message);
-        toast.success("IMAP settings updated in database!");
-      } else {
-        toast.error("Please select or create a mailbox first in SMTP Settings");
+      const { error: saveError } = await api.admin.saveMailbox(mailboxData);
+      if (saveError) throw new Error(saveError.message);
+
+      // Password is stored securely via backend function; only update if user typed one.
+      if (settings.password) {
+        const { data, error: pwError } = await api.db.rpc<boolean>("set_mailbox_imap_password", {
+          p_mailbox_id: selectedMailboxId,
+          p_password: settings.password,
+        });
+
+        if (pwError) throw new Error(pwError.message);
+        if (data === false) throw new Error("Failed to store IMAP password");
       }
-      
-      setSyncSource('database');
+
+      toast.success("IMAP settings updated in database!");
+      setSyncSource("database");
       await fetchMailboxes();
     } catch (error: any) {
       console.error("Error saving to database:", error);
@@ -186,12 +244,12 @@ const AdminIMAPSettings = () => {
       toast.error("Please enter IMAP credentials first");
       return;
     }
-    
+
     setIsTesting(true);
-    setConnectionStatus('idle');
-    
+    setConnectionStatus("idle");
+
     try {
-      const { data, error } = await api.admin.testMailbox('imap', {
+      const { data, error } = await api.admin.testMailbox("imap", {
         host: settings.host,
         port: settings.port,
         user: settings.username,
@@ -202,14 +260,14 @@ const AdminIMAPSettings = () => {
       if (error) throw new Error(error.message);
 
       if (data?.success) {
-        setConnectionStatus('success');
-        toast.success(`IMAP connection successful! Found ${data.message_count || 0} messages.`);
+        setConnectionStatus("success");
+        toast.success(`IMAP connection successful! Found ${data.stats?.totalMessages ?? data.message_count ?? 0} messages.`);
       } else {
-        setConnectionStatus('error');
+        setConnectionStatus("error");
         toast.error(data?.error || "Connection failed");
       }
     } catch (error: any) {
-      setConnectionStatus('error');
+      setConnectionStatus("error");
       toast.error(error.message || "Connection test failed");
     } finally {
       setIsTesting(false);
@@ -226,19 +284,18 @@ const AdminIMAPSettings = () => {
     setFetchResult(null);
 
     try {
-      const { data, error } = await api.admin.pollIMAP(selectedMailboxId || '');
-
+      const { data, error } = await api.admin.pollIMAP(selectedMailboxId || "");
       if (error) throw new Error(error.message);
 
       if (data?.success) {
         setFetchResult({
           success: true,
           message: data.message,
-          stats: data.stats
+          stats: data.stats,
         });
         toast.success(`Fetched ${data.stats?.stored || 0} new emails!`);
       } else {
-        setFetchResult({ success: false, message: data?.error || 'Unknown error' });
+        setFetchResult({ success: false, message: data?.error || "Unknown error" });
         toast.error(data?.error || "Failed to fetch emails");
       }
     } catch (error: any) {
@@ -251,10 +308,12 @@ const AdminIMAPSettings = () => {
   };
 
   const updateSetting = <K extends keyof IMAPSettings>(key: K, value: IMAPSettings[K]) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
-    setConnectionStatus('idle');
-    setSyncSource('local');
+    setSettings((prev) => ({ ...prev, [key]: value }));
+    setConnectionStatus("idle");
+    setSyncSource("local");
   };
+
+  const selectedMailbox = selectedMailboxId ? mailboxes.find((m) => m.id === selectedMailboxId) : null;
 
   return (
     <div className="space-y-6">
@@ -268,16 +327,12 @@ const AdminIMAPSettings = () => {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={handleTestConnection} disabled={isTesting}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${isTesting ? 'animate-spin' : ''}`} />
-            {isTesting ? 'Testing...' : 'Test Connection'}
+            <RefreshCw className={`w-4 h-4 mr-2 ${isTesting ? "animate-spin" : ""}`} />
+            {isTesting ? "Testing..." : "Test Connection"}
           </Button>
           <Button variant="outline" onClick={handleFetchEmails} disabled={isFetching}>
-            {isFetching ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Download className="w-4 h-4 mr-2" />
-            )}
-            {isFetching ? 'Fetching...' : 'Fetch Emails Now'}
+            {isFetching ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+            {isFetching ? "Fetching..." : "Fetch Emails Now"}
           </Button>
         </div>
       </div>
@@ -292,8 +347,8 @@ const AdminIMAPSettings = () => {
             </span>
             <div className="flex items-center gap-2">
               {isLoadingMailboxes && <Loader2 className="w-4 h-4 animate-spin" />}
-              <Badge variant={syncSource === 'database' ? 'default' : 'secondary'}>
-                {syncSource === 'database' ? 'From Database' : 'Local'}
+              <Badge variant={syncSource === "database" ? "default" : "secondary"}>
+                {syncSource === "database" ? "From Database" : "Local"}
               </Badge>
             </div>
           </CardTitle>
@@ -302,7 +357,7 @@ const AdminIMAPSettings = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Select value={selectedMailboxId || ''} onValueChange={handleSelectMailbox}>
+          <Select value={selectedMailboxId || ""} onValueChange={handleSelectMailbox}>
             <SelectTrigger>
               <SelectValue placeholder="Select a mailbox..." />
             </SelectTrigger>
@@ -315,34 +370,53 @@ const AdminIMAPSettings = () => {
                     ) : (
                       <XCircle className="w-3 h-3 text-muted-foreground" />
                     )}
-                    {mb.name} {mb.imap_host ? `- ${mb.imap_host}` : '(IMAP not configured)'}
+                    <span className="truncate">{mb.name} {mb.imap_host ? `- ${mb.imap_host}` : "(IMAP not configured)"}</span>
+                    {mb.is_primary ? (
+                      <Badge variant="outline" className="ml-1">Primary</Badge>
+                    ) : null}
                   </div>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <div className="text-sm text-muted-foreground">
+              {selectedMailbox?.is_primary ? "This mailbox is currently Primary." : "Set a Primary mailbox so the inbox can failover automatically."}
+            </div>
+            <Button
+              variant="secondary"
+              onClick={handleSetPrimary}
+              disabled={!selectedMailboxId || isSettingPrimary}
+            >
+              {isSettingPrimary ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Star className="w-4 h-4 mr-2" />
+              )}
+              Set as Primary
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
-      {connectionStatus !== 'idle' && (
-        <div className={`flex items-center gap-2 p-4 rounded-lg ${
-          connectionStatus === 'success' ? 'bg-green-500/10 text-green-600' : 'bg-destructive/10 text-destructive'
-        }`}>
-          {connectionStatus === 'success' ? (
-            <CheckCircle className="w-5 h-5" />
-          ) : (
-            <XCircle className="w-5 h-5" />
-          )}
+      {connectionStatus !== "idle" && (
+        <div
+          className={`flex items-center gap-2 p-4 rounded-lg ${
+            connectionStatus === "success" ? "bg-green-500/10 text-green-600" : "bg-destructive/10 text-destructive"
+          }`}
+        >
+          {connectionStatus === "success" ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
           <span>
-            {connectionStatus === 'success' 
-              ? 'Connection successful! IMAP server is reachable.'
-              : 'Connection failed. Please verify your credentials and server settings.'}
+            {connectionStatus === "success"
+              ? "Connection successful! IMAP server is reachable."
+              : "Connection failed. Please verify your credentials and server settings."}
           </span>
         </div>
       )}
 
       {fetchResult && (
-        <Card className={fetchResult.success ? 'border-green-500/50' : 'border-destructive/50'}>
+        <Card className={fetchResult.success ? "border-green-500/50" : "border-destructive/50"}>
           <CardContent className="pt-6">
             <div className="flex items-start gap-3">
               {fetchResult.success ? (
@@ -387,7 +461,7 @@ const AdminIMAPSettings = () => {
               <Switch
                 id="imap-enabled"
                 checked={settings.enabled}
-                onCheckedChange={(checked) => updateSetting('enabled', checked)}
+                onCheckedChange={(checked) => updateSetting("enabled", checked)}
               />
             </div>
           </CardTitle>
@@ -402,10 +476,18 @@ const AdminIMAPSettings = () => {
             <AlertDescription>
               For cPanel hosting, typical settings are:
               <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
-                <li><strong>Host:</strong> mail.yourdomain.com or your server hostname</li>
-                <li><strong>Port:</strong> 993 (SSL) or 143 (non-SSL)</li>
-                <li><strong>Username:</strong> Your full email address</li>
-                <li><strong>Password:</strong> Your email account password</li>
+                <li>
+                  <strong>Host:</strong> mail.yourdomain.com or your server hostname
+                </li>
+                <li>
+                  <strong>Port:</strong> 993 (SSL) or 143 (non-SSL)
+                </li>
+                <li>
+                  <strong>Username:</strong> Your full email address
+                </li>
+                <li>
+                  <strong>Password:</strong> Your email account password
+                </li>
               </ul>
             </AlertDescription>
           </Alert>
@@ -416,19 +498,19 @@ const AdminIMAPSettings = () => {
               <Input
                 id="host"
                 value={settings.host}
-                onChange={(e) => updateSetting('host', e.target.value)}
+                onChange={(e) => updateSetting("host", e.target.value)}
                 placeholder="mail.yourdomain.com"
               />
               <p className="text-xs text-muted-foreground">e.g., mail.yourdomain.com, imap.yourdomain.com</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="port">Port *</Label>
-              <Select 
-                value={settings.port.toString()} 
+              <Select
+                value={settings.port.toString()}
                 onValueChange={(v) => {
                   const port = parseInt(v);
-                  updateSetting('port', port);
-                  updateSetting('useSSL', port === 993);
+                  updateSetting("port", port);
+                  updateSetting("useSSL", port === 993);
                 }}
               >
                 <SelectTrigger>
@@ -448,7 +530,7 @@ const AdminIMAPSettings = () => {
               <Input
                 id="username"
                 value={settings.username}
-                onChange={(e) => updateSetting('username', e.target.value)}
+                onChange={(e) => updateSetting("username", e.target.value)}
                 placeholder="catchall@yourdomain.com"
               />
             </div>
@@ -457,9 +539,9 @@ const AdminIMAPSettings = () => {
               <div className="relative">
                 <Input
                   id="password"
-                  type={showPassword ? 'text' : 'password'}
+                  type={showPassword ? "text" : "password"}
                   value={settings.password}
-                  onChange={(e) => updateSetting('password', e.target.value)}
+                  onChange={(e) => updateSetting("password", e.target.value)}
                   placeholder="••••••••"
                 />
                 <Button
@@ -472,6 +554,7 @@ const AdminIMAPSettings = () => {
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
               </div>
+              <p className="text-xs text-muted-foreground">Leave blank if you don’t want to change the stored password.</p>
             </div>
           </div>
 
@@ -481,7 +564,7 @@ const AdminIMAPSettings = () => {
               <Input
                 id="mailbox"
                 value={settings.mailbox}
-                onChange={(e) => updateSetting('mailbox', e.target.value)}
+                onChange={(e) => updateSetting("mailbox", e.target.value)}
                 placeholder="INBOX"
               />
               <p className="text-xs text-muted-foreground">Usually INBOX for main mailbox</p>
@@ -494,7 +577,7 @@ const AdminIMAPSettings = () => {
                 min="10"
                 max="300"
                 value={settings.pollingInterval}
-                onChange={(e) => updateSetting('pollingInterval', parseInt(e.target.value) || 60)}
+                onChange={(e) => updateSetting("pollingInterval", parseInt(e.target.value) || 60)}
               />
               <p className="text-xs text-muted-foreground">How often to check for new emails (10-300 seconds)</p>
             </div>
@@ -506,10 +589,7 @@ const AdminIMAPSettings = () => {
                 <Label>Use SSL</Label>
                 <p className="text-sm text-muted-foreground">Enable SSL encryption (recommended for port 993)</p>
               </div>
-              <Switch
-                checked={settings.useSSL}
-                onCheckedChange={(checked) => updateSetting('useSSL', checked)}
-              />
+              <Switch checked={settings.useSSL} onCheckedChange={(checked) => updateSetting("useSSL", checked)} />
             </div>
             <div className="flex items-center justify-between">
               <div>
@@ -518,7 +598,7 @@ const AdminIMAPSettings = () => {
               </div>
               <Switch
                 checked={settings.deleteAfterFetch}
-                onCheckedChange={(checked) => updateSetting('deleteAfterFetch', checked)}
+                onCheckedChange={(checked) => updateSetting("deleteAfterFetch", checked)}
               />
             </div>
           </div>
@@ -526,14 +606,10 @@ const AdminIMAPSettings = () => {
           <div className="flex gap-4 pt-4">
             <Button onClick={handleSave} disabled={isSaving} variant="outline">
               <Save className="w-4 h-4 mr-2" />
-              {isSaving ? 'Saving...' : 'Save Locally'}
+              {isSaving ? "Saving..." : "Save Locally"}
             </Button>
             <Button onClick={handleSaveToDatabase} disabled={isSavingToDb || !selectedMailboxId}>
-              {isSavingToDb ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Save className="w-4 h-4 mr-2" />
-              )}
+              {isSavingToDb ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
               Update Mailbox
             </Button>
           </div>
@@ -563,9 +639,7 @@ const AdminIMAPSettings = () => {
             <p className="text-sm text-muted-foreground">
               The IMAP polling script runs periodically to fetch new emails. Set up a cron job in cPanel → Cron Jobs to run every minute:
             </p>
-            <code className="block p-2 bg-muted rounded text-sm">
-              * * * * * php /home/username/public_html/api/cron/imap-poll.php
-            </code>
+            <code className="block p-2 bg-muted rounded text-sm">* * * * * php /home/username/public_html/api/cron/imap-poll.php</code>
           </div>
         </CardContent>
       </Card>

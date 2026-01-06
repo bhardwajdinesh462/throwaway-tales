@@ -111,9 +111,14 @@ const Inbox = () => {
       try {
         // For fast delivery, auto-refresh performs a lightweight IMAP poll (latest-N).
         if (opts?.pollImap) {
-          const result = await triggerImapFetch({ mode: "latest", limit: 10 });
-          if ((result?.stats?.stored ?? 0) > 0) {
-            playSound();
+          try {
+            const result = await triggerImapFetch({ mode: "latest", limit: 10 });
+            if ((result?.stats?.stored ?? 0) > 0) {
+              playSound();
+            }
+          } catch (e) {
+            // Prevent background refresh from crashing the UI if IMAP is temporarily failing.
+            console.warn("[Inbox] IMAP poll failed during refresh:", e);
           }
         } else {
           await refetch();

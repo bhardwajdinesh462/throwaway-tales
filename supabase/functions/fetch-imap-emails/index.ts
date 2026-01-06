@@ -15,30 +15,41 @@ interface ParsedEmail {
   receivedAt: Date;
 }
 
+type ImapCandidate = {
+  source: "db" | "env" | "test";
+  mailboxId?: string;
+  mailboxName?: string;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  last_error_at?: string | null;
+};
+
 const EMAIL_REGEX = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 
 // Decode quoted-printable encoding
 function decodeQuotedPrintable(str: string): string {
   return str
-    .replace(/=\r?\n/g, '') // Remove soft line breaks
+    .replace(/=\r?\n/g, "") // Remove soft line breaks
     .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
 // Decode base64 encoding with UTF-8 support
 function decodeBase64(str: string): string {
   try {
-    const cleaned = str.replace(/[\r\n\s]/g, '');
+    const cleaned = str.replace(/[\r\n\s]/g, "");
     // Handle potential padding issues
-    const padded = cleaned + '='.repeat((4 - cleaned.length % 4) % 4);
+    const padded = cleaned + "=".repeat((4 - (cleaned.length % 4)) % 4);
     const binaryStr = atob(padded);
-    
+
     // Try to decode as UTF-8
     try {
       const bytes = new Uint8Array(binaryStr.length);
       for (let i = 0; i < binaryStr.length; i++) {
         bytes[i] = binaryStr.charCodeAt(i);
       }
-      return new TextDecoder('utf-8').decode(bytes);
+      return new TextDecoder("utf-8").decode(bytes);
     } catch {
       // Fallback to raw decoded string
       return binaryStr;
@@ -50,13 +61,13 @@ function decodeBase64(str: string): string {
 
 // Parse MIME multipart content to extract text and HTML parts
 function parseMimeContent(rawContent: string): { text: string; html: string } {
-  let text = '';
-  let html = '';
+  let text = "";
+  let html = "";
 
   // Strip IMAP protocol artifacts if they leaked into storage
   const cleaned = rawContent
-    .replace(/^\s*BODY\[TEXT\]\s*\{\d+\}\s*\r?\n?/gmi, '')
-    .replace(/\r?\n\)\r?\nA\d{4}\s+(OK|NO|BAD)[\s\S]*$/i, '')
+    .replace(/^\s*BODY\[TEXT\]\s*\{\d+\}\s*\r?\n?/gim, "")
+    .replace(/\r?\n\)\r?\nA\d{4}\s+(OK|NO|BAD)[\s\S]*$/i, "")
     .trim();
 
   const boundaryParam = cleaned.match(/boundary[=\s]*"?([^"\r\n;]+)"?/i)?.[1];
@@ -64,13 +75,13 @@ function parseMimeContent(rawContent: string): { text: string; html: string } {
   const boundary = boundaryParam || boundaryFromBody;
 
   const parseSinglePart = (content: string) => {
-    const headerEndCrLf = content.indexOf('\r\n\r\n');
-    const headerEndLf = headerEndCrLf === -1 ? content.indexOf('\n\n') : -1;
+    const headerEndCrLf = content.indexOf("\r\n\r\n");
+    const headerEndLf = headerEndCrLf === -1 ? content.indexOf("\n\n") : -1;
     const headerEnd = headerEndCrLf !== -1 ? headerEndCrLf : headerEndLf;
     const sepLen = headerEndCrLf !== -1 ? 4 : 2;
 
     if (headerEnd === -1) {
-      return { headers: '', body: content };
+      return { headers: "", body: content };
     }
 
     return {
@@ -81,25 +92,24 @@ function parseMimeContent(rawContent: string): { text: string; html: string } {
 
   const decodePart = (headersLower: string, body: string): string => {
     let decoded = body;
-    
+
     // Detect and decode base64 content
-    if (headersLower.includes('base64')) {
-      // Clean base64: remove line breaks and whitespace
-      const cleanBase64 = body.replace(/[\r\n\s]/g, '');
+    if (headersLower.includes("base64")) {
+      const cleanBase64 = body.replace(/[\r\n\s]/g, "");
       decoded = decodeBase64(cleanBase64);
-    } else if (headersLower.includes('quoted-printable')) {
+    } else if (headersLower.includes("quoted-printable")) {
       decoded = decodeQuotedPrintable(body);
     }
-    
+
     // Clean up any remaining MIME boundary artifacts from decoded content
     decoded = decoded
-      .replace(/--b\d+=_[^\r\n]+/g, '') // Remove boundary markers like --b1=_xxx
-      .replace(/Content-Type:\s*[^\r\n]+/gi, '') // Remove Content-Type headers that leaked
-      .replace(/Content-Transfer-Encoding:\s*[^\r\n]+/gi, '') // Remove encoding headers
-      .replace(/boundary="?[^"\r\n]+"?/gi, '') // Remove boundary declarations
-      .replace(/^\s*[\r\n]+/, '') // Remove leading empty lines
+      .replace(/--b\d+=_[^\r\n]+/g, "")
+      .replace(/Content-Type:\s*[^\r\n]+/gi, "")
+      .replace(/Content-Transfer-Encoding:\s*[^\r\n]+/gi, "")
+      .replace(/boundary="?[^"\r\n]+"?/gi, "")
+      .replace(/^\s*[\r\n]+/, "")
       .trim();
-    
+
     return decoded;
   };
 
@@ -108,20 +118,20 @@ function parseMimeContent(rawContent: string): { text: string; html: string } {
     const headersLower = headers.toLowerCase();
     const decoded = decodePart(headersLower, body).trim();
 
-    if (headersLower.includes('text/html')) html = decoded;
+    if (headersLower.includes("text/html")) html = decoded;
     else text = decoded;
 
     return { text, html };
   }
 
-  const escapedBoundary = boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedBoundary = boundary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const parts = cleaned.split(new RegExp(`--${escapedBoundary}`));
 
   for (const part of parts) {
     const trimmed = part.trim();
-    if (!trimmed || trimmed === '--') continue;
+    if (!trimmed || trimmed === "--") continue;
 
-    const normalizedPart = part.replace(/^\r?\n/, '');
+    const normalizedPart = part.replace(/^\r?\n/, "");
     const { headers, body } = parseSinglePart(normalizedPart);
     const headersLower = headers.toLowerCase();
 
@@ -135,12 +145,11 @@ function parseMimeContent(rawContent: string): { text: string; html: string } {
     }
 
     const decoded = decodePart(headersLower, body).trim();
-
     if (!decoded) continue;
 
-    if (headersLower.includes('text/html')) {
+    if (headersLower.includes("text/html")) {
       if (!html) html = decoded;
-    } else if (headersLower.includes('text/plain')) {
+    } else if (headersLower.includes("text/plain")) {
       if (!text) text = decoded;
     }
   }
@@ -151,17 +160,28 @@ function parseMimeContent(rawContent: string): { text: string; html: string } {
 // Extract clean text from HTML
 function extractTextFromHtml(html: string): string {
   return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
+    .replace(/\s+/g, " ")
     .trim();
+}
+
+function withinMinutes(iso: string, minutes: number): boolean {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t < minutes * 60_000;
+}
+
+function toShortError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.length > 800 ? msg.slice(0, 800) + "…" : msg;
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -170,43 +190,195 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   // Request options (defaults keep polling fast)
-  let mode: 'latest' | 'unseen' = 'latest';
+  let requestBody: any = {};
+  let mode: "latest" | "unseen" = "latest";
   let limit = 10;
+  let requestedMailboxId: string | null = null;
+  let testOnly = false;
+
   try {
-    const body = await req.json();
-    if (body?.mode === 'unseen' || body?.mode === 'latest') mode = body.mode;
-    if (typeof body?.limit === 'number' && Number.isFinite(body.limit)) {
-      limit = Math.max(1, Math.min(50, Math.floor(body.limit)));
+    requestBody = await req.json();
+    if (requestBody?.mode === "unseen" || requestBody?.mode === "latest") mode = requestBody.mode;
+    if (typeof requestBody?.limit === "number" && Number.isFinite(requestBody.limit)) {
+      limit = Math.max(1, Math.min(50, Math.floor(requestBody.limit)));
     }
+    if (typeof requestBody?.mailbox_id === "string" && requestBody.mailbox_id.trim()) {
+      requestedMailboxId = requestBody.mailbox_id.trim();
+    }
+    testOnly = !!requestBody?.test_only;
   } catch {
     // ignore (e.g. empty body)
   }
 
-  console.log(`[IMAP] Starting fetch - mode: ${mode}, limit: ${limit}`);
+  console.log(`[IMAP] Starting fetch - mode: ${mode}, limit: ${limit}, testOnly: ${testOnly}`);
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const host = Deno.env.get("IMAP_HOST");
-    const port = parseInt(Deno.env.get("IMAP_PORT") || "993");
-    const username = Deno.env.get("IMAP_USER");
-    const password = Deno.env.get("IMAP_PASSWORD");
+    const updateMailboxError = async (mailboxId: string, err: unknown) => {
+      const msg = toShortError(err);
+      try {
+        await supabase
+          .from("mailboxes")
+          .update({ last_error: msg, last_error_at: new Date().toISOString() })
+          .eq("id", mailboxId);
+      } catch (e) {
+        console.error("[IMAP] Failed updating mailbox error:", e);
+      }
+    };
 
-    if (!host || !username || !password) {
-      console.log("[IMAP] Configuration incomplete");
+    const updateMailboxSuccess = async (mailboxId: string) => {
+      try {
+        await supabase
+          .from("mailboxes")
+          .update({
+            last_polled_at: new Date().toISOString(),
+            last_error: null,
+            last_error_at: null,
+          })
+          .eq("id", mailboxId);
+      } catch (e) {
+        console.error("[IMAP] Failed updating mailbox success:", e);
+      }
+    };
+
+    const envHost = Deno.env.get("IMAP_HOST") || "";
+    const envPort = parseInt(Deno.env.get("IMAP_PORT") || "993");
+    const envUser = Deno.env.get("IMAP_USER") || "";
+    const envPass = Deno.env.get("IMAP_PASSWORD") || "";
+
+    const buildCandidates = async (): Promise<ImapCandidate[]> => {
+      // 1) Test-only: use provided config and do not hit the database.
+      if (testOnly) {
+        const host = String(requestBody?.host || "").trim();
+        const port = Number.isFinite(Number(requestBody?.port)) ? Number(requestBody.port) : 993;
+        const username = String(requestBody?.user || requestBody?.username || "").trim();
+        const password = String(requestBody?.password || "");
+
+        if (!host || !username || !password) {
+          return [];
+        }
+
+        return [
+          {
+            source: "test",
+            host,
+            port,
+            username,
+            password,
+          },
+        ];
+      }
+
+      // 2) DB mailboxes (primary first, then failover)
+      const { data: dbMailboxes, error: mailboxesError } = await supabase
+        .from("mailboxes")
+        .select(
+          "id,name,imap_host,imap_port,imap_user,is_active,is_primary,priority,last_error_at,last_error"
+        )
+        .eq("is_active", true)
+        .not("imap_host", "is", null)
+        .not("imap_user", "is", null)
+        .order("is_primary", { ascending: false })
+        .order("priority", { ascending: false });
+
+      if (mailboxesError) {
+        console.error("[IMAP] Failed loading mailboxes:", mailboxesError);
+      }
+
+      const mailboxes = (dbMailboxes || []) as any[];
+
+      // If mailbox_id is requested, try it first, then the rest.
+      let ordered: any[] = mailboxes;
+      if (requestedMailboxId) {
+        const requested = mailboxes.find((m) => m.id === requestedMailboxId);
+        const others = mailboxes.filter((m) => m.id !== requestedMailboxId);
+        ordered = requested ? [requested, ...others] : mailboxes;
+      }
+
+      const candidates: ImapCandidate[] = [];
+
+      for (const m of ordered) {
+        // Skip recently errored mailboxes unless explicitly requested
+        const lastErrAt = m.last_error_at as string | null;
+        const isRequested = requestedMailboxId && m.id === requestedMailboxId;
+        if (!isRequested && lastErrAt && withinMinutes(lastErrAt, 15)) {
+          continue;
+        }
+
+        const host = String(m.imap_host || "").trim();
+        const port = Number.isFinite(Number(m.imap_port)) ? Number(m.imap_port) : 993;
+        const username = String(m.imap_user || "").trim();
+
+        if (!host || !username) continue;
+
+        const { data: pw, error: pwError } = await supabase.rpc("get_mailbox_imap_password", {
+          p_mailbox_id: m.id,
+        });
+
+        if (pwError) {
+          console.error(`[IMAP] Failed decrypting IMAP password for mailbox ${m.name}:`, pwError);
+          await updateMailboxError(m.id, pwError.message);
+          continue;
+        }
+
+        const password = String(pw || "");
+        if (!password) {
+          await updateMailboxError(m.id, "IMAP password not set for this mailbox");
+          continue;
+        }
+
+        candidates.push({
+          source: "db",
+          mailboxId: m.id,
+          mailboxName: m.name,
+          host,
+          port,
+          username,
+          password,
+          last_error_at: m.last_error_at,
+        });
+      }
+
+      // 3) Fallback to env if DB has nothing usable
+      if (candidates.length === 0 && envHost && envUser && envPass) {
+        candidates.push({
+          source: "env",
+          host: envHost,
+          port: Number.isFinite(envPort) ? envPort : 993,
+          username: envUser,
+          password: envPass,
+        });
+      }
+
+      return candidates;
+    };
+
+    const candidates = await buildCandidates();
+
+    if (testOnly && candidates.length === 0) {
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: "IMAP configuration is incomplete. Please configure IMAP settings in the admin panel.",
-          configured: false
+        JSON.stringify({
+          success: false,
+          error: "IMAP test requires host, port, username, and password.",
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`[IMAP] Connecting to ${host}:${port}`);
+    if (!testOnly && candidates.length === 0) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error:
+            "No IMAP mailbox is configured (or passwords are missing). Please configure IMAP on at least one mailbox and set it as Primary.",
+          configured: false,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Load allowed domains so we can reliably match recipient emails
     const { data: activeDomains, error: domainsError } = await supabase
@@ -223,12 +395,8 @@ serve(async (req: Request): Promise<Response> => {
       .map((name) => (name.startsWith("@") ? name.slice(1) : name))
       .filter(Boolean);
 
-    console.log(`[IMAP] Allowed domains: ${allowedDomainSuffixes.join(', ')}`);
+    console.log(`[IMAP] Allowed domains: ${allowedDomainSuffixes.join(", ")}`);
 
-    // NOTE: We no longer pre-load ALL active temp_emails.
-    // Instead, we look up each candidate recipient on-demand to reduce memory and query size.
-    // This scales better when there are thousands of active inboxes.
-    
     // Helper to lookup temp_email by address (with caching within this request)
     const tempEmailCache = new Map<string, string | null>();
     const lookupTempEmail = async (address: string): Promise<string | null> => {
@@ -242,116 +410,22 @@ serve(async (req: Request): Promise<Response> => {
         .eq("address", normalized)
         .eq("is_active", true)
         .maybeSingle();
-      const id = (!error && data) ? data.id : null;
+      const id = !error && data ? (data as any).id : null;
       tempEmailCache.set(normalized, id);
       return id;
     };
 
-    const conn = await Deno.connect({
-      hostname: host,
-      port: port,
-    });
-
-    let secureConn: Deno.TlsConn | Deno.Conn = conn;
-    if (port === 993) {
-      secureConn = await Deno.startTls(conn, { hostname: host });
-    }
-
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-
-    const sendCommand = async (command: string, tagNum: number): Promise<string> => {
-      const tag = `A${tagNum.toString().padStart(4, '0')}`;
-      const fullCommand = `${tag} ${command}\r\n`;
-      
-      // Don't log password
-      const logCmd = command.startsWith('LOGIN') 
-        ? `LOGIN "${username}" ****` 
-        : command;
-      console.log(`[IMAP] > ${tag} ${logCmd}`);
-      
-      await secureConn.write(encoder.encode(fullCommand));
-      
-      const buffer = new Uint8Array(131072); // 128KB buffer for larger emails
-      let response = "";
-      
-      while (true) {
-        const bytesRead = await secureConn.read(buffer);
-        if (bytesRead === null) break;
-        
-        const chunk = decoder.decode(buffer.subarray(0, bytesRead));
-        response += chunk;
-        
-        if (response.includes(`${tag} OK`) || response.includes(`${tag} NO`) || response.includes(`${tag} BAD`)) {
-          break;
-        }
-      }
-      
-      console.log(`[IMAP] < Response: ${response.length} chars`);
-      return response;
-    };
-
-    const greeting = new Uint8Array(1024);
-    await secureConn.read(greeting);
-    console.log("[IMAP] Server greeting received");
-
-    let tagNum = 1;
-
-    const loginResponse = await sendCommand(`LOGIN "${username}" "${password}"`, tagNum++);
-    if (!loginResponse.includes("OK")) {
-      throw new Error("IMAP login failed: " + loginResponse);
-    }
-
-    // SELECT INBOX to get fresh message count
-    const selectResponse = await sendCommand("SELECT INBOX", tagNum++);
-    if (!selectResponse.includes("OK")) {
-      throw new Error("Failed to select INBOX: " + selectResponse);
-    }
-
-    const existsMatch = selectResponse.match(/\* (\d+) EXISTS/);
-    const messageCount = existsMatch ? parseInt(existsMatch[1]) : 0;
-    console.log(`[IMAP] Found ${messageCount} total messages in INBOX`);
-
-    const storedCount = { success: 0, failed: 0, skipped: 0, noMatch: 0 };
-
-    let newestMessageIds: string[] = [];
-
-    if (mode === 'unseen') {
-      // Search for UNSEEN messages specifically
-      const searchResponse = await sendCommand("SEARCH UNSEEN", tagNum++);
-      const unseenMatch = searchResponse.match(/\* SEARCH ([\d\s]+)/);
-      const unseenIds = unseenMatch ? unseenMatch[1].trim().split(/\s+/).filter(id => id) : [];
-      console.log(`[IMAP] Found ${unseenIds.length} UNSEEN messages`);
-      newestMessageIds = unseenIds.slice(-limit).reverse();
-      console.log(`[IMAP] Processing ${newestMessageIds.length} newest UNSEEN: [${newestMessageIds.join(', ')}]`);
-    } else {
-      // Latest mode: only scan the last N message sequence numbers.
-      // NOTE: Some servers deliver new mail already marked as \Seen. We still want to store those.
-      const start = Math.max(1, messageCount - limit + 1);
-      newestMessageIds = [];
-      for (let i = messageCount; i >= start; i--) newestMessageIds.push(String(i));
-      console.log(`[IMAP] Latest mode: processing ${newestMessageIds.length} messages: [${newestMessageIds.join(', ')}]`);
-    }
-
-    // NOTE: We no longer pre-load ALL received_emails for dedup.
-    // Instead, we check duplicates per-message on-demand to reduce memory.
-    const checkedDuplicates = new Set<string>(); // Track within this batch
-    
-    const isDuplicate = async (tempEmailId: string, fromAddr: string, subj: string, receivedAt: string, messageId?: string): Promise<boolean> => {
+    const checkedDuplicates = new Set<string>();
+    const isDuplicate = async (
+      tempEmailId: string,
+      fromAddr: string,
+      subj: string,
+      receivedAt: string,
+      _messageId?: string
+    ): Promise<boolean> => {
       const emailKey = `${tempEmailId}|${fromAddr}|${subj}|${receivedAt}`.toLowerCase();
       if (checkedDuplicates.has(emailKey)) return true;
-      
-      // Check by message-id first (most reliable)
-      if (messageId) {
-        const { data: byMsgId } = await supabase
-          .from("received_emails")
-          .select("id")
-          .eq("temp_email_id", tempEmailId)
-          .limit(1);
-        // Simple check - if any email exists for this temp_email with similar subject/from, might be dup
-      }
-      
-      // Check by from+subject+date combo
+
       const { data: existing } = await supabase
         .from("received_emails")
         .select("id")
@@ -360,303 +434,412 @@ serve(async (req: Request): Promise<Response> => {
         .eq("subject", subj)
         .eq("received_at", receivedAt)
         .limit(1);
-      
-      if (existing && existing.length > 0) {
+
+      if (existing && (existing as any[]).length > 0) {
         return true;
       }
-      
+
       checkedDuplicates.add(emailKey);
       return false;
     };
 
-    console.log(`[IMAP] Processing ${newestMessageIds.length} messages (on-demand dedup)`);
+    const processMailbox = async (candidate: ImapCandidate) => {
+      const { host, port, username, password } = candidate;
 
-    for (const msgId of newestMessageIds) {
-      try {
-        // Fast pass: fetch flags + headers only (small)
-        const headerResponse = await sendCommand(`FETCH ${msgId} (FLAGS BODY[HEADER])`, tagNum++);
+      console.log(`[IMAP] Connecting to ${host}:${port}`);
 
-        const isSeen = /FLAGS\s*\([^)]*\\Seen/i.test(headerResponse);
-        if (isSeen) {
-          console.log(`[IMAP] Msg ${msgId}: already seen (will still attempt match/store)`);
-        }
+      const conn = await Deno.connect({ hostname: host, port });
+      let secureConn: Deno.TlsConn | Deno.Conn = conn;
+      if (port === 993) {
+        secureConn = await Deno.startTls(conn, { hostname: host });
+      }
 
-        // Build a proper header map to handle multi-line headers
-        const headerLines = headerResponse.split(/\r?\n/);
-        const headers: Record<string, string> = {};
-        let currentHeader = '';
-        let currentValue = '';
-        
-        for (const line of headerLines) {
-          // Check if this is a continuation of the previous header (starts with whitespace)
-          if (/^\s+/.test(line) && currentHeader) {
-            currentValue += ' ' + line.trim();
-          } else {
-            // Save previous header if exists
-            if (currentHeader) {
-              headers[currentHeader.toLowerCase()] = currentValue;
-            }
-            // Parse new header
-            const colonIndex = line.indexOf(':');
-            if (colonIndex > 0) {
-              currentHeader = line.substring(0, colonIndex).trim();
-              currentValue = line.substring(colonIndex + 1).trim();
-            } else {
-              currentHeader = '';
-              currentValue = '';
-            }
-          }
-        }
-        // Save last header
-        if (currentHeader) {
-          headers[currentHeader.toLowerCase()] = currentValue;
-        }
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
 
-        const fromRaw = headers['from'] || '';
-        const toRaw = headers['to'] || '';
-        const subjectRaw = headers['subject'] || '';
-        const dateRaw = headers['date'] || '';
-        const deliveredTo = headers['delivered-to'] || '';
-        const originalTo = headers['x-original-to'] || '';
-        const envelopeTo = headers['envelope-to'] || '';
-        const messageId = headers['message-id'] || '';
+      const sendCommand = async (command: string, tagNum: number): Promise<string> => {
+        const tag = `A${tagNum.toString().padStart(4, "0")}`;
+        const fullCommand = `${tag} ${command}\r\n`;
 
-        const toAddress = toRaw.trim();
+        const logCmd = command.startsWith("LOGIN") ? `LOGIN "${username}" ****` : command;
+        console.log(`[IMAP] > ${tag} ${logCmd}`);
 
-        const headerCandidates = `${deliveredTo} ${originalTo} ${envelopeTo} ${toAddress}`;
-        const headerEmails = (headerCandidates.match(EMAIL_REGEX) || []).map((e) => e.toLowerCase().trim());
+        await secureConn.write(encoder.encode(fullCommand));
 
-        const allEmails: string[] = [
-          ...(headerResponse.match(EMAIL_REGEX) ?? []),
-          ...headerEmails
-        ].map((e) => e.toLowerCase().trim());
+        const buffer = new Uint8Array(131072);
+        let response = "";
 
-        // Find ALL emails that match our allowed domains
-        const domainMatchedEmails = allowedDomainSuffixes.length
-          ? allEmails.filter((e) => allowedDomainSuffixes.some((suffix) => e.endsWith(suffix)))
-          : [];
+        while (true) {
+          const bytesRead = await secureConn.read(buffer);
+          if (bytesRead === null) break;
 
-        console.log(`[IMAP] Msg ${msgId} - To header: "${toAddress}"`);
-        console.log(`[IMAP] Msg ${msgId} - Extracted emails: [${allEmails.slice(0, 5).join(', ')}]`);
-        console.log(`[IMAP] Msg ${msgId} - Domain-matched emails: [${domainMatchedEmails.join(', ')}]`);
+          const chunk = decoder.decode(buffer.subarray(0, bytesRead));
+          response += chunk;
 
-        // Try to find a matching temp_email (using on-demand lookup instead of pre-loaded map)
-        let matchedTempEmailId: string | null = null;
-        let matchedRecipient: string | null = null;
-
-        for (const candidateEmail of domainMatchedEmails) {
-          const tempId = await lookupTempEmail(candidateEmail);
-          if (tempId) {
-            matchedTempEmailId = tempId;
-            matchedRecipient = candidateEmail;
-            console.log(`[IMAP] Msg ${msgId} - MATCHED temp_email: ${candidateEmail} -> ${tempId}`);
+          if (response.includes(`${tag} OK`) || response.includes(`${tag} NO`) || response.includes(`${tag} BAD`)) {
             break;
           }
         }
 
-        if (!matchedTempEmailId) {
-          // Try header emails as fallback
-          for (const candidateEmail of headerEmails) {
-            const tempId = await lookupTempEmail(candidateEmail);
-            if (tempId) {
-              matchedTempEmailId = tempId;
-              matchedRecipient = candidateEmail;
-              console.log(`[IMAP] Msg ${msgId} - MATCHED (fallback) temp_email: ${candidateEmail} -> ${tempId}`);
-              break;
-            }
-          }
+        console.log(`[IMAP] < Response: ${response.length} chars`);
+        return response;
+      };
+
+      try {
+        const greeting = new Uint8Array(1024);
+        await secureConn.read(greeting);
+        console.log("[IMAP] Server greeting received");
+
+        let tagNum = 1;
+
+        const loginResponse = await sendCommand(`LOGIN "${username}" "${password}"`, tagNum++);
+        if (!loginResponse.includes("OK")) {
+          throw new Error("IMAP login failed: " + loginResponse);
         }
 
-        // Extract sender email (clean it up)
-        let fromAddress = fromRaw || "unknown@unknown.com";
-        const fromEmailMatch = fromAddress.match(/<([^>]+)>/);
-        if (fromEmailMatch) {
-          const displayName = fromAddress.replace(/<[^>]+>/, '').trim().replace(/^"|"$/g, '');
-          fromAddress = displayName ? `${displayName} <${fromEmailMatch[1]}>` : fromEmailMatch[1];
+        const selectResponse = await sendCommand("SELECT INBOX", tagNum++);
+        if (!selectResponse.includes("OK")) {
+          throw new Error("Failed to select INBOX: " + selectResponse);
         }
 
-        // Decode subject if encoded (handle multiple encoded parts)
-        let subject = subjectRaw || "(No Subject)";
-        // Decode all encoded-word patterns
-        subject = subject.replace(/=\?([^?]+)\?([BQ])\?([^?]+)\?=/gi, (match, charset, encoding, encodedText) => {
-          if (encoding.toUpperCase() === 'B') {
-            try {
-              return decodeBase64(encodedText);
-            } catch {
-              return match;
-            }
-          } else if (encoding.toUpperCase() === 'Q') {
-            return decodeQuotedPrintable(encodedText.replace(/_/g, ' '));
-          }
-          return match;
-        });
-        // Clean up any remaining artifacts
-        subject = subject.trim();
+        const existsMatch = selectResponse.match(/\* (\d+) EXISTS/);
+        const messageCount = existsMatch ? parseInt(existsMatch[1]) : 0;
 
-        if (!matchedTempEmailId) {
-          console.log(`[IMAP] Msg ${msgId} - NO MATCH found. Subject: "${subject}", From: "${fromAddress}"`);
-          console.log(`[IMAP] Msg ${msgId} - Candidates tried: [${domainMatchedEmails.concat(headerEmails).join(', ')}]`);
-          storedCount.noMatch++;
-          // Mark as seen to avoid re-processing
-          await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
-          continue;
+        // Always compute unseen count for UI/diagnostics
+        const searchUnseenResponse = await sendCommand("SEARCH UNSEEN", tagNum++);
+        const unseenMatch = searchUnseenResponse.match(/\* SEARCH ([\d\s]+)/);
+        const unseenIds = unseenMatch ? unseenMatch[1].trim().split(/\s+/).filter((id) => id) : [];
+        const unseenCount = unseenIds.length;
+
+        console.log(`[IMAP] Found ${messageCount} total messages in INBOX (${unseenCount} unseen)`);
+
+        if (testOnly) {
+          await sendCommand("LOGOUT", tagNum++);
+          return {
+            success: true,
+            message: "IMAP connection successful",
+            stats: {
+              mode,
+              limit,
+              totalMessages: messageCount,
+              unseenMessages: unseenCount,
+              processed: 0,
+              stored: 0,
+              failed: 0,
+              skipped: 0,
+              noMatch: 0,
+              fetchedAt: new Date().toISOString(),
+            },
+          };
         }
 
-        // Fetch FULL message body (BODY[] not BODY[TEXT]) to get complete MIME structure including HTML
-        const bodyResponse = await sendCommand(`FETCH ${msgId} (BODY[])`, tagNum++);
+        const storedCount = { success: 0, failed: 0, skipped: 0, noMatch: 0 };
+        let newestMessageIds: string[] = [];
 
-        // Extract body content from BODY[] {n}\r\n... using the IMAP byte count
-        let rawBody = '';
-        const bodyMarker = /BODY\[\]\s*\{(\d+)\}\r?\n/i.exec(bodyResponse);
-
-        if (bodyMarker && typeof bodyMarker.index === 'number') {
-          const bodyLength = parseInt(bodyMarker[1], 10);
-          const bodyStartIndex = bodyMarker.index + bodyMarker[0].length;
-          rawBody = bodyResponse.slice(bodyStartIndex, bodyStartIndex + bodyLength);
+        if (mode === "unseen") {
+          newestMessageIds = unseenIds.slice(-limit).reverse();
+          console.log(`[IMAP] Processing ${newestMessageIds.length} newest UNSEEN: [${newestMessageIds.join(", ")}]`);
         } else {
-          // Fallback: try to find content after double CRLF
-          const bodyStart = bodyResponse.lastIndexOf('\r\n\r\n');
-          rawBody = bodyStart > -1 ? bodyResponse.substring(bodyStart + 4) : bodyResponse;
+          const start = Math.max(1, messageCount - limit + 1);
+          newestMessageIds = [];
+          for (let i = messageCount; i >= start; i--) newestMessageIds.push(String(i));
+          console.log(`[IMAP] Latest mode: processing ${newestMessageIds.length} messages: [${newestMessageIds.join(", ")}]`);
         }
 
-        // Parse MIME content (also strips IMAP protocol artifacts)
-        const { text, html } = parseMimeContent(rawBody);
+        console.log(`[IMAP] Processing ${newestMessageIds.length} messages (on-demand dedup)`);
 
-        // Use text body or extract from HTML
-        let finalTextBody = text;
-        let finalHtmlBody = html;
+        for (const msgId of newestMessageIds) {
+          try {
+            const headerResponse = await sendCommand(`FETCH ${msgId} (FLAGS BODY[HEADER])`, tagNum++);
 
-        // If we have HTML but no text, extract text from HTML
-        if (!finalTextBody && finalHtmlBody) {
-          finalTextBody = extractTextFromHtml(finalHtmlBody);
-        }
+            const headerLines = headerResponse.split(/\r?\n/);
+            const headers: Record<string, string> = {};
+            let currentHeader = "";
+            let currentValue = "";
 
-        // If we only have plain text, generate a basic HTML version for rich display
-        if (finalTextBody && !finalHtmlBody) {
-          // Convert plain text to HTML with proper line breaks and link detection
-          const escapedText = finalTextBody
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/\n/g, '<br>\n');
-          
-          // Detect and linkify URLs
-          const linkedText = escapedText.replace(
-            /(https?:\/\/[^\s<]+)/gi,
-            '<a href="$1" target="_blank" rel="noopener noreferrer" style="color: #3b82f6; text-decoration: underline;">$1</a>'
-          );
-          
-          finalHtmlBody = `<!DOCTYPE html>
+            for (const line of headerLines) {
+              if (/^\s+/.test(line) && currentHeader) {
+                currentValue += " " + line.trim();
+              } else {
+                if (currentHeader) {
+                  headers[currentHeader.toLowerCase()] = currentValue;
+                }
+                const colonIndex = line.indexOf(":");
+                if (colonIndex > 0) {
+                  currentHeader = line.substring(0, colonIndex).trim();
+                  currentValue = line.substring(colonIndex + 1).trim();
+                } else {
+                  currentHeader = "";
+                  currentValue = "";
+                }
+              }
+            }
+            if (currentHeader) {
+              headers[currentHeader.toLowerCase()] = currentValue;
+            }
+
+            const fromRaw = headers["from"] || "";
+            const toRaw = headers["to"] || "";
+            const subjectRaw = headers["subject"] || "";
+            const dateRaw = headers["date"] || "";
+            const deliveredTo = headers["delivered-to"] || "";
+            const originalTo = headers["x-original-to"] || "";
+            const envelopeTo = headers["envelope-to"] || "";
+            const messageId = headers["message-id"] || "";
+
+            const toAddress = toRaw.trim();
+
+            const headerCandidates = `${deliveredTo} ${originalTo} ${envelopeTo} ${toAddress}`;
+            const headerEmails = (headerCandidates.match(EMAIL_REGEX) || []).map((e) => e.toLowerCase().trim());
+
+            const allEmails: string[] = [...(headerResponse.match(EMAIL_REGEX) ?? []), ...headerEmails].map((e) =>
+              e.toLowerCase().trim()
+            );
+
+            const domainMatchedEmails = allowedDomainSuffixes.length
+              ? allEmails.filter((e) => allowedDomainSuffixes.some((suffix) => e.endsWith(suffix)))
+              : [];
+
+            let matchedTempEmailId: string | null = null;
+            let matchedRecipient: string | null = null;
+
+            for (const candidateEmail of domainMatchedEmails) {
+              const tempId = await lookupTempEmail(candidateEmail);
+              if (tempId) {
+                matchedTempEmailId = tempId;
+                matchedRecipient = candidateEmail;
+                break;
+              }
+            }
+
+            if (!matchedTempEmailId) {
+              for (const candidateEmail of headerEmails) {
+                const tempId = await lookupTempEmail(candidateEmail);
+                if (tempId) {
+                  matchedTempEmailId = tempId;
+                  matchedRecipient = candidateEmail;
+                  break;
+                }
+              }
+            }
+
+            let fromAddress = fromRaw || "unknown@unknown.com";
+            const fromEmailMatch = fromAddress.match(/<([^>]+)>/);
+            if (fromEmailMatch) {
+              const displayName = fromAddress.replace(/<[^>]+>/, "").trim().replace(/^"|"$/g, "");
+              fromAddress = displayName ? `${displayName} <${fromEmailMatch[1]}>` : fromEmailMatch[1];
+            }
+
+            let subject = subjectRaw || "(No Subject)";
+            subject = subject.replace(/=\?([^?]+)\?([BQ])\?([^?]+)\?=/gi, (match, _charset, encoding, encodedText) => {
+              if (String(encoding).toUpperCase() === "B") {
+                try {
+                  return decodeBase64(encodedText);
+                } catch {
+                  return match;
+                }
+              }
+              if (String(encoding).toUpperCase() === "Q") {
+                return decodeQuotedPrintable(String(encodedText).replace(/_/g, " "));
+              }
+              return match;
+            });
+            subject = subject.trim();
+
+            if (!matchedTempEmailId) {
+              storedCount.noMatch++;
+              await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
+              continue;
+            }
+
+            const bodyResponse = await sendCommand(`FETCH ${msgId} (BODY[])`, tagNum++);
+
+            let rawBody = "";
+            const bodyMarker = /BODY\[\]\s*\{(\d+)\}\r?\n/i.exec(bodyResponse);
+
+            if (bodyMarker && typeof bodyMarker.index === "number") {
+              const bodyLength = parseInt(bodyMarker[1], 10);
+              const bodyStartIndex = bodyMarker.index + bodyMarker[0].length;
+              rawBody = bodyResponse.slice(bodyStartIndex, bodyStartIndex + bodyLength);
+            } else {
+              const bodyStart = bodyResponse.lastIndexOf("\r\n\r\n");
+              rawBody = bodyStart > -1 ? bodyResponse.substring(bodyStart + 4) : bodyResponse;
+            }
+
+            const { text, html } = parseMimeContent(rawBody);
+
+            let finalTextBody = text;
+            let finalHtmlBody = html;
+
+            if (!finalTextBody && finalHtmlBody) {
+              finalTextBody = extractTextFromHtml(finalHtmlBody);
+            }
+
+            if (finalTextBody && !finalHtmlBody) {
+              const escapedText = finalTextBody
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/\n/g, "<br>\n");
+
+              const linkedText = escapedText.replace(
+                /(https?:\/\/[^\s<]+)/gi,
+                '<a href="$1" target="_blank" rel="noopener noreferrer" style="color: #3b82f6; text-decoration: underline;">$1</a>'
+              );
+
+              finalHtmlBody = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><style>body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; padding: 16px; color: #333; }</style></head>
 <body>${linkedText}</body>
 </html>`;
-        }
+            }
 
-        if (!finalTextBody && !finalHtmlBody) {
-          finalTextBody = rawBody.trim();
-        }
+            if (!finalTextBody && !finalHtmlBody) {
+              finalTextBody = rawBody.trim();
+            }
 
-        // Store the email
-        const receivedAtIso = (() => {
-          const fallback = new Date().toISOString();
-          const rawDate = dateRaw?.trim();
-          if (!rawDate) return fallback;
+            const receivedAtIso = (() => {
+              const fallback = new Date().toISOString();
+              const rawDate = dateRaw?.trim();
+              if (!rawDate) return fallback;
 
-          const parsed = new Date(rawDate);
-          if (Number.isNaN(parsed.getTime())) {
-            console.warn(`[IMAP] Msg ${msgId} - Invalid Date header: "${rawDate}" (using now)`);
-            return fallback;
-          }
-          return parsed.toISOString();
-        })();
+              const parsed = new Date(rawDate);
+              if (Number.isNaN(parsed.getTime())) {
+                return fallback;
+              }
+              return parsed.toISOString();
+            })();
 
-        // Check for duplicates before inserting (using on-demand check)
-        const duplicateExists = await isDuplicate(matchedTempEmailId, fromAddress, subject, receivedAtIso, messageId);
-        if (duplicateExists) {
-          console.log(`[IMAP] Msg ${msgId} - DUPLICATE detected, skipping: "${subject}"`);
-          storedCount.skipped++;
-          await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
-          continue;
-        }
+            const duplicateExists = await isDuplicate(matchedTempEmailId, fromAddress, subject, receivedAtIso, messageId);
+            if (duplicateExists) {
+              storedCount.skipped++;
+              await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
+              continue;
+            }
 
-        // Use insert since we already checked for duplicates
-        const { error: insertError } = await supabase
-          .from("received_emails")
-          .insert({
-            temp_email_id: matchedTempEmailId,
-            from_address: fromAddress,
-            subject: subject,
-            body: finalTextBody.substring(0, 10000),
-            html_body: finalHtmlBody ? finalHtmlBody.substring(0, 50000) : null,
-            is_read: false,
-            received_at: receivedAtIso,
-          });
+            const { error: insertError } = await supabase.from("received_emails").insert({
+              temp_email_id: matchedTempEmailId,
+              from_address: fromAddress,
+              subject: subject,
+              body: finalTextBody.substring(0, 10000),
+              html_body: finalHtmlBody ? finalHtmlBody.substring(0, 50000) : null,
+              is_read: false,
+              received_at: receivedAtIso,
+            });
 
-        if (insertError) {
-          if (insertError.code === '23505') {
-            console.log(`[IMAP] Msg ${msgId} - Duplicate (DB constraint), already exists for ${matchedRecipient}`);
-            storedCount.skipped++;
-          } else {
-            console.error(`[IMAP] Msg ${msgId} - Insert error:`, insertError);
+            if (insertError) {
+              if (insertError.code === "23505") {
+                storedCount.skipped++;
+              } else {
+                storedCount.failed++;
+              }
+            } else {
+              storedCount.success++;
+            }
+
+            await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
+          } catch (emailError) {
+            console.error(`[IMAP] Error processing message ${msgId}:`, emailError);
             storedCount.failed++;
           }
-        } else {
-          storedCount.success++;
-          console.log(`[IMAP] Msg ${msgId} - STORED for ${matchedRecipient}: "${subject}"`);
         }
 
-        
-        // Mark as seen in IMAP
-        await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
+        await sendCommand("LOGOUT", tagNum++);
 
-      } catch (emailError) {
-        console.error(`[IMAP] Error processing message ${msgId}:`, emailError);
-        storedCount.failed++;
+        return {
+          success: true,
+          message: `Processed ${newestMessageIds.length} emails`,
+          stats: {
+            mode,
+            limit,
+            totalMessages: messageCount,
+            unseenMessages: unseenCount,
+            processed: newestMessageIds.length,
+            stored: storedCount.success,
+            failed: storedCount.failed,
+            skipped: storedCount.skipped,
+            noMatch: storedCount.noMatch,
+            fetchedAt: new Date().toISOString(),
+          },
+        };
+      } finally {
+        try {
+          secureConn.close();
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    const tried: Array<{ mailboxId?: string; mailboxName?: string; host: string; error: string }> = [];
+    let lastErr: unknown = null;
+
+    for (const candidate of candidates) {
+      try {
+        const result = await processMailbox(candidate);
+
+        if (candidate.mailboxId) {
+          await updateMailboxSuccess(candidate.mailboxId);
+        }
+
+        return new Response(
+          JSON.stringify({
+            ...result,
+            mailbox_used: {
+              source: candidate.source,
+              mailbox_id: candidate.mailboxId || null,
+              mailbox_name: candidate.mailboxName || null,
+              host: candidate.host,
+            },
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (err) {
+        lastErr = err;
+        const msg = toShortError(err);
+        tried.push({ mailboxId: candidate.mailboxId, mailboxName: candidate.mailboxName, host: candidate.host, error: msg });
+        if (candidate.mailboxId) {
+          await updateMailboxError(candidate.mailboxId, err);
+        }
+        continue;
       }
     }
 
-    await sendCommand("LOGOUT", tagNum++);
-    secureConn.close();
+    const rawMessage = lastErr instanceof Error ? lastErr.message : String(lastErr || "Failed to fetch emails");
+    let errorMessage = rawMessage || "Failed to fetch emails";
 
-    console.log(`[IMAP] Complete: ${storedCount.success} stored, ${storedCount.failed} failed, ${storedCount.skipped} skipped, ${storedCount.noMatch} no-match`);
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        message: `Processed ${newestMessageIds.length} emails`,
-        stats: {
-          mode,
-          limit,
-          totalMessages: messageCount,
-          processed: newestMessageIds.length,
-          stored: storedCount.success,
-          failed: storedCount.failed,
-          skipped: storedCount.skipped,
-          noMatch: storedCount.noMatch,
-          fetchedAt: new Date().toISOString()
-        }
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-
-  } catch (error: any) {
-    console.error("[IMAP] Fetch error:", error);
-    
-    let errorMessage = error.message || "Failed to fetch emails";
-    
     if (errorMessage.includes("Connection refused")) {
       errorMessage = "Could not connect to IMAP server. Please check the host and port.";
-    } else if (errorMessage.includes("login failed") || errorMessage.includes("authentication")) {
+    } else if (errorMessage.toLowerCase().includes("login failed") || errorMessage.toLowerCase().includes("authentication")) {
       errorMessage = "IMAP authentication failed. Please check your username and password.";
     }
 
     return new Response(
-      JSON.stringify({ 
-        success: false, 
+      JSON.stringify({
+        success: false,
         error: errorMessage,
-        details: error.message
+        details: rawMessage,
+        tried,
+      }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  } catch (error: any) {
+    console.error("[IMAP] Fetch error:", error);
+
+    let errorMessage = error?.message || "Failed to fetch emails";
+
+    if (errorMessage.includes("Connection refused")) {
+      errorMessage = "Could not connect to IMAP server. Please check the host and port.";
+    } else if (errorMessage.toLowerCase().includes("login failed") || errorMessage.toLowerCase().includes("authentication")) {
+      errorMessage = "IMAP authentication failed. Please check your username and password.";
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: errorMessage,
+        details: error?.message,
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

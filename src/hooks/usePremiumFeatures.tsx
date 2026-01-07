@@ -233,30 +233,9 @@ export const usePremiumFeatures = () => {
     };
   }, [user, fetchSubscription]);
 
-  // Real-time subscription to subscription_tiers changes (for admin edits)
-  useEffect(() => {
-    const channel = supabase
-      .channel('subscription_tiers_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'subscription_tiers',
-        },
-        (payload) => {
-          console.log('[PremiumFeatures] Subscription tiers changed via realtime:', payload);
-          // Force refetch immediately when tier definitions change
-          lastFetchTimeRef.current = 0;
-          fetchSubscription(true);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
-    };
-  }, [fetchSubscription]);
+  // REMOVED: Global realtime subscription to subscription_tiers
+  // This was causing unnecessary load on the DB for all visitors
+  // Tier changes are rare admin actions - users can refresh to see updates
 
   const price = TIER_PRICES[tier];
 

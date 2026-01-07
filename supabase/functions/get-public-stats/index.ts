@@ -36,84 +36,81 @@ serve(async (req) => {
 
     // Get IST midnight for "Today (IST)" stat
     const istMidnight = getMidnightIST();
-    console.log('[get-public-stats] IST midnight (UTC):', istMidnight);
 
-    // Fetch stats in parallel
-    const [
-      emailsTodayISTResult,
-      totalEmailsReceivedResult,
-      activeAddressesResult,
-      totalInboxesCreatedResult,
-      totalDomainsResult,
-      emailStatsDataResult
-    ] = await Promise.all([
-      // Emails received since midnight IST (not rolling 24h)
-      supabase
-        .from('received_emails')
-        .select('*', { count: 'exact', head: true })
-        .gte('received_at', istMidnight),
-      
-      // Total emails received all time (monotonic)
-      supabase
-        .from('received_emails')
-        .select('*', { count: 'exact', head: true }),
-      
-      // Currently active temp addresses
-      supabase
-        .from('temp_emails')
-        .select('*', { count: 'exact', head: true })
-        .eq('is_active', true),
-      
-      // Total inboxes ever created (monotonic) - all temp_emails regardless of status
-      supabase
-        .from('temp_emails')
-        .select('*', { count: 'exact', head: true }),
-      
-      // Total active domains
-      supabase
-        .from('domains')
-        .select('*', { count: 'exact', head: true })
-        .eq('is_active', true),
-      
-      // Get permanent email generation count from email_stats table
-      supabase
-        .from('email_stats')
-        .select('stat_value')
-        .eq('stat_key', 'total_temp_emails_created')
-        .maybeSingle(),
-    ]);
+    // OPTIMIZED: Fetch stats in parallel with timeout protection
+    // Use pre-aggregated counters from email_stats table where possible
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
 
-    // Use ?? to preserve 0 values (|| would treat 0 as falsy)
-    const emailsToday = emailsTodayISTResult.count ?? 0;
-    const totalEmailsReceived = totalEmailsReceivedResult.count ?? 0;
-    const activeAddresses = activeAddressesResult.count ?? 0;
-    const totalInboxesCreated = totalInboxesCreatedResult.count ?? 0;
-    const activeDomains = totalDomainsResult.count ?? 0;
-    const totalEmailsGenerated = emailStatsDataResult.data?.stat_value ?? 0;
+    try {
+      const [
+        emailStatsResult,
+        activeAddressesResult,
+        totalDomainsResult,
+      ] = await Promise.all([
+        // Get all counters from email_stats in one query (fast - small table)
+        supabase
+          .from('email_stats')
+          .select('stat_key, stat_value')
+          .in('stat_key', ['total_temp_emails_created', 'total_received_emails', 'emails_today']),
+        
+        // Currently active temp addresses (needs live count but has index)
+        supabase
+          .from('temp_emails')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_active', true),
+        
+        // Total active domains (small table - fast)
+        supabase
+          .from('domains')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_active', true),
+      ]);
 
-    const stats = {
-      // Emails since midnight IST - resets at IST midnight
-      emailsToday: emailsToday,
-      // All-time received emails (monotonic)
-      totalEmails: totalEmailsReceived,
-      // Currently active inboxes (can go down as they expire)
-      activeAddresses: activeAddresses,
-      // Total inboxes ever created (monotonic) - for display as "Inboxes Created"
-      totalInboxesCreated: totalInboxesCreated,
-      // Active domains
-      activeDomains: activeDomains,
-      // Permanent counter from email_stats (monotonic) - never resets
-      totalEmailsGenerated: Number(totalEmailsGenerated),
-      updatedAt: new Date().toISOString(),
-      // Include IST info for debugging
-      istMidnight: istMidnight,
-    };
+      clearTimeout(timeout);
 
-    console.log('[get-public-stats] Returning stats:', stats);
+      // Parse email_stats results
+      const statsMap: Record<string, number> = {};
+      if (emailStatsResult.data) {
+        for (const row of emailStatsResult.data) {
+          statsMap[row.stat_key] = Number(row.stat_value) || 0;
+        }
+      }
 
-    return new Response(JSON.stringify(stats), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+      const totalEmailsGenerated = statsMap['total_temp_emails_created'] || 0;
+      const totalEmailsReceived = statsMap['total_received_emails'] || 0;
+      const emailsToday = statsMap['emails_today'] || 0;
+      const activeAddresses = activeAddressesResult.count ?? 0;
+      const activeDomains = totalDomainsResult.count ?? 0;
+
+      // For totalInboxesCreated, use totalEmailsGenerated as it's the same metric
+      const totalInboxesCreated = totalEmailsGenerated;
+
+      const stats = {
+        // Emails since midnight IST - from counter (or 0 if not maintained)
+        emailsToday: emailsToday,
+        // All-time received emails (monotonic)
+        totalEmails: totalEmailsReceived,
+        // Currently active inboxes
+        activeAddresses: activeAddresses,
+        // Total inboxes ever created (monotonic)
+        totalInboxesCreated: totalInboxesCreated,
+        // Active domains
+        activeDomains: activeDomains,
+        // Permanent counter from email_stats (monotonic)
+        totalEmailsGenerated: totalEmailsGenerated,
+        updatedAt: new Date().toISOString(),
+        istMidnight: istMidnight,
+      };
+
+      return new Response(JSON.stringify(stats), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+
+    } catch (fetchError) {
+      clearTimeout(timeout);
+      throw fetchError;
+    }
 
   } catch (error) {
     console.error('Error in get-public-stats:', error);

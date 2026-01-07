@@ -183,53 +183,9 @@ const UnifiedStatsWidget = () => {
     };
   }, [updateStats]);
 
-  // Subscribe to realtime changes
-  useEffect(() => {
-    const statsChannel = supabase
-      .channel('unified-stats-updates')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'email_stats', filter: 'stat_key=eq.total_temp_emails_created' }, (payload) => {
-        if (!initialLoadRef.current && payload.new) {
-          const newValue = parseStatValue((payload.new as { stat_value?: number }).stat_value);
-          updateStats({ totalEmailsGenerated: newValue });
-          triggerPulse(1);
-        }
-      })
-      .subscribe();
-
-    const tempEmailsChannel = supabase
-      .channel('unified-temp-emails')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'temp_emails' }, () => {
-        if (!initialLoadRef.current) {
-          setStats(prev => {
-            const next = { ...prev, totalEmailsGenerated: prev.totalEmailsGenerated + 1, totalInboxesCreated: prev.totalInboxesCreated + 1, activeAddresses: prev.activeAddresses + 1 };
-            saveCachedStats(next);
-            return next;
-          });
-          triggerPulse(1);
-        }
-      })
-      .subscribe();
-
-    const receivedEmailsChannel = supabase
-      .channel('unified-received-emails')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'received_emails' }, () => {
-        if (!initialLoadRef.current) {
-          setStats(prev => {
-            const next = { ...prev, emailsToday: prev.emailsToday + 1, totalEmails: prev.totalEmails + 1 };
-            saveCachedStats(next);
-            return next;
-          });
-          triggerPulse(0);
-        }
-      })
-      .subscribe();
-
-    return () => {
-      statsChannel.unsubscribe();
-      tempEmailsChannel.unsubscribe();
-      receivedEmailsChannel.unsubscribe();
-    };
-  }, [updateStats]);
+  // REMOVED: Global realtime subscriptions that were causing DB overload
+  // Stats now update via polling only (every 60s) which is sufficient for public display
+  // Real-time updates are not necessary for aggregate stats on the homepage
 
   const allStatItems = [
     { key: 'emailsToday', show: settings.showEmailsToday, icon: Mail, label: settings.customLabels.emailsToday || "Today (IST)", value: stats.emailsToday, color: "text-primary", bgColor: "bg-primary/20", tooltip: "Emails received since midnight IST" },

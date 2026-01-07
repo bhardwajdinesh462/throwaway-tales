@@ -144,9 +144,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
             $smtp = $input['smtp'] ?? [];
             $imap = $input['imap'] ?? [];
             $jwtSecret = bin2hex(random_bytes(32));
+            $diagToken = bin2hex(random_bytes(16));
             $date = date('Y-m-d H:i:s');
             
+            // Generate config with both constants (for cron scripts) and array format (for main app)
             $configContent = "<?php\n/**\n * TempMail Configuration - Generated {$date}\n */\n\n";
+            
+            // Constants for cron scripts and backward compatibility
+            $configContent .= "// Constants for cron scripts\n";
             $configContent .= "define('DB_HOST', '{$db['host']}');\n";
             $configContent .= "define('DB_NAME', '{$db['name']}');\n";
             $configContent .= "define('DB_USER', '{$db['user']}');\n";
@@ -163,7 +168,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
             $configContent .= "define('IMAP_USER', '{$imap['user']}');\n";
             $configContent .= "define('IMAP_PASS', '{$imap['pass']}');\n\n";
             $configContent .= "define('STORAGE_PATH', __DIR__ . '/storage');\n";
-            $configContent .= "define('ENCRYPTION_KEY', '{$jwtSecret}');\n";
+            $configContent .= "define('ENCRYPTION_KEY', '{$jwtSecret}');\n\n";
+            
+            // Array format for main application
+            $configContent .= "// Array format for main application\n";
+            $configContent .= "return [\n";
+            $configContent .= "    'db' => [\n";
+            $configContent .= "        'host' => '{$db['host']}',\n";
+            $configContent .= "        'name' => '{$db['name']}',\n";
+            $configContent .= "        'user' => '{$db['user']}',\n";
+            $configContent .= "        'pass' => '{$db['pass']}',\n";
+            $configContent .= "        'charset' => 'utf8mb4'\n";
+            $configContent .= "    ],\n";
+            $configContent .= "    'jwt' => [\n";
+            $configContent .= "        'secret' => '{$jwtSecret}',\n";
+            $configContent .= "        'expiry' => 604800\n";
+            $configContent .= "    ],\n";
+            $configContent .= "    'smtp' => [\n";
+            $configContent .= "        'host' => '{$smtp['host']}',\n";
+            $configContent .= "        'port' => {$smtp['port']},\n";
+            $configContent .= "        'user' => '{$smtp['user']}',\n";
+            $configContent .= "        'pass' => '{$smtp['pass']}',\n";
+            $configContent .= "        'from' => '{$smtp['from']}'\n";
+            $configContent .= "    ],\n";
+            $configContent .= "    'imap' => [\n";
+            $configContent .= "        'host' => '{$imap['host']}',\n";
+            $configContent .= "        'port' => {$imap['port']},\n";
+            $configContent .= "        'user' => '{$imap['user']}',\n";
+            $configContent .= "        'pass' => '{$imap['pass']}'\n";
+            $configContent .= "    ],\n";
+            $configContent .= "    'cors' => [\n";
+            $configContent .= "        'origins' => ['*']\n";
+            $configContent .= "    ],\n";
+            $configContent .= "    'diag_token' => '{$diagToken}',\n";
+            $configContent .= "    'site_name' => 'TempMail',\n";
+            $configContent .= "    'site_url' => ''\n";
+            $configContent .= "];\n";
             
             if (file_put_contents(__DIR__ . '/config.php', $configContent)) {
                 // Create directories

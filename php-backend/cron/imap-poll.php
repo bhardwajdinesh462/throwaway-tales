@@ -226,12 +226,22 @@ foreach ($mailboxes as $mailbox) {
                     continue;
                 }
                 
+                // Generate UUID for email
+                $emailId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+                    mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+                    mt_rand(0, 0xffff),
+                    mt_rand(0, 0x0fff) | 0x4000,
+                    mt_rand(0, 0x3fff) | 0x8000,
+                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
+                );
+                
                 // Store email in database
                 $stmt = $pdo->prepare("
-                    INSERT INTO received_emails (temp_email_id, from_address, subject, body, html_body, received_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO received_emails (id, temp_email_id, from_address, subject, body, html_body, received_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 ");
                 $stmt->execute([
+                    $emailId,
                     $tempEmail['id'],
                     $fromAddress,
                     $subject,
@@ -239,8 +249,6 @@ foreach ($mailboxes as $mailbox) {
                     $htmlBody ?: null,
                     $dateReceived
                 ]);
-                
-                $emailId = $pdo->lastInsertId();
                 logMessage("Stored email ID: $emailId - Subject: $subject");
                 
                 // Handle attachments
@@ -321,7 +329,7 @@ function saveAttachment($imap, int $emailNum, int $partNum, object $part, string
     try {
         // Get filename
         $filename = 'attachment';
-        if ($part->ifdparameters) {
+        if ($part->ifdisposition && isset($part->dparameters)) {
             foreach ($part->dparameters as $param) {
                 if (strtolower($param->attribute) == 'filename') {
                     $filename = $param->value;
@@ -329,7 +337,7 @@ function saveAttachment($imap, int $emailNum, int $partNum, object $part, string
                 }
             }
         }
-        if ($part->ifparameters) {
+        if ($part->ifparameters && isset($part->parameters)) {
             foreach ($part->parameters as $param) {
                 if (strtolower($param->attribute) == 'name') {
                     $filename = $param->value;
@@ -361,13 +369,22 @@ function saveAttachment($imap, int $emailNum, int $partNum, object $part, string
         $fileSize = strlen($content);
         $mimeType = mime_content_type($filePath) ?: 'application/octet-stream';
         
+        // Generate UUID for attachment
+        $attachmentId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+            mt_rand(0, 0xffff),
+            mt_rand(0, 0x0fff) | 0x4000,
+            mt_rand(0, 0x3fff) | 0x8000,
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
+        );
+        
         // Store in database
         $relativePath = 'attachments/' . date('Y/m') . '/' . $uniqueName;
         $stmt = $pdo->prepare("
-            INSERT INTO email_attachments (received_email_id, file_name, file_type, file_size, storage_path)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO email_attachments (id, received_email_id, file_name, file_type, file_size, storage_path)
+            VALUES (?, ?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$emailId, $filename, $mimeType, $fileSize, $relativePath]);
+        $stmt->execute([$attachmentId, $emailId, $filename, $mimeType, $fileSize, $relativePath]);
         
         logMessage("Saved attachment: $filename ($fileSize bytes)");
         

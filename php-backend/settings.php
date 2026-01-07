@@ -4,15 +4,25 @@
  * Allows updating SMTP/IMAP credentials without reinstalling
  */
 
+session_start();
+
 require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/index.php';
+require_once __DIR__ . '/includes/helpers.php';
+
+// Get config array
+$config = getConfigArray();
 
 // Connect to database
 try {
+    $dbHost = $config['db']['host'] ?? (defined('DB_HOST') ? DB_HOST : 'localhost');
+    $dbName = $config['db']['name'] ?? (defined('DB_NAME') ? DB_NAME : '');
+    $dbUser = $config['db']['user'] ?? (defined('DB_USER') ? DB_USER : '');
+    $dbPass = $config['db']['pass'] ?? (defined('DB_PASS') ? DB_PASS : '');
+    
     $pdo = new PDO(
-        "mysql:host={$config['db_host']};dbname={$config['db_name']};charset=utf8mb4",
-        $config['db_user'],
-        $config['db_pass'],
+        "mysql:host={$dbHost};dbname={$dbName};charset=utf8mb4",
+        $dbUser,
+        $dbPass,
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
     );
 } catch (PDOException $e) {
@@ -20,8 +30,8 @@ try {
 }
 
 // Check admin auth
-$user = getAuthUser($pdo, $config);
-$isAdmin = $user && checkIsAdmin($pdo, $user['id']);
+$user = getAuthUserStandalone($pdo, $config);
+$isAdmin = $user && checkIsAdminStandalone($pdo, $user['id']);
 
 if (!$isAdmin) {
     header('HTTP/1.1 403 Forbidden');

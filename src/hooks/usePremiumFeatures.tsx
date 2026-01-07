@@ -14,7 +14,7 @@ interface TierLimits {
   aiSummariesPerDay: number;
 }
 
-// Default limits for fallback
+// Default limits for fallback - FREE tier should have 0 AI summaries
 const DEFAULT_TIER_LIMITS: Record<SubscriptionTier, TierLimits> = {
   free: {
     maxTempEmails: 3,
@@ -23,7 +23,7 @@ const DEFAULT_TIER_LIMITS: Record<SubscriptionTier, TierLimits> = {
     canUseCustomDomains: false,
     canUseApi: false,
     prioritySupport: false,
-    aiSummariesPerDay: 5,
+    aiSummariesPerDay: 0, // Disabled for free tier - respects database settings
   },
   pro: {
     maxTempEmails: 50,
@@ -73,9 +73,36 @@ export const usePremiumFeatures = () => {
     lastFetchTimeRef.current = now;
 
     if (!user) {
-      console.log('[PremiumFeatures] No user, setting free tier');
+      console.log('[PremiumFeatures] No user, fetching free tier from database');
+      // Fetch free tier from database to respect admin-configured limits
+      try {
+        const { data: freeTier } = await supabase
+          .from('subscription_tiers')
+          .select('*')
+          .ilike('name', 'free')
+          .eq('is_active', true)
+          .maybeSingle();
+        
+        if (freeTier) {
+          const dbLimits: TierLimits = {
+            maxTempEmails: freeTier.max_temp_emails ?? DEFAULT_TIER_LIMITS.free.maxTempEmails,
+            emailExpiryHours: freeTier.email_expiry_hours ?? DEFAULT_TIER_LIMITS.free.emailExpiryHours,
+            canForwardEmails: freeTier.can_forward_emails ?? DEFAULT_TIER_LIMITS.free.canForwardEmails,
+            canUseCustomDomains: freeTier.can_use_custom_domains ?? DEFAULT_TIER_LIMITS.free.canUseCustomDomains,
+            canUseApi: freeTier.can_use_api ?? DEFAULT_TIER_LIMITS.free.canUseApi,
+            prioritySupport: freeTier.priority_support ?? DEFAULT_TIER_LIMITS.free.prioritySupport,
+            aiSummariesPerDay: freeTier.ai_summaries_per_day ?? 0,
+          };
+          console.log('[PremiumFeatures] Free tier from DB:', dbLimits);
+          setLimits(dbLimits);
+        } else {
+          setLimits(DEFAULT_TIER_LIMITS.free);
+        }
+      } catch (err) {
+        console.error('[PremiumFeatures] Error fetching free tier:', err);
+        setLimits(DEFAULT_TIER_LIMITS.free);
+      }
       setTier('free');
-      setLimits(DEFAULT_TIER_LIMITS.free);
       setExpiresAt(null);
       setSubscriptionId(null);
       setIsLoading(false);

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles, User, Mail, Zap, Clock, Crown, ExternalLink, FileText, Code, Share2, ChevronDown } from "lucide-react";
+import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles, User, Mail, Zap, Clock, Crown, Share2 } from "lucide-react";
 import { useAdminRole } from "@/hooks/useAdminRole";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,12 +21,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverContent,
@@ -823,69 +817,47 @@ const EmailGenerator = () => {
             </div>
 
             <div className="flex flex-wrap justify-center gap-3 mt-6">
-              {/* Copy with Dropdown Menu */}
-              <DropdownMenu>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <DropdownMenuTrigger asChild>
-                      <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                        <Button
-                          variant="default"
-                          size="lg"
-                          className="min-w-[150px] bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg shadow-primary/25"
-                          disabled={!currentEmail}
-                        >
-                          <AnimatePresence mode="wait">
-                            {copied ? (
-                              <motion.span
-                                key="copied"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="flex items-center gap-2"
-                              >
-                                <Check className="w-4 h-4" /> {t('copied')}
-                              </motion.span>
-                            ) : (
-                              <motion.span
-                                key="copy"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="flex items-center gap-2"
-                              >
-                                <Copy className="w-4 h-4" /> {t('copy')}
-                                <ChevronDown className="w-3 h-3 ml-1" />
-                              </motion.span>
-                            )}
-                          </AnimatePresence>
-                        </Button>
-                      </motion.div>
-                    </DropdownMenuTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{tooltips.emailGenerator.copy}</p>
-                  </TooltipContent>
-                </Tooltip>
-                <DropdownMenuContent align="center" className="w-48">
-                  <DropdownMenuItem onClick={() => copyToClipboard('plain')}>
-                    <Mail className="w-4 h-4 mr-2" />
-                    Copy Email Address
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => copyToClipboard('mailto')}>
-                    <ExternalLink className="w-4 h-4 mr-2" />
-                    Copy as mailto: link
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => copyToClipboard('markdown')}>
-                    <FileText className="w-4 h-4 mr-2" />
-                    Copy as Markdown
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => copyToClipboard('json')}>
-                    <Code className="w-4 h-4 mr-2" />
-                    Copy as JSON
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {/* Simple Copy Button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                    <Button
+                      variant="default"
+                      size="lg"
+                      className="min-w-[150px] bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg shadow-primary/25"
+                      disabled={!currentEmail}
+                      onClick={() => copyToClipboard('plain')}
+                    >
+                      <AnimatePresence mode="wait">
+                        {copied ? (
+                          <motion.span
+                            key="copied"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="flex items-center gap-2"
+                          >
+                            <Check className="w-4 h-4" /> {t('copied')}
+                          </motion.span>
+                        ) : (
+                          <motion.span
+                            key="copy"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="flex items-center gap-2"
+                          >
+                            <Copy className="w-4 h-4" /> {t('copy')}
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </Button>
+                  </motion.div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{tooltips.emailGenerator.copy}</p>
+                </TooltipContent>
+              </Tooltip>
 
               <Tooltip>
                 <TooltipTrigger asChild>

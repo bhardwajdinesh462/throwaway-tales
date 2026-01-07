@@ -32,10 +32,10 @@ const defaultSettings: UserSettings = {
   allowPasswordReset: true,
   sessionTimeout: 1440,
   maxSavedEmails: 100,
-  // AI Summary defaults
+  // AI Summary defaults - these are FALLBACKS only; subscription_tiers takes precedence
   aiSummaryEnabled: true,
-  guestAiSummaryLimit: 3,
-  userAiSummaryLimit: 10,
+  guestAiSummaryLimit: 0, // Default to 0 - let subscription_tiers control this
+  userAiSummaryLimit: 0, // Default to 0 - let subscription_tiers control this
 };
 
 export const useUserSettings = () => {

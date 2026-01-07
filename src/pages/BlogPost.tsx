@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { useReadingProgress } from "@/hooks/useReadingProgress";
 import { ReadingProgressBar } from "@/components/ReadingProgressBar";
 import { BlogSubscribeForm } from "@/components/BlogSubscribeForm";
+import DOMPurify from "dompurify";
 
 interface BlogPostData {
   id: string;
@@ -160,11 +161,26 @@ const BlogPost = () => {
             )}
 
             {/* Content */}
-            <div className="prose prose-invert max-w-none mb-8">
-              <div className="text-foreground/90 leading-relaxed whitespace-pre-wrap">
-                {post.content}
-              </div>
-            </div>
+            <div 
+              className="prose prose-invert max-w-none mb-8 
+                [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:text-foreground [&_h1]:mb-4 [&_h1]:mt-8
+                [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:text-foreground [&_h2]:mb-3 [&_h2]:mt-6
+                [&_h3]:text-xl [&_h3]:font-semibold [&_h3]:text-foreground [&_h3]:mb-2 [&_h3]:mt-4
+                [&_h4]:text-lg [&_h4]:font-medium [&_h4]:text-foreground [&_h4]:mb-2 [&_h4]:mt-3
+                [&_p]:text-foreground/90 [&_p]:leading-relaxed [&_p]:mb-4
+                [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:mb-4 [&_ul]:text-foreground/90
+                [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:mb-4 [&_ol]:text-foreground/90
+                [&_li]:mb-2
+                [&_a]:text-primary [&_a]:underline [&_a]:hover:text-primary/80
+                [&_blockquote]:border-l-4 [&_blockquote]:border-primary [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:my-4
+                [&_strong]:font-semibold [&_strong]:text-foreground
+                [&_em]:italic
+                [&_code]:bg-secondary [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-sm [&_code]:font-mono
+                [&_pre]:bg-secondary [&_pre]:p-4 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:my-4
+                [&_img]:rounded-lg [&_img]:my-4
+                [&_hr]:border-border [&_hr]:my-8"
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(post.content) }}
+            />
 
             {/* Tags */}
             {post.tags && post.tags.length > 0 && (

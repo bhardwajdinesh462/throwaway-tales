@@ -15,6 +15,28 @@ interface ChangelogEntry {
 
 const changelogs: ChangelogEntry[] = [
   {
+    date: "January 7, 2025",
+    title: "User Experience Enhancements",
+    changes: [
+      { type: "feature", description: "Email copy formats menu - copy as mailto, Markdown, or JSON" },
+      { type: "feature", description: "Inbox filters and sorting - filter by read/unread, sort by date or sender" },
+      { type: "feature", description: "Inbox statistics widget with collapsible analytics panel" },
+      { type: "feature", description: "Quick theme toggle button in header" },
+      { type: "feature", description: "Share email button with QR code and social sharing options" },
+      { type: "improvement", description: "Trusted email provider validation - only Gmail, Outlook, ProtonMail, etc. allowed for signup" },
+    ]
+  },
+  {
+    date: "January 6, 2025",
+    title: "Admin & Live Stats Improvements",
+    changes: [
+      { type: "feature", description: "Sound notifications when live stats counters update in real-time" },
+      { type: "feature", description: "First-time admin claim system for initial setup" },
+      { type: "improvement", description: "Auto-generate email for first-time visitors without manual domain selection" },
+      { type: "design", description: "Animated pulse effects on live stats counters during updates" },
+    ]
+  },
+  {
     date: "December 27, 2024",
     title: "SEO & Analytics Injection",
     changes: [

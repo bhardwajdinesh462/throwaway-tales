@@ -21,6 +21,45 @@ const emailSchema = z.string().email("Please enter a valid email address").max(2
 const passwordSchema = z.string().min(6, "Password must be at least 6 characters").max(128);
 const nameSchema = z.string().max(100).optional();
 
+// Trusted email providers whitelist - blocks temp emails like nullsto.edu.pl
+const TRUSTED_EMAIL_DOMAINS = [
+  // Google
+  'gmail.com', 'googlemail.com',
+  // Microsoft
+  'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'outlook.co.uk', 'outlook.in',
+  // Apple
+  'icloud.com', 'me.com', 'mac.com',
+  // ProtonMail
+  'protonmail.com', 'proton.me', 'pm.me',
+  // Yahoo
+  'yahoo.com', 'yahoo.co.uk', 'yahoo.in', 'ymail.com', 'rocketmail.com',
+  // Rediffmail (India)
+  'rediffmail.com', 'rediff.com',
+  // Zoho
+  'zoho.com', 'zohomail.com',
+  // AOL
+  'aol.com', 'aim.com',
+  // GMX
+  'gmx.com', 'gmx.net', 'gmx.de',
+  // Mail.com
+  'mail.com', 'email.com',
+  // Fastmail
+  'fastmail.com', 'fastmail.fm',
+  // Tutanota
+  'tutanota.com', 'tutamail.com', 'tuta.io',
+  // Yandex
+  'yandex.com', 'yandex.ru',
+  // Other trusted providers
+  'hey.com', 'posteo.de', 'mailbox.org', 'mailfence.com',
+];
+
+// Check if email domain is from a trusted provider
+const isEmailTrusted = (email: string): boolean => {
+  const domain = email.split('@')[1]?.toLowerCase();
+  if (!domain) return false;
+  return TRUSTED_EMAIL_DOMAINS.includes(domain);
+};
+
 type AuthMode = 'login' | 'signup' | 'forgot' | 'reset';
 
 const Auth = () => {
@@ -202,6 +241,13 @@ const Auth = () => {
         }
 
         if (!validateInputs()) {
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Check if email is from trusted provider (blocks temp emails)
+        if (!isEmailTrusted(sanitizedEmail)) {
+          toast.error("Please use a trusted email provider (Gmail, Outlook, ProtonMail, Yahoo, iCloud, etc.)");
           setIsSubmitting(false);
           return;
         }

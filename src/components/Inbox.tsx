@@ -559,6 +559,16 @@ const Inbox = () => {
                 <span>Auto-refresh off</span>
               )}
             </div>
+            
+            {/* Realtime connection indicator */}
+            <div className="flex items-center gap-1 text-xs text-green-500" title="Realtime connected - emails will appear instantly">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+              </span>
+              <span>Live</span>
+            </div>
+            
             <div className="flex items-center gap-1 text-xs text-green-500">
               <Shield className="w-3 h-3" />
               <span>Encrypted</span>

@@ -398,16 +398,18 @@ serve(async (req: Request): Promise<Response> => {
     console.log(`[IMAP] Allowed domains: ${allowedDomainSuffixes.join(", ")}`);
 
     // Helper to lookup temp_email by address (with caching within this request)
+    // Uses case-insensitive matching via ilike to handle mixed-case email addresses
     const tempEmailCache = new Map<string, string | null>();
     const lookupTempEmail = async (address: string): Promise<string | null> => {
       const normalized = address.toLowerCase().trim();
       if (tempEmailCache.has(normalized)) {
         return tempEmailCache.get(normalized) || null;
       }
+      // Use ilike for case-insensitive matching
       const { data, error } = await supabase
         .from("temp_emails")
         .select("id")
-        .eq("address", normalized)
+        .ilike("address", normalized)
         .eq("is_active", true)
         .maybeSingle();
       const id = !error && data ? (data as any).id : null;

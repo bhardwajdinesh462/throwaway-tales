@@ -20,6 +20,7 @@ import type {
   FAQContent, 
   CTAContent, 
   QuickTipsContent,
+  StatsWidgetContent,
   HomepageSection 
 } from "@/hooks/useHomepageContent";
 
@@ -83,13 +84,14 @@ export default function AdminHomepage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-6 w-full">
+        <TabsList className="grid grid-cols-7 w-full">
           <TabsTrigger value="hero">Hero</TabsTrigger>
           <TabsTrigger value="features">Features</TabsTrigger>
           <TabsTrigger value="how_it_works">How It Works</TabsTrigger>
           <TabsTrigger value="faq">FAQ</TabsTrigger>
           <TabsTrigger value="cta">CTA</TabsTrigger>
           <TabsTrigger value="quick_tips">Quick Tips</TabsTrigger>
+          <TabsTrigger value="stats_widget">Stats Widget</TabsTrigger>
         </TabsList>
 
         <TabsContent value="hero">
@@ -136,6 +138,14 @@ export default function AdminHomepage() {
           <QuickTipsEditor 
             section={getSection("quick_tips")} 
             onSave={(content, isEnabled) => updateMutation.mutate({ sectionKey: "quick_tips", content, isEnabled })}
+            isSaving={updateMutation.isPending}
+          />
+        </TabsContent>
+
+        <TabsContent value="stats_widget">
+          <StatsWidgetEditor 
+            section={getSection("stats_widget")} 
+            onSave={(content, isEnabled) => updateMutation.mutate({ sectionKey: "stats_widget", content, isEnabled })}
             isSaving={updateMutation.isPending}
           />
         </TabsContent>
@@ -729,6 +739,147 @@ function QuickTipsEditor({ section, onSave, isSaving }: { section?: HomepageSect
               </Button>
             </div>
           ))}
+        </div>
+
+        <Button onClick={() => onSave(content, isEnabled)} disabled={isSaving} className="w-full">
+          <Save className="w-4 h-4 mr-2" />
+          {isSaving ? "Saving..." : "Save Changes"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Stats Widget Editor Component
+function StatsWidgetEditor({ section, onSave, isSaving }: { section?: HomepageSection; onSave: (content: StatsWidgetContent, isEnabled?: boolean) => void; isSaving: boolean }) {
+  const [content, setContent] = useState<StatsWidgetContent>(section?.content || {
+    showEmailsToday: true,
+    showEmailsGenerated: true,
+    showInboxesCreated: true,
+    showDomains: true,
+    customLabels: {},
+    layout: 'horizontal',
+  });
+  const [isEnabled, setIsEnabled] = useState(section?.is_enabled ?? true);
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>Unified Stats Widget</CardTitle>
+          <CardDescription>Combined live statistics and quick tips widget</CardDescription>
+        </div>
+        <div className="flex items-center gap-2">
+          <Label htmlFor="stats-enabled" className="text-sm">Enabled</Label>
+          <Switch id="stats-enabled" checked={isEnabled} onCheckedChange={setIsEnabled} />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Layout Selection */}
+        <div className="space-y-2">
+          <Label>Layout</Label>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="layout"
+                value="horizontal"
+                checked={content.layout === 'horizontal'}
+                onChange={() => setContent({ ...content, layout: 'horizontal' })}
+                className="text-primary"
+              />
+              <span className="text-sm">Horizontal (Stats left, Tips right)</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="layout"
+                value="vertical"
+                checked={content.layout === 'vertical'}
+                onChange={() => setContent({ ...content, layout: 'vertical' })}
+                className="text-primary"
+              />
+              <span className="text-sm">Vertical (Stacked)</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Stat Visibility Toggles */}
+        <div className="space-y-3">
+          <Label className="text-base font-semibold">Visible Statistics</Label>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <Label htmlFor="show-emails-today" className="text-sm">Emails Today</Label>
+              <Switch
+                id="show-emails-today"
+                checked={content.showEmailsToday}
+                onCheckedChange={(checked) => setContent({ ...content, showEmailsToday: checked })}
+              />
+            </div>
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <Label htmlFor="show-emails-generated" className="text-sm">Emails Generated</Label>
+              <Switch
+                id="show-emails-generated"
+                checked={content.showEmailsGenerated}
+                onCheckedChange={(checked) => setContent({ ...content, showEmailsGenerated: checked })}
+              />
+            </div>
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <Label htmlFor="show-inboxes" className="text-sm">Inboxes Created</Label>
+              <Switch
+                id="show-inboxes"
+                checked={content.showInboxesCreated}
+                onCheckedChange={(checked) => setContent({ ...content, showInboxesCreated: checked })}
+              />
+            </div>
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <Label htmlFor="show-domains" className="text-sm">Domains</Label>
+              <Switch
+                id="show-domains"
+                checked={content.showDomains}
+                onCheckedChange={(checked) => setContent({ ...content, showDomains: checked })}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Custom Labels */}
+        <div className="space-y-3">
+          <Label className="text-base font-semibold">Custom Labels (optional)</Label>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">Emails Today Label</Label>
+              <Input
+                value={content.customLabels.emailsToday || ''}
+                onChange={(e) => setContent({ ...content, customLabels: { ...content.customLabels, emailsToday: e.target.value } })}
+                placeholder="Today (IST)"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">Emails Generated Label</Label>
+              <Input
+                value={content.customLabels.emailsGenerated || ''}
+                onChange={(e) => setContent({ ...content, customLabels: { ...content.customLabels, emailsGenerated: e.target.value } })}
+                placeholder="Emails Generated"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">Inboxes Created Label</Label>
+              <Input
+                value={content.customLabels.inboxesCreated || ''}
+                onChange={(e) => setContent({ ...content, customLabels: { ...content.customLabels, inboxesCreated: e.target.value } })}
+                placeholder="Inboxes Created"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">Domains Label</Label>
+              <Input
+                value={content.customLabels.domains || ''}
+                onChange={(e) => setContent({ ...content, customLabels: { ...content.customLabels, domains: e.target.value } })}
+                placeholder="Domains"
+              />
+            </div>
+          </div>
         </div>
 
         <Button onClick={() => onSave(content, isEnabled)} disabled={isSaving} className="w-full">

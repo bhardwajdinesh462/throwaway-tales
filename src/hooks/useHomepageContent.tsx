@@ -69,6 +69,20 @@ export interface QuickTipsContent {
   tips: string[];
 }
 
+export interface StatsWidgetContent {
+  showEmailsToday: boolean;
+  showEmailsGenerated: boolean;
+  showInboxesCreated: boolean;
+  showDomains: boolean;
+  customLabels: {
+    emailsToday?: string;
+    emailsGenerated?: string;
+    inboxesCreated?: string;
+    domains?: string;
+  };
+  layout: 'horizontal' | 'vertical';
+}
+
 export interface HomepageSection {
   id: string;
   section_key: string;
@@ -135,6 +149,15 @@ const defaultQuickTips: QuickTipsContent = {
   ]
 };
 
+const defaultStatsWidget: StatsWidgetContent = {
+  showEmailsToday: true,
+  showEmailsGenerated: true,
+  showInboxesCreated: true,
+  showDomains: true,
+  customLabels: {},
+  layout: 'horizontal',
+};
+
 export function useHomepageContent() {
   const queryClient = useQueryClient();
 
@@ -187,6 +210,7 @@ export function useHomepageContent() {
   const faq: FAQContent = getSection("faq")?.content || defaultFAQ;
   const cta: CTAContent = getSection("cta")?.content || defaultCTA;
   const quickTips: QuickTipsContent = getSection("quick_tips")?.content || defaultQuickTips;
+  const statsWidget: StatsWidgetContent = getSection("stats_widget")?.content || defaultStatsWidget;
 
   // Check if sections are enabled
   const isSectionEnabled = (key: string): boolean => {
@@ -203,6 +227,7 @@ export function useHomepageContent() {
     faq,
     cta,
     quickTips,
+    statsWidget,
     isSectionEnabled,
     getSection,
   };

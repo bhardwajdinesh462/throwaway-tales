@@ -9,7 +9,7 @@ import Footer from "@/components/Footer";
 import SEOHead from "@/components/SEOHead";
 import JsonLd from "@/components/JsonLd";
 import BannerDisplay from "@/components/BannerDisplay";
-import LiveStatsWidget from "@/components/LiveStatsWidget";
+import UnifiedStatsWidget from "@/components/UnifiedStatsWidget";
 import FriendlyWebsitesWidget from "@/components/FriendlyWebsitesWidget";
 import BackendHealthBanner from "@/components/BackendHealthBanner";
 import ScrollToTop from "@/components/ScrollToTop";
@@ -17,7 +17,7 @@ import { motion } from "framer-motion";
 import { useHomepageContent } from "@/hooks/useHomepageContent";
 
 const Index = () => {
-  const { quickTips, isSectionEnabled } = useHomepageContent();
+  const { isSectionEnabled } = useHomepageContent();
 
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
@@ -65,80 +65,27 @@ const Index = () => {
             {/* Content Banner - Top */}
             <BannerDisplay position="content" className="mb-4" />
 
-            {/* Inbox + Quick Tips - Side by side on large, stacked on small */}
-            <div className="flex flex-col xl:flex-row gap-4 xl:gap-6 xl:items-stretch">
-              {/* Inbox - Main Content (Left on large screens) */}
-              <motion.div
-                className="flex-1 w-full order-1 flex flex-col"
-                initial={{ opacity: 0, x: -20 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5 }}
-              >
-                <div className="h-full flex flex-col">
-                  <Inbox />
-                </div>
-              </motion.div>
+            {/* Inbox Full Width */}
+            <motion.div
+              className="w-full"
+              initial={{ opacity: 0, x: -20 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+            >
+              <Inbox />
+            </motion.div>
+          </div>
+        </section>
 
-              {/* Quick Tips Card - Right on large screens, below inbox on small */}
-              {isSectionEnabled("quick_tips") && (
-                <motion.div 
-                  className="w-full xl:w-80 order-2 relative overflow-hidden rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/10 via-background to-accent/10 p-4 sm:p-6 shadow-lg shadow-primary/5 flex flex-col"
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  whileInView={{ opacity: 1, scale: 1 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.5, delay: 0.2 }}
-                >
-                  {/* Animated gradient border */}
-                  <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-primary via-accent to-primary opacity-20 blur-sm animate-pulse" />
-                  
-                  {/* Sparkle decorations */}
-                  <div className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full animate-ping opacity-75" />
-                  <div className="absolute bottom-4 left-4 w-1.5 h-1.5 bg-accent rounded-full animate-ping opacity-50" style={{ animationDelay: '0.5s' }} />
-                  
-                  <div className="relative z-10">
-                    <h3 className="font-bold text-foreground mb-4 flex items-center gap-2 text-base sm:text-lg">
-                      <motion.span 
-                        className="w-3 h-3 rounded-full bg-gradient-to-r from-primary to-accent"
-                        animate={{ scale: [1, 1.2, 1] }}
-                        transition={{ duration: 2, repeat: Infinity }}
-                      />
-                      <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-                        {quickTips.title}
-                      </span>
-                    </h3>
-                    <ul className="space-y-3 sm:space-y-4 text-sm">
-                      {quickTips.tips.map((tip, index) => (
-                        <motion.li 
-                          key={index}
-                          className="flex items-start gap-3 p-3 rounded-lg bg-background/50 border border-border/50 hover:border-primary/30 transition-colors"
-                          whileHover={{ x: 4 }}
-                        >
-                          <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-xs">
-                            {index + 1}
-                          </span>
-                          <span className="text-foreground text-xs sm:text-sm">{tip}</span>
-                        </motion.li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Sidebar Banner below Quick Tips */}
-                  <div className="mt-6">
-                    <BannerDisplay position="sidebar" />
-                  </div>
-                </motion.div>
-              )}
+        {/* Unified Stats + Quick Tips Widget */}
+        {isSectionEnabled('stats_widget') && (
+          <section className="py-4 border-y border-border/30">
+            <div className="container mx-auto px-4">
+              <UnifiedStatsWidget />
             </div>
-          </div>
-        </section>
-
-        {/* Live Stats Section - After Inbox */}
-        <section className="py-4 border-y border-border/30">
-          <div className="container mx-auto px-4">
-            <LiveStatsWidget />
-          </div>
-        </section>
+          </section>
+        )}
 
         <FeaturesSection />
         <HowItWorks />

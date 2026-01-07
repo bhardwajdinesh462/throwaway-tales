@@ -124,7 +124,7 @@ const AdminDeploymentHealth = lazyWithRetry(() => import("./pages/admin/AdminDep
 const AdminAlertSettings = lazyWithRetry(() => import("./pages/admin/AdminAlertSettings"));
 const AdminMaintenance = lazyWithRetry(() => import("./pages/admin/AdminMaintenance"));
 const AdminGeoBlocking = lazyWithRetry(() => import("./pages/admin/AdminGeoBlocking"));
-
+const AdminEmailWhitelist = lazyWithRetry(() => import("./pages/admin/AdminEmailWhitelist"));
 // Redirect www to non-www
 if (typeof window !== 'undefined' && window.location.hostname.startsWith('www.')) {
   const nonWwwUrl = window.location.href.replace('://www.', '://');
@@ -348,6 +348,7 @@ const App = () => (
                             <Route path="alerts" element={<AdminAlertSettings />} />
                             <Route path="maintenance" element={<AdminMaintenance />} />
                             <Route path="geo-blocking" element={<AdminGeoBlocking />} />
+                            <Route path="email-whitelist" element={<AdminEmailWhitelist />} />
                           </Route>
 
                           <Route path="*" element={<NotFound />} />

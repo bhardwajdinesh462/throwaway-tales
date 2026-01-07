@@ -67,6 +67,7 @@ const EmailGenerator = () => {
     domains,
     currentEmail,
     isGenerating,
+    isLoading,
     generateEmail,
     generateCustomEmail,
     changeDomain,
@@ -630,17 +631,19 @@ const EmailGenerator = () => {
                 <div className="absolute inset-0 bg-gradient-to-r from-primary/20 to-accent/20 rounded-2xl blur-xl group-hover:blur-2xl transition-all duration-300 opacity-50" />
                 <div className="relative bg-secondary/50 rounded-2xl p-4 sm:p-6 md:p-8 border border-primary/20 backdrop-blur-sm">
                   <motion.p 
-                    className={`font-mono text-lg sm:text-xl md:text-2xl lg:text-3xl text-center text-foreground break-all font-medium tracking-wide ${isGenerating ? 'blur-sm' : ''}`}
-                    animate={isGenerating ? { opacity: [1, 0.5, 1] } : {}}
-                    transition={{ duration: 0.5, repeat: isGenerating ? Infinity : 0 }}
+                    className={`font-mono text-lg sm:text-xl md:text-2xl lg:text-3xl text-center text-foreground break-all font-medium tracking-wide ${isGenerating || isLoading ? 'blur-sm' : ''}`}
+                    animate={(isGenerating || isLoading) ? { opacity: [1, 0.5, 1] } : {}}
+                    transition={{ duration: 0.5, repeat: (isGenerating || isLoading) ? Infinity : 0 }}
                   >
                     {isGenerating 
                       ? "Generating..." 
-                      : currentEmail?.address 
-                        ? currentEmail.address 
-                        : domains.length === 0 
-                          ? "Loading domains..." 
-                          : "Click Generate to create email"}
+                      : isLoading
+                        ? "Creating your email..."
+                        : currentEmail?.address 
+                          ? currentEmail.address 
+                          : domains.length === 0 
+                            ? "Loading domains..." 
+                            : "Creating your email..."}
                   </motion.p>
                   
                   {/* Email Expiry Timer - Now displayed under the email address */}

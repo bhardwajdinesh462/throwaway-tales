@@ -466,10 +466,14 @@ export const useSecureEmailService = () => {
               body: { tempEmailId: preferredId, token: tokens[preferredId] },
             });
 
-            // Handle retryable errors (503) - skip validation and generate new
+            // Handle retryable errors (503) - skip validation and generate new immediately
             if (preferredError || preferredResult?.retryable) {
-              console.warn('[email-service] Validation failed or backend busy, will generate new email');
-            } else if (preferredResult?.valid && preferredResult?.email) {
+              console.warn('[email-service] Validation failed or backend busy, generating new email immediately');
+              await generateEmail(domains[0]?.id);
+              return;
+            }
+            
+            if (preferredResult?.valid && preferredResult?.email) {
               console.log(`[email-service] Preferred email is valid: ${preferredResult.email.address}`);
               setCurrentEmail({ ...preferredResult.email, secret_token: tokens[preferredId] });
               setIsLoading(false);
@@ -494,10 +498,14 @@ export const useSecureEmailService = () => {
               body: { emailIds: remainingEmailIds },
             });
 
-            // Handle retryable errors - proceed to generate new email
+            // Handle retryable errors - generate new email immediately
             if (bulkError || bulkResult?.retryable) {
-              console.warn('[email-service] Bulk validation failed or backend busy, will generate new email');
-            } else if (bulkResult?.valid && bulkResult?.email) {
+              console.warn('[email-service] Bulk validation failed or backend busy, generating new email immediately');
+              await generateEmail(domains[0]?.id);
+              return;
+            }
+            
+            if (bulkResult?.valid && bulkResult?.email) {
               console.log(`[email-service] Found valid email: ${bulkResult.email.address}`);
               
               // Clean up stale tokens (only keep valid ones)
@@ -530,9 +538,9 @@ export const useSecureEmailService = () => {
         }
       }
 
-      // No valid existing email, generate new one
-      console.log('[email-service] No valid email found, generating new one...');
-      await generateEmail();
+      // No valid existing email, generate new one with first domain
+      console.log('[email-service] No valid email found, generating new one with first domain...');
+      await generateEmail(domains[0]?.id);
     };
 
     void initializeEmail();

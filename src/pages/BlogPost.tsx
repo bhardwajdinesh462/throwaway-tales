@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -8,6 +8,9 @@ import { Calendar, User, ArrowLeft, Clock, Tag, Share2, Loader2 } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useReadingProgress } from "@/hooks/useReadingProgress";
+import { ReadingProgressBar } from "@/components/ReadingProgressBar";
+import { BlogSubscribeForm } from "@/components/BlogSubscribeForm";
 
 interface BlogPostData {
   id: string;
@@ -28,6 +31,8 @@ interface BlogPostData {
 const BlogPost = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+  const articleRef = useRef<HTMLDivElement>(null);
+  const progress = useReadingProgress(articleRef);
   const [post, setPost] = useState<BlogPostData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -93,13 +98,14 @@ const BlogPost = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <ReadingProgressBar progress={progress} />
       <SEOHead 
         title={post.meta_title || post.title}
         description={post.meta_description || post.excerpt || ""}
       />
       <Header />
       <main className="pt-28 md:pt-32 pb-12">
-        <article className="container mx-auto px-4 max-w-4xl">
+        <article ref={articleRef} className="container mx-auto px-4 max-w-4xl">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -251,6 +257,11 @@ const BlogPost = () => {
                   </Button>
                 </div>
               </div>
+            </div>
+            
+            {/* Subscribe Form at End */}
+            <div className="mt-12">
+              <BlogSubscribeForm />
             </div>
           </motion.div>
         </article>

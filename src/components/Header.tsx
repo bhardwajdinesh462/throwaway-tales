@@ -350,6 +350,23 @@ const Header = () => {
                   <Send className="w-3.5 h-3.5" />
                   <span className="hidden lg:inline">Join</span>
                 </motion.a>
+                {/* Quick Theme Toggle Button */}
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={toggleTheme}
+                    className="relative overflow-hidden h-9 w-9 rounded-lg bg-secondary/50 hover:bg-secondary border border-border/50"
+                    aria-label="Toggle dark/light mode"
+                  >
+                    <Sun className={`h-4 w-4 absolute transition-all duration-300 ${
+                      theme.isDark ? "rotate-0 scale-100 opacity-100" : "-rotate-90 scale-0 opacity-0"
+                    }`} />
+                    <Moon className={`h-4 w-4 absolute transition-all duration-300 ${
+                      theme.isDark ? "rotate-90 scale-0 opacity-0" : "rotate-0 scale-100 opacity-100"
+                    }`} />
+                  </Button>
+                </motion.div>
 
                 {/* Theme Picker Dropdown with Preview */}
                 <DropdownMenu open={themePickerOpen} onOpenChange={handleDropdownOpenChange}>

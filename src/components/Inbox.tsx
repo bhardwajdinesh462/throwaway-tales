@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, RefreshCw, Star, Clock, User, ChevronRight, Inbox as InboxIcon, Loader2, Bell, Shield, Keyboard } from "lucide-react";
+import { Mail, RefreshCw, Star, Clock, User, ChevronRight, Inbox as InboxIcon, Loader2, Bell, Shield, Keyboard, BarChart3, ChevronDown, Filter, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ReceivedEmail } from "@/hooks/useSecureEmailService";
@@ -23,6 +23,14 @@ import { useAdminRole } from "@/hooks/useAdminRole";
 import InboxDiagnostics from "@/components/InboxDiagnostics";
 import RealtimeDebugPanel from "@/components/RealtimeDebugPanel";
 import { tooltips } from "@/lib/tooltips";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 interface NotificationPreferences {
   soundEnabled: boolean;
   pushEnabled: boolean;
@@ -54,6 +62,9 @@ const Inbox = () => {
   const [isCheckingMail, setIsCheckingMail] = useState(false);
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [filter, setFilter] = useState<'all' | 'unread' | 'read'>('all');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'sender'>('newest');
+  const [showStats, setShowStats] = useState(false);
   
   // 4. All useRef hooks together
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
@@ -437,6 +448,60 @@ const Inbox = () => {
     ],
   });
 
+  // Filter and sort emails
+  const filteredEmails = useMemo(() => {
+    let emails = [...receivedEmails];
+    
+    // Apply filter
+    if (filter === 'unread') emails = emails.filter(e => !e.is_read);
+    if (filter === 'read') emails = emails.filter(e => e.is_read);
+    
+    // Apply sort
+    if (sortBy === 'newest') {
+      emails.sort((a, b) => 
+        new Date(b.received_at).getTime() - new Date(a.received_at).getTime()
+      );
+    }
+    if (sortBy === 'oldest') {
+      emails.sort((a, b) => 
+        new Date(a.received_at).getTime() - new Date(b.received_at).getTime()
+      );
+    }
+    if (sortBy === 'sender') {
+      emails.sort((a, b) => 
+        a.from_address.localeCompare(b.from_address)
+      );
+    }
+    
+    return emails;
+  }, [receivedEmails, filter, sortBy]);
+
+  // Inbox statistics
+  const inboxStats = useMemo(() => {
+    const today = new Date().toDateString();
+    const emailsToday = receivedEmails.filter(
+      e => new Date(e.received_at).toDateString() === today
+    ).length;
+    
+    const unreadCount = receivedEmails.filter(e => !e.is_read).length;
+    
+    // Find most active sender
+    const senderCounts: Record<string, number> = {};
+    receivedEmails.forEach(e => {
+      const sender = e.from_address.split('<')[0].trim() || e.from_address;
+      senderCounts[sender] = (senderCounts[sender] || 0) + 1;
+    });
+    const topSender = Object.entries(senderCounts)
+      .sort((a, b) => b[1] - a[1])[0];
+    
+    return {
+      total: receivedEmails.length,
+      today: emailsToday,
+      unread: unreadCount,
+      topSender: topSender ? { name: topSender[0], count: topSender[1] } : null,
+    };
+  }, [receivedEmails]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -573,6 +638,82 @@ const Inbox = () => {
           )}
         </AnimatePresence>
 
+        {/* Filter, Sort & Stats Controls */}
+        <div className="p-3 border-b border-border bg-secondary/20 space-y-3">
+          {/* Filter and Sort Row */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Filter className="w-3 h-3" />
+            </div>
+            <Select value={filter} onValueChange={(v: 'all' | 'unread' | 'read') => setFilter(v)}>
+              <SelectTrigger className="w-28 h-7 text-xs">
+                <SelectValue placeholder="Filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Emails</SelectItem>
+                <SelectItem value="unread">Unread</SelectItem>
+                <SelectItem value="read">Read</SelectItem>
+              </SelectContent>
+            </Select>
+            
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground ml-2">
+              <ArrowUpDown className="w-3 h-3" />
+            </div>
+            <Select value={sortBy} onValueChange={(v: 'newest' | 'oldest' | 'sender') => setSortBy(v)}>
+              <SelectTrigger className="w-32 h-7 text-xs">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest First</SelectItem>
+                <SelectItem value="oldest">Oldest First</SelectItem>
+                <SelectItem value="sender">By Sender</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <span className="text-xs text-muted-foreground ml-auto">
+              {filteredEmails.length} {filteredEmails.length === 1 ? 'email' : 'emails'}
+            </span>
+          </div>
+
+          {/* Collapsible Stats */}
+          <Collapsible open={showStats} onOpenChange={setShowStats}>
+            <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+              <BarChart3 className="h-3 w-3" />
+              <span>Inbox Statistics</span>
+              <ChevronDown className={`h-3 w-3 transition-transform ${showStats ? 'rotate-180' : ''}`} />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="grid grid-cols-4 gap-3 mt-3 p-3 bg-background/50 rounded-lg border border-border/50"
+              >
+                <div className="text-center">
+                  <div className="text-xl font-bold text-foreground">{inboxStats.total}</div>
+                  <div className="text-[10px] text-muted-foreground">Total</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xl font-bold text-green-500">{inboxStats.today}</div>
+                  <div className="text-[10px] text-muted-foreground">Today</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xl font-bold text-blue-500">{inboxStats.unread}</div>
+                  <div className="text-[10px] text-muted-foreground">Unread</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xl font-bold text-purple-500">
+                    {inboxStats.topSender?.count || 0}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground truncate max-w-[80px] mx-auto" title={inboxStats.topSender?.name || 'No sender'}>
+                    {inboxStats.topSender?.name?.split('@')[0]?.slice(0, 10) || 'Top sender'}
+                  </div>
+                </div>
+              </motion.div>
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
+
         {/* Email List */}
         <div className="divide-y divide-border flex-1 overflow-auto">
           <AnimatePresence>
@@ -581,7 +722,7 @@ const Inbox = () => {
                 <div className="w-8 h-8 mx-auto border-2 border-primary border-t-transparent rounded-full animate-spin mb-4" />
                 <p className="text-muted-foreground">Loading inbox...</p>
               </div>
-            ) : receivedEmails.length === 0 ? (
+            ) : filteredEmails.length === 0 ? (
               <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -603,7 +744,7 @@ const Inbox = () => {
                 )}
               </motion.div>
             ) : (
-              receivedEmails.map((email, index) => {
+              filteredEmails.map((email, index) => {
                 // Clean preview snippet - remove MIME artifacts and HTML
                 const getCleanPreview = (body: string | null | undefined) => {
                   if (!body) return 'No content';

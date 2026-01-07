@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles, User, Mail, Zap, Clock, Crown } from "lucide-react";
+import { Copy, RefreshCw, Check, Star, Volume2, Plus, Edit2, Sparkles, User, Mail, Zap, Clock, Crown, ExternalLink, FileText, Code, Share2, ChevronDown } from "lucide-react";
 import { useAdminRole } from "@/hooks/useAdminRole";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,17 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useEmailService } from "@/contexts/EmailServiceContext";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -369,12 +380,50 @@ const EmailGenerator = () => {
     }
   };
 
-  const copyToClipboard = async () => {
+  const copyToClipboard = async (format: 'plain' | 'mailto' | 'markdown' | 'json' = 'plain') => {
     if (!currentEmail) return;
-    await navigator.clipboard.writeText(currentEmail.address);
+    
+    let textToCopy = '';
+    let successMessage = '';
+    
+    switch (format) {
+      case 'mailto':
+        textToCopy = `mailto:${currentEmail.address}`;
+        successMessage = 'mailto: link copied!';
+        break;
+      case 'markdown':
+        textToCopy = `[${currentEmail.address}](mailto:${currentEmail.address})`;
+        successMessage = 'Markdown link copied!';
+        break;
+      case 'json':
+        textToCopy = JSON.stringify({
+          email: currentEmail.address,
+          expires: currentEmail.expires_at,
+          created: currentEmail.created_at,
+        }, null, 2);
+        successMessage = 'JSON copied!';
+        break;
+      default:
+        textToCopy = currentEmail.address;
+        successMessage = 'Email copied to clipboard!';
+    }
+    
+    await navigator.clipboard.writeText(textToCopy);
     setCopied(true);
-    toast.success("Email copied to clipboard!");
+    toast.success(successMessage);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Share email via social platforms
+  const shareVia = (platform: 'whatsapp' | 'telegram' | 'twitter') => {
+    if (!currentEmail) return;
+    const text = `My temporary email: ${currentEmail.address}`;
+    const urls = {
+      whatsapp: `https://wa.me/?text=${encodeURIComponent(text)}`,
+      telegram: `https://t.me/share/url?text=${encodeURIComponent(text)}`,
+      twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
+    };
+    window.open(urls[platform], '_blank');
   };
 
   const refreshEmail = async () => {
@@ -770,48 +819,70 @@ const EmailGenerator = () => {
               )}
             </div>
 
-            {/* Action Buttons */}
             <div className="flex flex-wrap justify-center gap-3 mt-6">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                    <Button
-                      variant="default"
-                      size="lg"
-                      onClick={copyToClipboard}
-                      className="min-w-[150px] bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg shadow-primary/25"
-                      disabled={!currentEmail}
-                    >
-                      <AnimatePresence mode="wait">
-                        {copied ? (
-                          <motion.span
-                            key="copied"
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            className="flex items-center gap-2"
-                          >
-                            <Check className="w-4 h-4" /> {t('copied')}
-                          </motion.span>
-                        ) : (
-                          <motion.span
-                            key="copy"
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            className="flex items-center gap-2"
-                          >
-                            <Copy className="w-4 h-4" /> {t('copy')}
-                          </motion.span>
-                        )}
-                      </AnimatePresence>
-                    </Button>
-                  </motion.div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{tooltips.emailGenerator.copy}</p>
-                </TooltipContent>
-              </Tooltip>
+              {/* Copy with Dropdown Menu */}
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                        <Button
+                          variant="default"
+                          size="lg"
+                          className="min-w-[150px] bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg shadow-primary/25"
+                          disabled={!currentEmail}
+                        >
+                          <AnimatePresence mode="wait">
+                            {copied ? (
+                              <motion.span
+                                key="copied"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="flex items-center gap-2"
+                              >
+                                <Check className="w-4 h-4" /> {t('copied')}
+                              </motion.span>
+                            ) : (
+                              <motion.span
+                                key="copy"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="flex items-center gap-2"
+                              >
+                                <Copy className="w-4 h-4" /> {t('copy')}
+                                <ChevronDown className="w-3 h-3 ml-1" />
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
+                        </Button>
+                      </motion.div>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{tooltips.emailGenerator.copy}</p>
+                  </TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="center" className="w-48">
+                  <DropdownMenuItem onClick={() => copyToClipboard('plain')}>
+                    <Mail className="w-4 h-4 mr-2" />
+                    Copy Email Address
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => copyToClipboard('mailto')}>
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Copy as mailto: link
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => copyToClipboard('markdown')}>
+                    <FileText className="w-4 h-4 mr-2" />
+                    Copy as Markdown
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => copyToClipboard('json')}>
+                    <Code className="w-4 h-4 mr-2" />
+                    Copy as JSON
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -884,6 +955,69 @@ const EmailGenerator = () => {
                   <p>{tooltips.emailGenerator.save}</p>
                 </TooltipContent>
               </Tooltip>
+
+              {/* Share Popover */}
+              {currentEmail && (
+                <Popover>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                          <Button
+                            variant="outline"
+                            size="lg"
+                            className="border-border hover:bg-secondary"
+                          >
+                            <Share2 className="w-4 h-4 mr-2" />
+                            Share
+                          </Button>
+                        </motion.div>
+                      </PopoverTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Share this email via social media</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <PopoverContent className="w-72 p-4" align="center">
+                    <div className="space-y-4">
+                      <h4 className="font-medium text-sm text-center">Share this email</h4>
+                      
+                      {/* QR Code Preview */}
+                      <div className="flex justify-center p-3 bg-white rounded-lg">
+                        <EmailQRCode email={currentEmail.address} size={100} />
+                      </div>
+                      
+                      {/* Share buttons */}
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="flex-1 text-xs"
+                          onClick={() => shareVia('whatsapp')}
+                        >
+                          WhatsApp
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="flex-1 text-xs"
+                          onClick={() => shareVia('telegram')}
+                        >
+                          Telegram
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="flex-1 text-xs"
+                          onClick={() => shareVia('twitter')}
+                        >
+                          Twitter
+                        </Button>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
 
               <Tooltip>
                 <TooltipTrigger asChild>

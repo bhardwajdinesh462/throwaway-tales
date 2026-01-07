@@ -314,6 +314,30 @@ export type Database = {
         }
         Relationships: []
       }
+      blog_subscribers: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          status: string
+          unsubscribed_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          status?: string
+          unsubscribed_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          status?: string
+          unsubscribed_at?: string | null
+        }
+        Relationships: []
+      }
       blogs: {
         Row: {
           author: string

@@ -295,6 +295,27 @@ export const useBlogMutations = () => {
       }, { id });
 
       if (error) throw error;
+      
+      // If just published (was unpublished, now published), notify subscribers
+      if (newPublished && !published) {
+        try {
+          console.log('[admin] Notifying subscribers about new blog post:', id);
+          const { data, error: notifyError } = await api.functions.invoke<any>('notify-blog-subscribers', {
+            body: { blogId: id }
+          });
+          
+          if (notifyError) {
+            console.error('[admin] Failed to notify subscribers:', notifyError);
+          } else if (data?.notified > 0) {
+            console.log(`[admin] Notified ${data.notified} subscribers`);
+            toast.info(`Notified ${data.notified} subscriber${data.notified > 1 ? 's' : ''} about the new post!`);
+          }
+        } catch (err) {
+          console.error('[admin] Error notifying subscribers:', err);
+          // Don't fail the publish action if notification fails
+        }
+      }
+      
       return newPublished;
     },
     onSuccess: (newPublished) => {

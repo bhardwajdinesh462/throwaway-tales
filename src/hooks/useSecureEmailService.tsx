@@ -142,11 +142,27 @@ export const useSecureEmailService = () => {
 
   // Ref to prevent duplicate initialization - check sessionStorage on init
   const initStartedRef = useRef(false);
+  const initAttemptCountRef = useRef(0);
+  const MAX_INIT_RETRIES = 2;
   
   // Check sessionStorage on mount to see if we already initialized this session
   useEffect(() => {
     try {
       const alreadyStarted = sessionStorage.getItem('nullsto_email_init_started') === 'true';
+      const startedAt = sessionStorage.getItem('nullsto_email_init_started_at');
+      
+      // If started but older than 15 seconds, treat as stale
+      if (alreadyStarted && startedAt) {
+        const elapsed = Date.now() - parseInt(startedAt, 10);
+        if (elapsed > 15000) {
+          console.log('[email-service] Stale init flag detected (>15s), clearing...');
+          sessionStorage.removeItem('nullsto_email_init_started');
+          sessionStorage.removeItem('nullsto_email_init_started_at');
+          initStartedRef.current = false;
+          return;
+        }
+      }
+      
       if (alreadyStarted) {
         initStartedRef.current = true;
       }
@@ -160,6 +176,7 @@ export const useSecureEmailService = () => {
     initStartedRef.current = true;
     try {
       sessionStorage.setItem('nullsto_email_init_started', 'true');
+      sessionStorage.setItem('nullsto_email_init_started_at', Date.now().toString());
     } catch {
       // ignore
     }
@@ -168,8 +185,10 @@ export const useSecureEmailService = () => {
   // Clear init flag (for when email not found and needs regeneration)
   const clearInitStarted = useCallback(() => {
     initStartedRef.current = false;
+    initAttemptCountRef.current = 0;
     try {
       sessionStorage.removeItem('nullsto_email_init_started');
+      sessionStorage.removeItem('nullsto_email_init_started_at');
     } catch {
       // ignore
     }
@@ -426,8 +445,22 @@ export const useSecureEmailService = () => {
   // Initial email generation - check for existing first
   useEffect(() => {
     const initializeEmail = async () => {
-      // Guard: prevent duplicate initialization
-      if (initStartedRef.current) return;
+      // Guard: prevent duplicate initialization but allow retries
+      if (initStartedRef.current) {
+        // Check if we should retry due to stale init
+        if (!currentEmail && initAttemptCountRef.current < MAX_INIT_RETRIES) {
+          initAttemptCountRef.current++;
+          console.log(`[email-service] Init retry attempt ${initAttemptCountRef.current}/${MAX_INIT_RETRIES}`);
+          clearInitStarted();
+        } else if (!currentEmail) {
+          // Max retries reached, stop loading
+          console.log('[email-service] Max init retries reached, stopping loader');
+          setIsLoading(false);
+          return;
+        } else {
+          return;
+        }
+      }
       if (domains.length === 0) return;
       if (currentEmail) {
         setIsLoading(false);

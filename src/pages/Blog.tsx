@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { BlogSubscribeForm } from "@/components/BlogSubscribeForm";
 
 interface BlogPost {
   id: string;
@@ -73,6 +74,15 @@ const Blog = () => {
       <Header />
       <main className="pt-28 md:pt-32 pb-12">
         <div className="container mx-auto px-4">
+          {/* Subscribe Form - Top */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-2xl mx-auto mb-8"
+          >
+            <BlogSubscribeForm />
+          </motion.div>
+
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

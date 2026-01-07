@@ -1,1 +1,10 @@
 project_id = "yasbrindfmevbxysrgqd"
+
+[functions.blog-subscribe]
+verify_jwt = false
+
+[functions.blog-unsubscribe]
+verify_jwt = false
+
+[functions.notify-blog-subscribers]
+verify_jwt = false

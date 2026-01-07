@@ -66,13 +66,9 @@ const EmailSummary = ({ emailId, subject, body, htmlBody }: EmailSummaryProps) =
     setUsageCount(getUsageToday());
   }, []);
 
-  // Determine limits: prioritize subscription tier limits, fallback to admin settings
-  const isGuest = !user;
-  // For logged-in users, use tier-based limit; for guests, use admin settings
-  const tierLimit = limits.aiSummariesPerDay;
-  const dailyLimit = isGuest 
-    ? settings.guestAiSummaryLimit 
-    : (tierLimit !== undefined ? tierLimit : settings.userAiSummaryLimit);
+  // ALWAYS use subscription tier limits - respects admin-configured database settings
+  // usePremiumFeatures already fetches the correct tier (free for guests, user's tier for logged-in)
+  const dailyLimit = limits.aiSummariesPerDay;
   
   // Disabled if: global toggle off, OR tier limit is 0 (disabled for this tier)
   const isDisabled = !settings.aiSummaryEnabled || dailyLimit === 0;

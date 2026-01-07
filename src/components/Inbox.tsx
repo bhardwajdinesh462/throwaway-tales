@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, RefreshCw, Star, Clock, User, ChevronRight, Inbox as InboxIcon, Loader2, Bell, Shield, Keyboard, BarChart3, ChevronDown, Filter, ArrowUpDown } from "lucide-react";
+import { Mail, RefreshCw, Star, Clock, User, ChevronRight, Inbox as InboxIcon, Loader2, Bell, Shield, Keyboard, BarChart3, ChevronDown, Filter, ArrowUpDown, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ReceivedEmail } from "@/hooks/useSecureEmailService";
@@ -66,9 +66,16 @@ const Inbox = () => {
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'sender'>('newest');
   const [showStats, setShowStats] = useState(false);
   
+  // Fast Receive mode - polls IMAP every 5s for instant email delivery
+  const [fastReceiveEnabled, setFastReceiveEnabled] = useState(false);
+  const [fastReceiveCountdown, setFastReceiveCountdown] = useState(5);
+  const [consecutiveEmptyPolls, setConsecutiveEmptyPolls] = useState(0);
+  
   // 4. All useRef hooks together
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const refreshRef = useRef<NodeJS.Timeout | null>(null);
+  const fastReceiveRef = useRef<NodeJS.Timeout | null>(null);
+  const fastReceiveCountdownRef = useRef<NodeJS.Timeout | null>(null);
 
   // Notification sounds - auto-unlocks on user interaction
   const { playSound } = useNotificationSounds();
@@ -184,10 +191,90 @@ const Inbox = () => {
     };
   }, [autoRefreshEnabled, refreshInterval, handleRefresh, currentEmail?.id]);
 
-  // When switching to a new temp address, clear selected email UI to prevent “mixed inbox” confusion
+  // Fast Receive mode - aggressive IMAP polling every 5 seconds with backoff
+  useEffect(() => {
+    if (!currentEmail?.id || !fastReceiveEnabled) {
+      if (fastReceiveRef.current) clearInterval(fastReceiveRef.current);
+      if (fastReceiveCountdownRef.current) clearInterval(fastReceiveCountdownRef.current);
+      setFastReceiveCountdown(5);
+      return;
+    }
+
+    // Calculate poll interval with backoff: 5s base, increases after consecutive empty polls
+    // After 6 empty polls (30s), back off to 10s. After 12 (90s), back off to 15s. Max 30s.
+    const getInterval = () => {
+      if (consecutiveEmptyPolls >= 12) return 30;
+      if (consecutiveEmptyPolls >= 6) return 15;
+      if (consecutiveEmptyPolls >= 3) return 10;
+      return 5;
+    };
+
+    const interval = getInterval();
+    setFastReceiveCountdown(interval);
+
+    // Visual countdown
+    fastReceiveCountdownRef.current = setInterval(() => {
+      setFastReceiveCountdown((prev) => (prev <= 1 ? interval : prev - 1));
+    }, 1000);
+
+    // IMAP polling
+    const pollImap = async () => {
+      try {
+        console.log('[FastReceive] Polling IMAP...');
+        const result = await triggerImapFetch({ mode: "latest", limit: 10 });
+        const stored = result?.stats?.stored ?? 0;
+        
+        if (stored > 0) {
+          // Reset backoff on successful receive
+          setConsecutiveEmptyPolls(0);
+          if (soundEnabled) {
+            playSound();
+          }
+          toast.success(`📬 ${stored} new email${stored > 1 ? 's' : ''} received!`);
+        } else {
+          // Increment empty poll counter for backoff
+          setConsecutiveEmptyPolls(prev => prev + 1);
+        }
+      } catch (error) {
+        console.warn('[FastReceive] Poll failed:', error);
+        // Don't increment on error, might be transient
+      }
+    };
+
+    // Initial poll immediately
+    void pollImap();
+
+    fastReceiveRef.current = setInterval(() => {
+      void pollImap();
+      setFastReceiveCountdown(interval);
+    }, interval * 1000);
+
+    return () => {
+      if (fastReceiveRef.current) clearInterval(fastReceiveRef.current);
+      if (fastReceiveCountdownRef.current) clearInterval(fastReceiveCountdownRef.current);
+    };
+  }, [fastReceiveEnabled, currentEmail?.id, consecutiveEmptyPolls, triggerImapFetch, soundEnabled, playSound]);
+
+  // Reset backoff when fast receive is toggled on
+  const toggleFastReceive = useCallback(() => {
+    setFastReceiveEnabled(prev => {
+      if (!prev) {
+        // Enabling - reset backoff
+        setConsecutiveEmptyPolls(0);
+        toast.success('⚡ Fast Receive enabled - checking every 5 seconds');
+      } else {
+        toast.info('Fast Receive disabled');
+      }
+      return !prev;
+    });
+  }, []);
+
+  // When switching to a new temp address, clear selected email UI to prevent "mixed inbox" confusion
   useEffect(() => {
     setSelectedEmail(null);
     setAttachments([]);
+    // Reset fast receive backoff for new address
+    setConsecutiveEmptyPolls(0);
   }, [currentEmail?.id]);
 
 
@@ -445,6 +532,7 @@ const Inbox = () => {
       { key: 'Enter', description: 'Open email', action: openSelectedEmail },
       { key: 'Escape', description: 'Close email preview', action: closeEmailPreview },
       { key: 'n', description: 'Check new mail', action: handleCheckMail },
+      { key: 'f', description: 'Toggle Fast Receive', action: toggleFastReceive },
     ],
   });
 
@@ -534,6 +622,33 @@ const Inbox = () => {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
+            {/* Fast Receive Toggle */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div 
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs cursor-pointer transition-all ${
+                    fastReceiveEnabled 
+                      ? 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 animate-pulse' 
+                      : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+                  }`}
+                  onClick={toggleFastReceive}
+                  title={fastReceiveEnabled ? "Fast Receive ON - Click to disable" : "Enable Fast Receive for 2-10s delivery"}
+                >
+                  <Zap className={`w-4 h-4 ${fastReceiveEnabled ? 'animate-pulse' : ''}`} />
+                  {fastReceiveEnabled ? (
+                    <span className="font-mono">{fastReceiveCountdown}s</span>
+                  ) : (
+                    <span>Fast</span>
+                  )}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{fastReceiveEnabled 
+                  ? `Polling every ${fastReceiveCountdown}s - emails arrive in 2-10 seconds` 
+                  : 'Enable Fast Receive for near-instant email delivery (polls every 5s)'}</p>
+              </TooltipContent>
+            </Tooltip>
+
             {/* Auto-refresh indicator */}
             <div 
               className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs cursor-pointer transition-all ${
@@ -747,11 +862,16 @@ const Inbox = () => {
                   <Shield className="w-3 h-3" />
                   <span>Token-secured access</span>
                 </div>
-                {autoRefreshEnabled && (
+                {fastReceiveEnabled ? (
+                  <p className="text-xs text-yellow-500 mt-4 flex items-center justify-center gap-1">
+                    <Zap className="w-3 h-3" />
+                    Fast Receive ON - checking every {fastReceiveCountdown}s
+                  </p>
+                ) : autoRefreshEnabled ? (
                   <p className="text-xs text-muted-foreground mt-4">
                     Auto-checking every {refreshInterval} seconds...
                   </p>
-                )}
+                ) : null}
               </motion.div>
             ) : (
               filteredEmails.map((email, index) => {

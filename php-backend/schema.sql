@@ -508,6 +508,90 @@ CREATE TABLE IF NOT EXISTS user_invoices (
     INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Email Templates
+CREATE TABLE IF NOT EXISTS email_templates (
+    id CHAR(36) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    type VARCHAR(50) NOT NULL DEFAULT 'general',
+    subject VARCHAR(255),
+    body LONGTEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_type (type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Email Forwarding
+CREATE TABLE IF NOT EXISTS email_forwarding (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    temp_email_id CHAR(36) NOT NULL,
+    forward_to_address VARCHAR(255) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id),
+    INDEX idx_temp_email (temp_email_id),
+    UNIQUE KEY unique_forward (temp_email_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Push Subscriptions
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36),
+    temp_email_id CHAR(36),
+    endpoint TEXT NOT NULL,
+    p256dh VARCHAR(255),
+    auth_key VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id),
+    INDEX idx_temp_email (temp_email_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- User Usage (daily tracking)
+CREATE TABLE IF NOT EXISTS user_usage (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    date DATE NOT NULL,
+    temp_emails_created INT DEFAULT 0,
+    emails_received INT DEFAULT 0,
+    emails_forwarded INT DEFAULT 0,
+    ai_summaries_used INT DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_user_date (user_id, date),
+    INDEX idx_user (user_id),
+    INDEX idx_date (date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Admin Role Requests
+CREATE TABLE IF NOT EXISTS admin_role_requests (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    requested_role VARCHAR(50) NOT NULL,
+    existing_role VARCHAR(50),
+    reason TEXT,
+    status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+    review_notes TEXT,
+    reviewed_by CHAR(36),
+    reviewed_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Blog Subscribers
+CREATE TABLE IF NOT EXISTS blog_subscribers (
+    id CHAR(36) PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    status ENUM('active', 'unsubscribed') DEFAULT 'active',
+    unsubscribed_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_status (status),
+    INDEX idx_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Insert default data
 INSERT INTO email_stats (id, stat_key, stat_value) VALUES 
 (UUID(), 'total_emails_created', 0),

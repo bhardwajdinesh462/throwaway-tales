@@ -45,6 +45,9 @@ function handleFunction($functionName, $body, $pdo, $config) {
         case 'email-health-check':
             emailHealthCheck($pdo, $isAdmin);
             break;
+        case 'fetch-imap-emails':
+            fetchImapEmails($body, $pdo, $config);
+            break;
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Unknown function: ' . $functionName]);
@@ -871,7 +874,485 @@ function emailHealthCheck($pdo, $isAdmin) {
 
     if (!empty($health['issues'])) {
         $health['status'] = 'degraded';
+}
+
+/**
+ * Fetch emails from IMAP server - PHP equivalent of fetch-imap-emails edge function
+ * Supports Fast Receive mode for near real-time email delivery
+ */
+function fetchImapEmails($body, $pdo, $config) {
+    $mode = $body['mode'] ?? 'latest';
+    $limit = min(max(1, intval($body['limit'] ?? 10)), 50);
+    $mailboxId = $body['mailbox_id'] ?? null;
+    
+    // Check if IMAP extension is available
+    if (!function_exists('imap_open')) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'PHP IMAP extension not installed. Please install php-imap.',
+            'stats' => ['processed' => 0, 'stored' => 0]
+        ]);
+        return;
     }
+    
+    // Get allowed domains for recipient matching
+    $stmt = $pdo->query('SELECT name FROM domains WHERE is_active = 1');
+    $allowedDomains = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'name');
+    
+    if (empty($allowedDomains)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'No active domains configured',
+            'stats' => ['processed' => 0, 'stored' => 0]
+        ]);
+        return;
+    }
+    
+    // Build list of IMAP candidates to try
+    $candidates = [];
+    
+    // Priority 1: Requested mailbox
+    if ($mailboxId) {
+        $stmt = $pdo->prepare('SELECT * FROM mailboxes WHERE id = ? AND is_active = 1');
+        $stmt->execute([$mailboxId]);
+        $mb = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($mb) {
+            $candidates[] = [
+                'source' => 'db',
+                'mailbox_id' => $mb['id'],
+                'mailbox_name' => $mb['name'],
+                'host' => $mb['imap_host'],
+                'port' => $mb['imap_port'] ?? 993,
+                'user' => $mb['imap_user'],
+                'password' => $mb['imap_password'],
+                'ssl' => ($mb['imap_port'] ?? 993) == 993
+            ];
+        }
+    }
+    
+    // Priority 2: Database mailboxes (skip if had errors in last 15 min unless explicitly requested)
+    $stmt = $pdo->query('
+        SELECT * FROM mailboxes 
+        WHERE is_active = 1 
+        AND imap_host IS NOT NULL AND imap_host != ""
+        ORDER BY is_primary DESC, priority ASC
+    ');
+    $mailboxes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    foreach ($mailboxes as $mb) {
+        // Skip if already added via mailboxId
+        if ($mailboxId && $mb['id'] === $mailboxId) continue;
+        
+        // Skip if had errors in last 15 minutes (unless no other options)
+        if ($mb['last_error_at'] && strtotime($mb['last_error_at']) > time() - 900) {
+            continue;
+        }
+        
+        $candidates[] = [
+            'source' => 'db',
+            'mailbox_id' => $mb['id'],
+            'mailbox_name' => $mb['name'],
+            'host' => $mb['imap_host'],
+            'port' => $mb['imap_port'] ?? 993,
+            'user' => $mb['imap_user'],
+            'password' => $mb['imap_password'],
+            'ssl' => ($mb['imap_port'] ?? 993) == 993
+        ];
+    }
+    
+    // Priority 3: Config file fallback
+    $imapHost = $config['imap']['host'] ?? (defined('IMAP_HOST') ? IMAP_HOST : '');
+    $imapUser = $config['imap']['user'] ?? (defined('IMAP_USER') ? IMAP_USER : '');
+    $imapPass = $config['imap']['password'] ?? (defined('IMAP_PASSWORD') ? IMAP_PASSWORD : '');
+    $imapPort = $config['imap']['port'] ?? (defined('IMAP_PORT') ? IMAP_PORT : 993);
+    
+    if ($imapHost && $imapUser && $imapPass) {
+        $candidates[] = [
+            'source' => 'config',
+            'mailbox_id' => null,
+            'mailbox_name' => 'Config File',
+            'host' => $imapHost,
+            'port' => $imapPort,
+            'user' => $imapUser,
+            'password' => $imapPass,
+            'ssl' => $imapPort == 993
+        ];
+    }
+    
+    if (empty($candidates)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'No IMAP mailboxes configured',
+            'stats' => ['processed' => 0, 'stored' => 0]
+        ]);
+        return;
+    }
+    
+    // Try each candidate until one works
+    $lastError = null;
+    $usedCandidate = null;
+    
+    foreach ($candidates as $candidate) {
+        $result = processImapMailbox($candidate, $mode, $limit, $pdo, $allowedDomains);
+        
+        if ($result['success']) {
+            $usedCandidate = $candidate;
+            
+            // Update mailbox status on success
+            if ($candidate['mailbox_id']) {
+                $stmt = $pdo->prepare('
+                    UPDATE mailboxes 
+                    SET last_polled_at = NOW(), last_error = NULL, last_error_at = NULL
+                    WHERE id = ?
+                ');
+                $stmt->execute([$candidate['mailbox_id']]);
+            }
+            
+            echo json_encode([
+                'success' => true,
+                'message' => "Processed {$result['stats']['processed']} emails",
+                'stats' => $result['stats'],
+                'mailbox_used' => [
+                    'source' => $candidate['source'],
+                    'mailbox_id' => $candidate['mailbox_id'],
+                    'mailbox_name' => $candidate['mailbox_name'],
+                    'host' => $candidate['host']
+                ]
+            ]);
+            return;
+        }
+        
+        $lastError = $result['error'];
+        
+        // Update mailbox with error
+        if ($candidate['mailbox_id']) {
+            $stmt = $pdo->prepare('
+                UPDATE mailboxes 
+                SET last_error = ?, last_error_at = NOW()
+                WHERE id = ?
+            ');
+            $stmt->execute([$lastError, $candidate['mailbox_id']]);
+        }
+    }
+    
+    // All candidates failed
+    echo json_encode([
+        'success' => false,
+        'error' => $lastError ?? 'All IMAP servers failed',
+        'stats' => ['processed' => 0, 'stored' => 0, 'failed' => count($candidates)]
+    ]);
+}
+
+/**
+ * Process a single IMAP mailbox - fetch and store emails
+ */
+function processImapMailbox($candidate, $mode, $limit, $pdo, $allowedDomains) {
+    $stats = [
+        'mode' => $mode,
+        'limit' => $limit,
+        'totalMessages' => 0,
+        'unseenMessages' => 0,
+        'processed' => 0,
+        'stored' => 0,
+        'failed' => 0,
+        'skipped' => 0,
+        'noMatch' => 0,
+        'fetchedAt' => date('c')
+    ];
+    
+    try {
+        // Build IMAP connection string
+        $flags = $candidate['ssl'] ? '/imap/ssl/novalidate-cert' : '/imap/notls';
+        $mailbox = '{' . $candidate['host'] . ':' . $candidate['port'] . $flags . '}INBOX';
+        
+        // Connect to IMAP
+        $conn = @imap_open($mailbox, $candidate['user'], $candidate['password'], 0, 1, [
+            'DISABLE_AUTHENTICATOR' => 'GSSAPI'
+        ]);
+        
+        if (!$conn) {
+            $error = imap_last_error();
+            return ['success' => false, 'error' => "IMAP connection failed: $error", 'stats' => $stats];
+        }
+        
+        // Get mailbox status
+        $status = imap_status($conn, $mailbox, SA_ALL);
+        if ($status) {
+            $stats['totalMessages'] = $status->messages;
+            $stats['unseenMessages'] = $status->unseen;
+        }
+        
+        // Search for messages
+        $searchCriteria = $mode === 'unseen' ? 'UNSEEN' : 'ALL';
+        $messageNums = imap_search($conn, $searchCriteria, SE_UID);
+        
+        if (!$messageNums) {
+            imap_close($conn);
+            return ['success' => true, 'error' => null, 'stats' => $stats];
+        }
+        
+        // Sort by UID descending (newest first) and limit
+        rsort($messageNums);
+        $messageNums = array_slice($messageNums, 0, $limit);
+        
+        foreach ($messageNums as $uid) {
+            $stats['processed']++;
+            
+            try {
+                // Fetch headers
+                $header = imap_fetchheader($conn, $uid, FT_UID);
+                $headerInfo = imap_rfc822_parse_headers($header);
+                
+                // Extract recipient - check multiple headers
+                $recipient = extractRecipientFromHeaders($header, $headerInfo);
+                
+                if (!$recipient) {
+                    $stats['noMatch']++;
+                    continue;
+                }
+                
+                // Check if recipient domain is allowed
+                $recipientParts = explode('@', strtolower($recipient));
+                $recipientDomain = $recipientParts[1] ?? '';
+                
+                if (!in_array($recipientDomain, array_map('strtolower', $allowedDomains))) {
+                    $stats['noMatch']++;
+                    continue;
+                }
+                
+                // Find matching temp email
+                $stmt = $pdo->prepare('
+                    SELECT id FROM temp_emails 
+                    WHERE LOWER(address) = LOWER(?) AND is_active = 1
+                ');
+                $stmt->execute([$recipient]);
+                $tempEmail = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if (!$tempEmail) {
+                    $stats['noMatch']++;
+                    continue;
+                }
+                
+                // Extract email details
+                $from = '';
+                if (isset($headerInfo->from[0])) {
+                    $fromObj = $headerInfo->from[0];
+                    $from = isset($fromObj->mailbox, $fromObj->host) 
+                        ? $fromObj->mailbox . '@' . $fromObj->host 
+                        : ($fromObj->personal ?? '');
+                }
+                
+                $subject = isset($headerInfo->subject) ? decodeImapText($headerInfo->subject) : '(No Subject)';
+                $date = isset($headerInfo->date) ? date('Y-m-d H:i:s', strtotime($headerInfo->date)) : date('Y-m-d H:i:s');
+                
+                // Get message ID for duplicate checking
+                $messageId = '';
+                if (preg_match('/^Message-ID:\s*<([^>]+)>/mi', $header, $matches)) {
+                    $messageId = $matches[1];
+                }
+                
+                // Check for duplicates
+                if ($messageId) {
+                    $stmt = $pdo->prepare('SELECT id FROM received_emails WHERE message_id = ?');
+                    $stmt->execute([$messageId]);
+                    if ($stmt->fetch()) {
+                        $stats['skipped']++;
+                        continue;
+                    }
+                } else {
+                    // Fallback duplicate check
+                    $stmt = $pdo->prepare('
+                        SELECT id FROM received_emails 
+                        WHERE temp_email_id = ? AND from_address = ? AND subject = ? 
+                        AND received_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                    ');
+                    $stmt->execute([$tempEmail['id'], $from, $subject]);
+                    if ($stmt->fetch()) {
+                        $stats['skipped']++;
+                        continue;
+                    }
+                }
+                
+                // Fetch body
+                $body = fetchImapBody($conn, $uid);
+                
+                // Store email
+                $emailId = generateUUID();
+                $stmt = $pdo->prepare('
+                    INSERT INTO received_emails 
+                    (id, temp_email_id, from_address, subject, body, html_body, message_id, received_at, is_read)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                ');
+                $stmt->execute([
+                    $emailId,
+                    $tempEmail['id'],
+                    $from,
+                    $subject,
+                    $body['text'],
+                    $body['html'],
+                    $messageId ?: null,
+                    $date
+                ]);
+                
+                $stats['stored']++;
+                
+            } catch (Exception $e) {
+                $stats['failed']++;
+                error_log("IMAP process error for UID $uid: " . $e->getMessage());
+            }
+        }
+        
+        imap_close($conn);
+        
+        // Update received email stats
+        if ($stats['stored'] > 0) {
+            $stmt = $pdo->prepare("
+                INSERT INTO email_stats (id, stat_key, stat_value, updated_at)
+                VALUES (?, 'total_emails_received', ?, NOW())
+                ON DUPLICATE KEY UPDATE stat_value = stat_value + ?, updated_at = NOW()
+            ");
+            $stmt->execute([generateUUID(), $stats['stored'], $stats['stored']]);
+        }
+        
+        return ['success' => true, 'error' => null, 'stats' => $stats];
+        
+    } catch (Exception $e) {
+        return ['success' => false, 'error' => $e->getMessage(), 'stats' => $stats];
+    }
+}
+
+/**
+ * Extract recipient address from email headers
+ */
+function extractRecipientFromHeaders($rawHeader, $headerInfo) {
+    // Priority order: Delivered-To, X-Original-To, Envelope-To, To
+    
+    // Check Delivered-To header
+    if (preg_match('/^Delivered-To:\s*<?([^>\s]+)>?/mi', $rawHeader, $matches)) {
+        return strtolower(trim($matches[1]));
+    }
+    
+    // Check X-Original-To header
+    if (preg_match('/^X-Original-To:\s*<?([^>\s]+)>?/mi', $rawHeader, $matches)) {
+        return strtolower(trim($matches[1]));
+    }
+    
+    // Check Envelope-To header
+    if (preg_match('/^Envelope-To:\s*<?([^>\s]+)>?/mi', $rawHeader, $matches)) {
+        return strtolower(trim($matches[1]));
+    }
+    
+    // Fall back to To header
+    if (isset($headerInfo->to[0])) {
+        $toObj = $headerInfo->to[0];
+        if (isset($toObj->mailbox, $toObj->host)) {
+            return strtolower($toObj->mailbox . '@' . $toObj->host);
+        }
+    }
+    
+    return null;
+}
+
+/**
+ * Decode IMAP text (handles quoted-printable and base64)
+ */
+function decodeImapText($text) {
+    $decoded = imap_mime_header_decode($text);
+    $result = '';
+    foreach ($decoded as $part) {
+        $result .= $part->text;
+    }
+    return $result ?: $text;
+}
+
+/**
+ * Fetch email body (text and HTML parts)
+ */
+function fetchImapBody($conn, $uid) {
+    $result = ['text' => '', 'html' => ''];
+    
+    $structure = imap_fetchstructure($conn, $uid, FT_UID);
+    
+    if (!$structure) {
+        // Simple message - fetch body directly
+        $result['text'] = imap_fetchbody($conn, $uid, 1, FT_UID);
+        return $result;
+    }
+    
+    // Check if multipart
+    if (isset($structure->parts)) {
+        foreach ($structure->parts as $partNum => $part) {
+            $partNumber = $partNum + 1;
+            $data = imap_fetchbody($conn, $uid, $partNumber, FT_UID);
+            
+            // Decode based on encoding
+            $data = decodeImapPart($data, $part->encoding ?? 0);
+            
+            // Determine content type
+            $type = strtolower($part->subtype ?? 'plain');
+            
+            if ($type === 'plain' && empty($result['text'])) {
+                $result['text'] = $data;
+            } elseif ($type === 'html' && empty($result['html'])) {
+                $result['html'] = $data;
+            }
+            
+            // Handle nested multipart (alternative)
+            if (isset($part->parts)) {
+                foreach ($part->parts as $subPartNum => $subPart) {
+                    $subPartNumber = $partNumber . '.' . ($subPartNum + 1);
+                    $subData = imap_fetchbody($conn, $uid, $subPartNumber, FT_UID);
+                    $subData = decodeImapPart($subData, $subPart->encoding ?? 0);
+                    
+                    $subType = strtolower($subPart->subtype ?? 'plain');
+                    if ($subType === 'plain' && empty($result['text'])) {
+                        $result['text'] = $subData;
+                    } elseif ($subType === 'html' && empty($result['html'])) {
+                        $result['html'] = $subData;
+                    }
+                }
+            }
+        }
+    } else {
+        // Simple message
+        $data = imap_fetchbody($conn, $uid, 1, FT_UID);
+        $data = decodeImapPart($data, $structure->encoding ?? 0);
+        
+        $type = strtolower($structure->subtype ?? 'plain');
+        if ($type === 'html') {
+            $result['html'] = $data;
+        } else {
+            $result['text'] = $data;
+        }
+    }
+    
+    // If no text but have HTML, extract text from HTML
+    if (empty($result['text']) && !empty($result['html'])) {
+        $result['text'] = strip_tags(html_entity_decode($result['html']));
+    }
+    
+    return $result;
+}
+
+/**
+ * Decode IMAP part based on encoding
+ */
+function decodeImapPart($data, $encoding) {
+    switch ($encoding) {
+        case 0: // 7BIT
+        case 1: // 8BIT
+            return $data;
+        case 2: // BINARY
+            return $data;
+        case 3: // BASE64
+            return base64_decode($data);
+        case 4: // QUOTED-PRINTABLE
+            return quoted_printable_decode($data);
+        default:
+            return $data;
+    }
+}
 
     echo json_encode($health);
 }

@@ -770,21 +770,21 @@ const Inbox = () => {
                           exit={{ opacity: 0, x: 20 }}
                           transition={{ delay: index * 0.05 }}
                           onClick={() => handleSelectEmail(email)}
-                          className={`group p-4 cursor-pointer transition-colors hover:bg-secondary/30 ${
+                          className={`group p-3 cursor-pointer transition-colors hover:bg-secondary/30 ${
                             !email.is_read ? 'bg-primary/5' : ''
                           } ${selectedEmail?.id === email.id ? 'bg-secondary/50' : ''}`}
                         >
-                          <div className="flex items-start gap-4">
-                            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center">
-                              <User className="w-5 h-5 text-primary" />
+                          <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center">
+                              <User className="w-4 h-4 text-primary" />
                             </div>
 
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center justify-between mb-0.5">
                                 <span className={`text-sm truncate ${!email.is_read ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
                                   {email.from_address}
                                 </span>
-                                <div className="flex items-center gap-2 text-muted-foreground">
+                                <div className="flex items-center gap-1.5 text-muted-foreground ml-2">
                                   <Clock className="w-3 h-3" />
                                   <span className="text-xs">{formatTime(email.received_at)}</span>
                                 </div>
@@ -792,8 +792,8 @@ const Inbox = () => {
                               <p className={`text-sm truncate ${!email.is_read ? 'font-medium text-foreground' : 'text-foreground/80'}`}>
                                 {email.subject || t('noSubject')}
                               </p>
-                              <p className="text-xs text-muted-foreground truncate mt-1">
-                                {email.body?.slice(0, 100) || t('noContent')}
+                              <p className="text-xs text-muted-foreground truncate mt-0.5">
+                                {email.body?.slice(0, 80) || t('noContent')}
                               </p>
                             </div>
 

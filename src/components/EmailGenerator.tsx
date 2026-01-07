@@ -237,7 +237,7 @@ const EmailGenerator = () => {
     }
   };
 
-  // Load settings on mount and subscribe to real-time changes
+  // Load settings on mount - NO global realtime subscriptions to reduce DB load
   useEffect(() => {
     let cancelled = false;
     
@@ -250,61 +250,25 @@ const EmailGenerator = () => {
     };
     init();
 
-    // Subscribe to real-time changes in settings, tiers, and temp_emails
-    const channel = supabase.channel('email_usage_tracking');
-    
-    channel
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'app_settings',
-          filter: 'key=eq.rate_limit_temp_email_create'
-        },
-        async () => {
-          if (cancelled) return;
-          const limit = await loadRateLimitSettings();
-          if (!cancelled) await updateEmailUsage(limit);
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'subscription_tiers',
-        },
-        async () => {
-          if (cancelled) return;
-          const limit = await loadRateLimitSettings();
-          if (!cancelled) await updateEmailUsage(limit);
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'temp_emails',
-        },
-        async () => {
-          if (cancelled) return;
-          // Immediately update usage when a new temp email is created
-          const limit = user ? rateLimitSettings.max_requests : rateLimitSettings.guest_max_requests;
-          await updateEmailUsage(limit || 5);
-        }
-      )
+    // Only subscribe to user-specific rate_limits changes (not global tables)
+    // This dramatically reduces DB load from public visitors
+    const identifier = user?.id || localStorage.getItem('nullsto_device_id');
+    if (!identifier) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`rate_limits_${identifier}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'rate_limits',
+          filter: `identifier=eq.${identifier}`
         },
         async () => {
           if (cancelled) return;
-          // Update usage when rate_limits changes (including admin reset)
           const limit = user ? rateLimitSettings.max_requests : rateLimitSettings.guest_max_requests;
           const windowMinutes = user ? rateLimitSettings.window_minutes : rateLimitSettings.guest_window_minutes;
           await updateEmailUsage(limit || 5, windowMinutes || 1440);

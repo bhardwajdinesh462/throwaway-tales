@@ -10,6 +10,7 @@ import { SettingsProvider } from "@/contexts/SettingsContext";
 import { NotificationProvider } from "@/components/NotificationSystem";
 import { initializeDefaultData } from "@/lib/storage";
 import { EmailServiceProvider } from "@/contexts/EmailServiceContext";
+import { BackendStatusProvider } from "@/contexts/BackendStatusContext";
 import { createQueryClient } from "@/lib/queryClient";
 
 import ErrorBoundary, { PageErrorBoundary } from "@/components/ErrorBoundary";
@@ -150,17 +151,18 @@ const App = () => (
       <LanguageProvider>
         <AuthProvider>
           <SettingsProvider>
-            <UpdatePrompt />
+            <BackendStatusProvider>
+              <UpdatePrompt />
 
-            {/* Provide email service to ALL routes (Index, History, Profile, Admin, etc.) */}
-            <EmailServiceProvider>
-              <NotificationProvider>
-                <TooltipProvider>
-                  <ErrorBoundary level="page" name="App">
-                    <Toaster />
-                    <Sonner />
-                    <BrowserRouter>
-                      <Suspense fallback={<PageLoader />}>
+              {/* Provide email service to ALL routes (Index, History, Profile, Admin, etc.) */}
+              <EmailServiceProvider>
+                <NotificationProvider>
+                  <TooltipProvider>
+                    <ErrorBoundary level="page" name="App">
+                      <Toaster />
+                      <Sonner />
+                      <BrowserRouter>
+                        <Suspense fallback={<PageLoader />}>
                         <Routes>
                           {/* Public Routes */}
                           <Route path="/" element={
@@ -359,10 +361,11 @@ const App = () => (
                 </TooltipProvider>
               </NotificationProvider>
             </EmailServiceProvider>
-          </SettingsProvider>
-        </AuthProvider>
-      </LanguageProvider>
-    </ThemeProvider>
+          </BackendStatusProvider>
+        </SettingsProvider>
+      </AuthProvider>
+    </LanguageProvider>
+  </ThemeProvider>
   </QueryClientProvider>
 );
 

@@ -110,6 +110,7 @@ const AdminSidebar = () => {
     { title: t('themes'), url: "/admin/themes", icon: Palette },
     { title: "User & Guest", url: "/admin/user-settings", icon: UserCog },
     { title: "Registration", url: "/admin/registration", icon: Shield },
+    { title: "Email Whitelist", url: "/admin/email-whitelist", icon: ShieldCheck },
     { title: "Payments", url: "/admin/payments", icon: CreditCard },
     { title: "Subscriptions", url: "/admin/subscriptions", icon: Crown },
     { title: "Pricing", url: "/admin/pricing", icon: DollarSign },

@@ -164,15 +164,25 @@ export function useHomepageContent() {
   const { data: sections, isLoading } = useQuery({
     queryKey: ["homepage-sections"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("homepage_sections")
-        .select("*")
-        .order("display_order", { ascending: true });
+      try {
+        const { data, error } = await supabase
+          .from("homepage_sections")
+          .select("*")
+          .order("display_order", { ascending: true });
 
-      if (error) throw error;
-      return data as HomepageSection[];
+        if (error) {
+          console.warn("[useHomepageContent] Failed to fetch sections, using defaults:", error.message);
+          return [] as HomepageSection[];
+        }
+        return data as HomepageSection[];
+      } catch (err) {
+        console.warn("[useHomepageContent] Network error, using defaults:", err);
+        return [] as HomepageSection[];
+      }
     },
     staleTime: 1000 * 60 * 5, // 5 minutes
+    retry: 1, // Only retry once on failure
+    retryDelay: 1000,
   });
 
   // Subscribe to real-time updates

@@ -9,47 +9,46 @@ const corsHeaders = {
 // Simple encryption/decryption using Web Crypto API
 const ENCRYPTION_KEY = Deno.env.get('EMAIL_ENCRYPTION_KEY') || 'default-key-change-in-production';
 
-async function getEncryptionKey(): Promise<CryptoKey> {
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32)),
-    { name: 'PBKDF2' },
-    false,
-    ['deriveBits', 'deriveKey']
-  );
-  
-  return await crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: encoder.encode('temp-email-salt'),
-      iterations: 100000,
-      hash: 'SHA-256'
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  );
-}
+// Cache the derived key to avoid repeated PBKDF2 calls (expensive)
+let cachedKey: CryptoKey | null = null;
+let keyPromise: Promise<CryptoKey> | null = null;
 
-async function encryptText(text: string): Promise<{ encrypted: string; iv: string }> {
-  if (!text) return { encrypted: '', iv: '' };
+async function getEncryptionKey(): Promise<CryptoKey> {
+  // Return cached key if available
+  if (cachedKey) return cachedKey;
   
-  const key = await getEncryptionKey();
-  const encoder = new TextEncoder();
-  const iv = crypto.getRandomValues(new Uint8Array(12));
+  // If key derivation is in progress, wait for it
+  if (keyPromise) return keyPromise;
   
-  const encrypted = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    encoder.encode(text)
-  );
+  // Start key derivation
+  keyPromise = (async () => {
+    const encoder = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32)),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits', 'deriveKey']
+    );
+    
+    const key = await crypto.subtle.deriveKey(
+      {
+        name: 'PBKDF2',
+        salt: encoder.encode('temp-email-salt'),
+        iterations: 100000,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+    
+    cachedKey = key;
+    return key;
+  })();
   
-  return {
-    encrypted: btoa(String.fromCharCode(...new Uint8Array(encrypted))),
-    iv: btoa(String.fromCharCode(...iv))
-  };
+  return keyPromise;
 }
 
 async function decryptText(encrypted: string, ivBase64: string): Promise<string> {
@@ -241,8 +240,8 @@ serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { action, tempEmailId, token, emailId } = await req.json();
-    console.log(`[secure-email-access] Action: ${action}, TempEmailId: ${tempEmailId}`);
+    const { action, tempEmailId, token, emailId, limit = 50, offset = 0 } = await req.json();
+    console.log(`[secure-email-access] Action: ${action}, TempEmailId: ${tempEmailId}, limit: ${limit}, offset: ${offset}`);
 
     // Verify token for all actions
     if (!tempEmailId || !token) {
@@ -313,50 +312,61 @@ serve(async (req: Request) => {
       );
     }
 
+    // Pre-warm encryption key for decrypt operations (runs once per cold start)
+    if (action === 'get_emails' || action === 'get_email') {
+      getEncryptionKey().catch(() => {}); // Fire and forget, will be ready when needed
+    }
+
     // Handle different actions
     switch (action) {
       case 'get_emails': {
         console.log('[secure-email-access] Fetching emails for temp email:', tempEmailId);
         
+        // Fetch only metadata for list view (no body/html_body) with pagination
+        const effectiveLimit = Math.min(Math.max(1, limit), 100); // Clamp 1-100
+        
         const emails = await withRetry(async () => {
-          const { data, error } = await supabase
+          const { data, error, count } = await supabase
             .from('received_emails')
-            .select('*')
+            .select('id, temp_email_id, from_address, subject, received_at, is_read, is_encrypted, encryption_key_id, message_id', { count: 'exact' })
             .eq('temp_email_id', tempEmailId)
-            .order('received_at', { ascending: false });
+            .order('received_at', { ascending: false })
+            .range(offset, offset + effectiveLimit - 1);
 
           if (error) {
             console.error('[secure-email-access] Error fetching emails:', error);
             throw error;
           }
           
-          return data;
+          return { data, count };
         });
 
-        // Decrypt emails if encrypted
+        // Decrypt only subjects for list view (much faster than full decryption)
         const decryptedEmails = await Promise.all(
-          (emails || []).map(async (email) => {
+          (emails.data || []).map(async (email) => {
             if (email.is_encrypted && email.encryption_key_id) {
-              const [subjectIv, bodyIv, htmlIv] = email.encryption_key_id.split('|');
+              const [subjectIv] = email.encryption_key_id.split('|');
               return {
                 ...email,
                 subject: await decryptText(email.subject || '', subjectIv),
-                body: await decryptText(email.body || '', bodyIv),
-                html_body: await decryptText(email.html_body || '', htmlIv)
               };
             }
             return email;
           })
         );
 
-        const normalizedEmails = decryptedEmails.map((email) => {
-          const normalized = normalizeEmailBodies(email.body || null, email.html_body || null);
-          return normalized ? { ...email, ...normalized } : email;
-        });
-
-        console.log(`[secure-email-access] Returning ${normalizedEmails.length} emails`);
+        console.log(`[secure-email-access] Returning ${decryptedEmails.length} emails (total: ${emails.count})`);
         return new Response(
-          JSON.stringify({ emails: normalizedEmails, tempEmail }),
+          JSON.stringify({ 
+            emails: decryptedEmails, 
+            tempEmail,
+            pagination: {
+              total: emails.count || 0,
+              limit: effectiveLimit,
+              offset,
+              hasMore: (emails.count || 0) > offset + effectiveLimit
+            }
+          }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -384,7 +394,7 @@ serve(async (req: Request) => {
           return data;
         });
 
-        // Decrypt if encrypted
+        // Decrypt full email (subject, body, html_body)
         let decryptedEmail = email;
         if (email.is_encrypted && email.encryption_key_id) {
           const [subjectIv, bodyIv, htmlIv] = email.encryption_key_id.split('|');
@@ -394,6 +404,12 @@ serve(async (req: Request) => {
             body: await decryptText(email.body || '', bodyIv),
             html_body: await decryptText(email.html_body || '', htmlIv)
           };
+        }
+
+        // Normalize bodies if needed
+        const normalized = normalizeEmailBodies(decryptedEmail.body || null, decryptedEmail.html_body || null);
+        if (normalized) {
+          decryptedEmail = { ...decryptedEmail, ...normalized };
         }
 
         return new Response(

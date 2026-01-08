@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.notify-blog-subscribers]
 verify_jwt = false
+
+[functions.reset-daily-stats]
+verify_jwt = false

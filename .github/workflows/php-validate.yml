@@ -24,24 +24,26 @@ jobs:
         run: |
           echo "Validating PHP syntax..."
           errors=0
-          while IFS= read -r -d '' file; do
-            output=$(php -l "$file" 2>&1)
-            if echo "$output" | grep -q "Parse error\|syntax error"; then
-              echo "❌ $file"
-              echo "$output"
-              errors=$((errors + 1))
+          success=0
+          for file in $(find php-backend -name "*.php" -type f); do
+            if php -l "$file" 2>&1 | grep -q "No syntax errors"; then
+              echo "[OK] $file"
+              success=$((success + 1))
             else
-              echo "✓ $file"
+              echo "[ERROR] $file"
+              php -l "$file" 2>&1
+              errors=$((errors + 1))
             fi
-          done < <(find php-backend -name "*.php" -print0)
+          done
+          
+          echo ""
+          echo "Checked $((success + errors)) PHP files"
           
           if [ $errors -gt 0 ]; then
-            echo ""
-            echo "❌ Found $errors PHP syntax error(s)"
+            echo "[FAILED] Found $errors PHP syntax error(s)"
             exit 1
           fi
-          echo ""
-          echo "✅ All PHP files are syntactically correct"
+          echo "[PASSED] All $success PHP files are syntactically correct"
           
       - name: Check required files
         run: |

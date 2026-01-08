@@ -190,6 +190,20 @@ function handleAdminRoute($action, $body, $pdo, $config) {
             deleteMaintenance($body, $pdo, $userId);
             break;
 
+        // Alert Settings Management
+        case 'alert-settings':
+            handleAlertSettings($body, $pdo, $userId);
+            break;
+        case 'alert-settings-save':
+            saveAlertSettings($body, $pdo, $userId);
+            break;
+        case 'alert-test':
+            sendTestAlert($body, $pdo, $config, $userId);
+            break;
+        case 'alert-logs':
+            getAlertLogs($body, $pdo);
+            break;
+
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Unknown admin action: ' . $action]);
@@ -2384,7 +2398,195 @@ function deleteMaintenance($body, $pdo, $adminId) {
         http_response_code(400);
         echo json_encode(['error' => 'Maintenance ID required']);
         return;
+}
+
+// =========== ALERT SETTINGS MANAGEMENT ===========
+
+function handleAlertSettings($body, $pdo, $adminId) {
+    try {
+        $stmt = $pdo->prepare("SELECT value FROM app_settings WHERE `key` = 'alert_settings' LIMIT 1");
+        $stmt->execute();
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        $defaultSettings = [
+            'enabled' => false,
+            'admin_emails' => [],
+            'cooldown_minutes' => 60,
+            'alerts' => [
+                'smtp_connection_failure' => ['enabled' => true, 'name' => 'SMTP Connection Failure'],
+                'imap_connection_failure' => ['enabled' => true, 'name' => 'IMAP Connection Failure'],
+                'database_issues' => ['enabled' => true, 'name' => 'Database Issues'],
+                'dns_verification_failure' => ['enabled' => true, 'name' => 'DNS Verification Failure'],
+                'cron_job_failure' => ['enabled' => true, 'name' => 'Cron Job Failure'],
+                'disk_space_low' => ['enabled' => true, 'name' => 'Low Disk Space'],
+                'high_error_rate' => ['enabled' => false, 'name' => 'High Error Rate'],
+            ]
+        ];
+        
+        $settings = $result ? json_decode($result['value'], true) : $defaultSettings;
+        
+        // Merge with defaults to ensure all keys exist
+        $settings = array_merge($defaultSettings, $settings);
+        $settings['alerts'] = array_merge($defaultSettings['alerts'], $settings['alerts'] ?? []);
+        
+        logAdminAction($pdo, $adminId, 'VIEW_ALERT_SETTINGS', 'app_settings', null, []);
+        
+        echo json_encode(['settings' => $settings]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to get alert settings: ' . $e->getMessage()]);
     }
+}
+
+function saveAlertSettings($body, $pdo, $adminId) {
+    try {
+        $settings = $body['settings'] ?? [];
+        
+        if (empty($settings)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Settings data required']);
+            return;
+        }
+        
+        $settingsJson = json_encode($settings);
+        
+        $stmt = $pdo->prepare("
+            INSERT INTO app_settings (id, `key`, value, updated_at)
+            VALUES (UUID(), 'alert_settings', ?, NOW())
+            ON DUPLICATE KEY UPDATE value = ?, updated_at = NOW()
+        ");
+        $stmt->execute([$settingsJson, $settingsJson]);
+        
+        logAdminAction($pdo, $adminId, 'UPDATE_ALERT_SETTINGS', 'app_settings', null, ['enabled' => $settings['enabled'] ?? false]);
+        
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to save alert settings: ' . $e->getMessage()]);
+    }
+}
+
+function sendTestAlert($body, $pdo, $config, $adminId) {
+    $email = $body['email'] ?? '';
+    
+    if (empty($email)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Email address required']);
+        return;
+    }
+    
+    try {
+        // Get SMTP config from mailboxes
+        $stmt = $pdo->query("
+            SELECT * FROM mailboxes 
+            WHERE is_active = 1 AND smtp_host IS NOT NULL 
+            ORDER BY priority ASC 
+            LIMIT 1
+        ");
+        $mailbox = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$mailbox) {
+            http_response_code(400);
+            echo json_encode(['error' => 'No active mailbox with SMTP configured. Please configure a mailbox first.']);
+            return;
+        }
+        
+        $host = $mailbox['smtp_host'];
+        $port = $mailbox['smtp_port'] ?? 587;
+        $user = $mailbox['smtp_user'];
+        $pass = $mailbox['smtp_password'];
+        $from = $mailbox['smtp_from'] ?? $user;
+        
+        $subject = 'TempMail Test Alert';
+        $body = "This is a test alert from your TempMail installation.\n\nIf you receive this email, your alert system is configured correctly.\n\nTimestamp: " . date('Y-m-d H:i:s');
+        
+        $htmlBody = "
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .alert-box { padding: 20px; background: #d4edda; border-left: 4px solid #28a745; margin: 20px 0; }
+                .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; }
+            </style>
+        </head>
+        <body>
+            <h2>✅ TempMail Test Alert</h2>
+            <div class='alert-box'>
+                <p>This is a test alert from your TempMail installation.</p>
+                <p>If you receive this email, your alert system is configured correctly!</p>
+                <p><strong>Timestamp:</strong> " . date('Y-m-d H:i:s') . "</p>
+            </div>
+            <div class='footer'>
+                <p>This is an automated test alert from your TempMail installation.</p>
+            </div>
+        </body>
+        </html>
+        ";
+        
+        $result = sendSmtpEmail($host, $port, $user, $pass, $from, $email, "[TempMail] " . $subject, $body, $htmlBody);
+        
+        if ($result['success'] ?? false) {
+            logAdminAction($pdo, $adminId, 'SEND_TEST_ALERT', 'alert_logs', null, ['email' => $email]);
+            echo json_encode(['success' => true, 'message' => 'Test alert sent successfully']);
+        } else {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to send test alert: ' . ($result['error'] ?? 'Unknown error')]);
+        }
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to send test alert: ' . $e->getMessage()]);
+    }
+}
+
+function getAlertLogs($body, $pdo) {
+    $page = intval($body['page'] ?? 1);
+    $pageSize = intval($body['page_size'] ?? 20);
+    $offset = ($page - 1) * $pageSize;
+    $alertType = $body['alert_type'] ?? '';
+    
+    try {
+        $whereClause = '';
+        $params = [];
+        
+        if (!empty($alertType)) {
+            $whereClause = 'WHERE alert_type = ?';
+            $params = [$alertType];
+        }
+        
+        // Get total count
+        $countSql = "SELECT COUNT(*) FROM alert_logs $whereClause";
+        $stmt = $pdo->prepare($countSql);
+        $stmt->execute($params);
+        $totalCount = $stmt->fetchColumn();
+        
+        // Get logs
+        $sql = "
+            SELECT * FROM alert_logs 
+            $whereClause
+            ORDER BY sent_at DESC
+            LIMIT $pageSize OFFSET $offset
+        ";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Decode JSON fields
+        foreach ($logs as &$log) {
+            $log['details'] = json_decode($log['details'] ?? '{}', true);
+            $log['sent_to'] = json_decode($log['sent_to'] ?? '[]', true);
+        }
+        
+        echo json_encode([
+            'logs' => $logs,
+            'total_count' => intval($totalCount),
+            'page' => $page,
+            'page_size' => $pageSize,
+        ]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to get alert logs: ' . $e->getMessage()]);
+    }
+}
     
     try {
         $stmt = $pdo->prepare("DELETE FROM scheduled_maintenance WHERE id = ?");

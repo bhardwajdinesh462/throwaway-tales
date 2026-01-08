@@ -25,6 +25,61 @@ try {
 
 // Include functions for sending emails
 require_once __DIR__ . '/../routes/functions.php';
+require_once __DIR__ . '/../includes/helpers.php';
+
+// Ensure sendSmtpEmail is available (inline fallback if needed)
+if (!function_exists('sendSmtpEmail')) {
+    function sendSmtpEmail($host, $port, $user, $pass, $from, $to, $subject, $textBody, $htmlBody = null) {
+        // Basic fallback using socket - prefer the version in functions.php
+        $socket = @fsockopen($host, $port, $errno, $errstr, 10);
+        if (!$socket) {
+            return ['success' => false, 'error' => "Connection failed: $errstr ($errno)"];
+        }
+        
+        // Basic SMTP conversation
+        $response = fgets($socket, 515);
+        
+        fputs($socket, "EHLO " . gethostname() . "\r\n");
+        do { $response = fgets($socket, 515); } while (strpos($response, '250-') === 0);
+        
+        fputs($socket, "STARTTLS\r\n");
+        $response = fgets($socket, 515);
+        stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+        
+        fputs($socket, "EHLO " . gethostname() . "\r\n");
+        do { $response = fgets($socket, 515); } while (strpos($response, '250-') === 0);
+        
+        fputs($socket, "AUTH LOGIN\r\n");
+        $response = fgets($socket, 515);
+        fputs($socket, base64_encode($user) . "\r\n");
+        $response = fgets($socket, 515);
+        fputs($socket, base64_encode($pass) . "\r\n");
+        $response = fgets($socket, 515);
+        
+        if (strpos($response, '235') === false) {
+            fclose($socket);
+            return ['success' => false, 'error' => 'Authentication failed'];
+        }
+        
+        fputs($socket, "MAIL FROM:<$from>\r\n");
+        $response = fgets($socket, 515);
+        fputs($socket, "RCPT TO:<$to>\r\n");
+        $response = fgets($socket, 515);
+        fputs($socket, "DATA\r\n");
+        $response = fgets($socket, 515);
+        
+        $headers = "From: $from\r\nTo: $to\r\nSubject: $subject\r\n";
+        $headers .= "MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n";
+        
+        fputs($socket, $headers . ($htmlBody ?? $textBody) . "\r\n.\r\n");
+        $response = fgets($socket, 515);
+        
+        fputs($socket, "QUIT\r\n");
+        fclose($socket);
+        
+        return ['success' => strpos($response, '250') !== false];
+    }
+}
 
 /**
  * Get alert settings from database
@@ -204,7 +259,7 @@ function runHealthChecks($pdo, $config) {
     $requiredTables = [
         'users', 'profiles', 'domains', 'temp_emails', 'received_emails',
         'mailboxes', 'app_settings', 'subscription_tiers', 'user_subscriptions',
-        'email_logs', 'admin_audit_logs'
+        'email_logs', 'admin_audit_logs', 'alert_logs', 'cron_logs'
     ];
     
     $stmt = $pdo->query("SHOW TABLES");
@@ -219,29 +274,33 @@ function runHealthChecks($pdo, $config) {
         ];
     }
     
-    // Check mailbox connectivity
-    $stmt = $pdo->query("
-        SELECT id, name, smtp_host, imap_host, last_error, last_error_at 
-        FROM mailboxes 
-        WHERE is_active = 1 AND last_error IS NOT NULL AND last_error_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)
-    ");
-    $failedMailboxes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    foreach ($failedMailboxes as $mailbox) {
-        if (!empty($mailbox['smtp_host'])) {
-            $issues[] = [
-                'type' => 'smtp_connection_failure',
-                'message' => "SMTP connection failed for mailbox '{$mailbox['name']}': {$mailbox['last_error']}",
-                'details' => ['mailbox_id' => $mailbox['id'], 'mailbox_name' => $mailbox['name']]
-            ];
+    // Check mailbox SMTP/IMAP connectivity issues
+    try {
+        $stmt = $pdo->query("
+            SELECT id, name, smtp_host, imap_host, last_error, last_error_at 
+            FROM mailboxes 
+            WHERE is_active = 1 AND last_error IS NOT NULL AND last_error_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)
+        ");
+        $failedMailboxes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        foreach ($failedMailboxes as $mailbox) {
+            if (!empty($mailbox['smtp_host'])) {
+                $issues[] = [
+                    'type' => 'smtp_connection_failure',
+                    'message' => "SMTP connection failed for mailbox '{$mailbox['name']}': {$mailbox['last_error']}",
+                    'details' => ['mailbox_id' => $mailbox['id'], 'mailbox_name' => $mailbox['name']]
+                ];
+            }
+            if (!empty($mailbox['imap_host'])) {
+                $issues[] = [
+                    'type' => 'imap_connection_failure',
+                    'message' => "IMAP connection failed for mailbox '{$mailbox['name']}': {$mailbox['last_error']}",
+                    'details' => ['mailbox_id' => $mailbox['id'], 'mailbox_name' => $mailbox['name']]
+                ];
+            }
         }
-        if (!empty($mailbox['imap_host'])) {
-            $issues[] = [
-                'type' => 'imap_connection_failure',
-                'message' => "IMAP connection failed for mailbox '{$mailbox['name']}': {$mailbox['last_error']}",
-                'details' => ['mailbox_id' => $mailbox['id'], 'mailbox_name' => $mailbox['name']]
-            ];
-        }
+    } catch (PDOException $e) {
+        // mailboxes table might not exist yet
     }
     
     // Check domains with DNS issues
@@ -264,6 +323,41 @@ function runHealthChecks($pdo, $config) {
         }
     } catch (PDOException $e) {
         // dns_verified column might not exist yet
+    }
+    
+    // Check for stale cron jobs (no log entries in 30+ minutes)
+    try {
+        $stmt = $pdo->query("
+            SELECT job_id, MAX(created_at) as last_run
+            FROM cron_logs
+            GROUP BY job_id
+            HAVING last_run < DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+        ");
+        $staleCrons = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        foreach ($staleCrons as $cron) {
+            $issues[] = [
+                'type' => 'cron_job_failure',
+                'message' => "Cron job '{$cron['job_id']}' hasn't run since {$cron['last_run']}",
+                'details' => ['job_id' => $cron['job_id'], 'last_run' => $cron['last_run']]
+            ];
+        }
+    } catch (PDOException $e) {
+        // cron_logs table might not exist yet
+    }
+    
+    // Check disk space (if possible)
+    $diskFree = @disk_free_space(__DIR__);
+    $diskTotal = @disk_total_space(__DIR__);
+    if ($diskFree !== false && $diskTotal !== false) {
+        $diskPercentFree = ($diskFree / $diskTotal) * 100;
+        if ($diskPercentFree < 10) {
+            $issues[] = [
+                'type' => 'disk_space_low',
+                'message' => sprintf('Low disk space: %.1f%% free (%.2f GB remaining)', $diskPercentFree, $diskFree / 1024 / 1024 / 1024),
+                'details' => ['percent_free' => round($diskPercentFree, 2), 'bytes_free' => $diskFree]
+            ];
+        }
     }
     
     return $issues;

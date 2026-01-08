@@ -6,81 +6,67 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// HARD TIMEOUT - fail fast, don't wait forever
-const REQUEST_TIMEOUT_MS = 6000; // 6 seconds max
-
-// Timeout wrapper for fail-fast behavior
-async function withTimeout<T>(promiseFn: () => Promise<T>, ms: number): Promise<T> {
-  const timeout = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error('Request timeout')), ms);
-  });
-  return Promise.race([promiseFn(), timeout]);
-}
+// Shorter timeout - fail fast for better UX
+const REQUEST_TIMEOUT_MS = 4000;
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
     const { tempEmailId, token, emailIds } = await req.json();
 
     if (!tempEmailId && !emailIds) {
-      console.error('[validate-temp-email] Missing tempEmailId or emailIds');
+      clearTimeout(timeoutId);
       return new Response(
         JSON.stringify({ valid: false, error: 'Missing tempEmailId or emailIds', code: 'MISSING_PARAMS' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
 
-    // Create service role client to bypass RLS
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false },
+      db: { schema: 'public' }
+    });
 
     const now = new Date().toISOString();
 
-    // If emailIds array provided, validate multiple emails at once
+    // Batch validation - validate multiple emails at once
     if (emailIds && Array.isArray(emailIds) && emailIds.length > 0) {
-      const limitedIds = emailIds.slice(0, 20);
-      console.log(`[validate-temp-email] Validating ${limitedIds.length} emails`);
+      const limitedIds = emailIds.slice(0, 10); // Reduce limit for faster queries
       
-      const result = await withTimeout(
-        async () => supabase
-          .from('temp_emails')
-          .select('id, address, domain_id, user_id, expires_at, is_active, created_at')
-          .in('id', limitedIds)
-          .eq('is_active', true)
-          .gt('expires_at', now)
-          .order('created_at', { ascending: false }),
-        REQUEST_TIMEOUT_MS
-      );
+      const { data: emails, error } = await supabase
+        .from('temp_emails')
+        .select('id, address, domain_id, user_id, expires_at, is_active, created_at')
+        .in('id', limitedIds)
+        .eq('is_active', true)
+        .gt('expires_at', now)
+        .order('created_at', { ascending: false })
+        .limit(10);
 
-      if (result.error) {
-        console.error('[validate-temp-email] Database error:', result.error);
+      clearTimeout(timeoutId);
+
+      if (error) {
+        console.error('[validate-temp-email] DB error:', error.message);
         return new Response(
-          JSON.stringify({ 
-            valid: false, 
-            error: 'Database error', 
-            code: 'DB_ERROR',
-            retryable: true
-          }),
+          JSON.stringify({ valid: false, error: 'Database error', code: 'DB_ERROR', retryable: true }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 503 }
         );
       }
 
-      const emails = result.data;
       if (!emails || emails.length === 0) {
-        console.log('[validate-temp-email] No valid emails found from provided IDs');
         return new Response(
           JSON.stringify({ valid: false, error: 'No valid emails found', code: 'NO_VALID_EMAILS' }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
         );
       }
 
-      console.log(`[validate-temp-email] Found ${emails.length} valid emails`);
-      
       const mostRecent = emails[0];
       return new Response(
         JSON.stringify({
@@ -102,62 +88,59 @@ serve(async (req) => {
 
     // Single email validation with token
     if (!token) {
-      console.error('[validate-temp-email] Missing token for single email validation');
+      clearTimeout(timeoutId);
       return new Response(
         JSON.stringify({ valid: false, error: 'Missing token', code: 'MISSING_TOKEN' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
 
-    console.log(`[validate-temp-email] Validating single email: ${tempEmailId}`);
+    const { data: tempEmail, error } = await supabase
+      .from('temp_emails')
+      .select('id, address, domain_id, user_id, expires_at, is_active, created_at, secret_token')
+      .eq('id', tempEmailId)
+      .maybeSingle();
 
-    const result = await withTimeout(
-      async () => supabase
-        .from('temp_emails')
-        .select('id, address, domain_id, user_id, expires_at, is_active, created_at, secret_token')
-        .eq('id', tempEmailId)
-        .single(),
-      REQUEST_TIMEOUT_MS
-    );
+    clearTimeout(timeoutId);
 
-    if (result.error || !result.data) {
-      console.log('[validate-temp-email] Email not found:', result.error?.message);
+    if (error) {
+      console.error('[validate-temp-email] DB error:', error.message);
+      return new Response(
+        JSON.stringify({ valid: false, error: 'Database error', code: 'DB_ERROR', retryable: true }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 503 }
+      );
+    }
+
+    if (!tempEmail) {
       return new Response(
         JSON.stringify({ valid: false, error: 'Email not found', code: 'EMAIL_NOT_FOUND' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
       );
     }
 
-    const tempEmail = result.data;
-
     // Validate token
     if (tempEmail.secret_token !== token) {
-      console.log('[validate-temp-email] Invalid token');
       return new Response(
         JSON.stringify({ valid: false, error: 'Invalid token', code: 'INVALID_TOKEN' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
       );
     }
 
-    // Check if expired
+    // Check expiry
     if (new Date(tempEmail.expires_at) < new Date(now)) {
-      console.log('[validate-temp-email] Email expired');
       return new Response(
         JSON.stringify({ valid: false, error: 'Email expired', code: 'EMAIL_EXPIRED' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
       );
     }
 
-    // Check if active
+    // Check active
     if (!tempEmail.is_active) {
-      console.log('[validate-temp-email] Email inactive');
       return new Response(
         JSON.stringify({ valid: false, error: 'Email inactive', code: 'EMAIL_INACTIVE' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
       );
     }
-
-    console.log('[validate-temp-email] Email validated successfully:', tempEmail.address);
 
     return new Response(
       JSON.stringify({
@@ -176,15 +159,20 @@ serve(async (req) => {
     );
 
   } catch (err) {
+    clearTimeout(timeoutId);
     const error = err as Error;
-    console.error('[validate-temp-email] Error:', error);
+    
+    // Handle abort specifically
+    if (error.name === 'AbortError' || error.message?.includes('abort')) {
+      return new Response(
+        JSON.stringify({ valid: false, error: 'Request timeout', code: 'TIMEOUT', retryable: true }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 503 }
+      );
+    }
+    
+    console.error('[validate-temp-email] Error:', error.message);
     return new Response(
-      JSON.stringify({ 
-        valid: false, 
-        error: 'Request timeout or connection error',
-        code: 'TIMEOUT',
-        retryable: true
-      }),
+      JSON.stringify({ valid: false, error: 'Server error', code: 'SERVER_ERROR', retryable: true }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 503 }
     );
   }

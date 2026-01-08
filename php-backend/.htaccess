@@ -12,8 +12,8 @@ RewriteCond %{QUERY_STRING} (<|>|'|%0A|%0D|%27|%3C|%3E|%00) [NC,OR]
 RewriteCond %{REQUEST_URI} (\.php\.|\.asp|\.aspx|\.jsp|\.cgi|\.exe|\.dll|\.bak|\.old|\.orig|\.sql|\.tar|\.zip|\.gz|\.rar|\.7z) [NC]
 RewriteRule .* - [F,L]
 
-# Block access to sensitive files
-<FilesMatch "^(config\.php|config\.example\.php|\.env|composer\.json|composer\.lock|schema\.sql|\.htpasswd|\.htaccess|\.git|install\.php\.bak|README\.md)$">
+# Block access to sensitive files (NOT install.php or debug.php - they need web access)
+<FilesMatch "^(config\.php|config\.example\.php|\.env|composer\.json|composer\.lock|schema\.sql|\.htpasswd|\.git|install\.php\.bak|README\.md)$">
     Order allow,deny
     Deny from all
 </FilesMatch>

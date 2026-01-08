@@ -2398,6 +2398,19 @@ function deleteMaintenance($body, $pdo, $adminId) {
         http_response_code(400);
         echo json_encode(['error' => 'Maintenance ID required']);
         return;
+    }
+    
+    try {
+        $stmt = $pdo->prepare("DELETE FROM scheduled_maintenance WHERE id = ?");
+        $stmt->execute([$id]);
+        
+        logAdminAction($pdo, $adminId, 'DELETE_MAINTENANCE', 'scheduled_maintenance', $id, []);
+        
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to delete maintenance: ' . $e->getMessage()]);
+    }
 }
 
 // =========== ALERT SETTINGS MANAGEMENT ===========
@@ -2585,18 +2598,5 @@ function getAlertLogs($body, $pdo) {
     } catch (Exception $e) {
         http_response_code(500);
         echo json_encode(['error' => 'Failed to get alert logs: ' . $e->getMessage()]);
-    }
-}
-    
-    try {
-        $stmt = $pdo->prepare("DELETE FROM scheduled_maintenance WHERE id = ?");
-        $stmt->execute([$id]);
-        
-        logAdminAction($pdo, $adminId, 'DELETE_MAINTENANCE', 'scheduled_maintenance', $id, []);
-        
-        echo json_encode(['success' => true]);
-    } catch (Exception $e) {
-        http_response_code(500);
-        echo json_encode(['error' => 'Failed to delete maintenance: ' . $e->getMessage()]);
     }
 }

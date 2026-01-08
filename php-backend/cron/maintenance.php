@@ -304,8 +304,8 @@ try {
     
     // Update stats
     $stmt = $pdo->prepare("
-        INSERT INTO email_stats (stat_key, stat_value, updated_at) 
-        VALUES (?, ?, NOW())
+        INSERT INTO email_stats (id, stat_key, stat_value, updated_at) 
+        VALUES (UUID(), ?, ?, NOW())
         ON DUPLICATE KEY UPDATE stat_value = VALUES(stat_value), updated_at = NOW()
     ");
     

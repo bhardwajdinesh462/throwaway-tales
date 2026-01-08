@@ -13,14 +13,13 @@ const ENCRYPTION_KEY = Deno.env.get('EMAIL_ENCRYPTION_KEY') || 'default-key-chan
 let cachedKey: CryptoKey | null = null;
 let keyPromise: Promise<CryptoKey> | null = null;
 
+// HARD TIMEOUT - fail fast, don't wait 80+ seconds
+const REQUEST_TIMEOUT_MS = 8000; // 8 seconds max per DB call
+
 async function getEncryptionKey(): Promise<CryptoKey> {
-  // Return cached key if available
   if (cachedKey) return cachedKey;
-  
-  // If key derivation is in progress, wait for it
   if (keyPromise) return keyPromise;
   
-  // Start key derivation
   keyPromise = (async () => {
     const encoder = new TextEncoder();
     const keyMaterial = await crypto.subtle.importKey(
@@ -112,7 +111,6 @@ function extractTextFromHtmlInline(html: string): string {
 
 function tryParseMultipartFromBody(rawBody: string): { text: string; html: string } {
   const cleaned = stripImapArtifacts(rawBody);
-
   const boundaryFromBody = cleaned.match(/^\s*--([^\r\n]+)\r?\n/)?.[1]?.trim();
   const boundary = boundaryFromBody;
 
@@ -167,7 +165,6 @@ function normalizeEmailBodies(body: string | null, htmlBody: string | null): { b
   if (!body) return null;
   if (htmlBody) return null;
 
-  // Only attempt normalization for obvious raw IMAP/MIME payloads
   const looksRaw = /BODY\[TEXT\]|\r?\nA\d{4}\s+(OK|NO|BAD)\b|\r?\n--[\w-]{8,}/i.test(body) || /Content-Type:\s*text\/(plain|html)/i.test(body);
   if (!looksRaw) return null;
 
@@ -179,54 +176,12 @@ function normalizeEmailBodies(body: string | null, htmlBody: string | null): { b
   };
 }
 
-// Check if error looks like a retryable gateway/network error
-function isRetryableError(error: unknown): boolean {
-  const errorMessage = error instanceof Error ? error.message : String(error);
-  const errorStr = errorMessage.toLowerCase();
-  
-  return (
-    errorStr.includes('connection reset') || 
-    errorStr.includes('connection error') ||
-    errorStr.includes('sendrequest') ||
-    errorStr.includes('502') ||
-    errorStr.includes('503') ||
-    errorStr.includes('504') ||
-    errorStr.includes('bad gateway') ||
-    errorStr.includes('service unavailable') ||
-    errorStr.includes('gateway timeout') ||
-    errorStr.includes('timeout') ||
-    errorStr.includes('econnreset') ||
-    errorStr.includes('network') ||
-    errorStr.includes('pgrst') ||
-    // Check for HTML error responses (Cloudflare etc)
-    errorStr.includes('<html') ||
-    errorStr.includes('cloudflare')
-  );
-}
-
-// Retry helper for transient network errors with exponential backoff
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  maxRetries = 2,
-  initialDelay = 250
-): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error;
-      
-      if (!isRetryableError(error) || attempt === maxRetries) {
-        throw error;
-      }
-      
-      const delay = initialDelay * Math.pow(2, attempt - 1); // Exponential backoff
-      console.log(`[secure-email-access] Retry ${attempt}/${maxRetries} after error, waiting ${delay}ms`);
-      await new Promise(r => setTimeout(r, delay));
-    }
-  }
-  throw lastError;
+// Timeout wrapper - fails fast instead of waiting forever
+async function withTimeout<T>(promiseFn: () => Promise<T>, ms: number, errorMsg: string): Promise<T> {
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(errorMsg)), ms);
+  });
+  return Promise.race([promiseFn(), timeout]);
 }
 
 serve(async (req: Request) => {
@@ -252,47 +207,36 @@ serve(async (req: Request) => {
       );
     }
 
-    // Verify the token matches - use maybeSingle to avoid error when not found, with improved retry
-    let tempEmail: { id: string; secret_token: string; address: string; domain_id: string; expires_at: string; is_active: boolean } | null = null;
-    let verifyError: Error | null = null;
+    // Verify the token matches - FAST with timeout
+    let tempEmail: { id: string; secret_token: string } | null = null;
     
     try {
-      tempEmail = await withRetry(async () => {
-        const result = await supabase
+      const result = await withTimeout(
+        async () => supabase
           .from('temp_emails')
-          .select('id, secret_token, address, domain_id, expires_at, is_active')
+          .select('id, secret_token')
           .eq('id', tempEmailId)
-          .maybeSingle();
-        
-        if (result.error) {
-          const errorMessage = result.error.message || result.error.code || JSON.stringify(result.error) || 'Unknown database error';
-          throw new Error(errorMessage);
-        }
-        
-        return result.data;
-       }, 2, 250);
-     } catch (err) {
-      verifyError = err instanceof Error ? err : new Error(String(err));
-    }
-
-    if (verifyError) {
-      console.error('[secure-email-access] Error fetching temp email:', verifyError.message);
+          .maybeSingle(),
+        REQUEST_TIMEOUT_MS,
+        'Database timeout - please try again'
+      );
       
-      // Check if it's a gateway error and provide user-friendly message
-      if (isRetryableError(verifyError)) {
-        return new Response(
-          JSON.stringify({ 
-            error: 'Temporary connection issue', 
-            details: 'The server is experiencing temporary connectivity issues. Please try again in a few seconds.',
-            retryable: true
-          }),
-          { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+      if (result.error) {
+        throw new Error(result.error.message || 'Database error');
       }
       
+      tempEmail = result.data;
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[secure-email-access] Error fetching temp email:', errorMsg);
+      
       return new Response(
-        JSON.stringify({ error: 'Database error', details: verifyError.message || 'Connection failed' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ 
+          error: 'Temporary connection issue', 
+          details: errorMsg,
+          retryable: true
+        }),
+        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -312,9 +256,9 @@ serve(async (req: Request) => {
       );
     }
 
-    // Pre-warm encryption key for decrypt operations (runs once per cold start)
+    // Pre-warm encryption key for decrypt operations
     if (action === 'get_emails' || action === 'get_email') {
-      getEncryptionKey().catch(() => {}); // Fire and forget, will be ready when needed
+      getEncryptionKey().catch(() => {});
     }
 
     // Handle different actions
@@ -322,28 +266,27 @@ serve(async (req: Request) => {
       case 'get_emails': {
         console.log('[secure-email-access] Fetching emails for temp email:', tempEmailId);
         
-        // Fetch only metadata for list view (no body/html_body) with pagination
-        const effectiveLimit = Math.min(Math.max(1, limit), 100); // Clamp 1-100
+        const effectiveLimit = Math.min(Math.max(1, limit), 100);
         
-        const emails = await withRetry(async () => {
-          const { data, error, count } = await supabase
+        const result = await withTimeout(
+          async () => supabase
             .from('received_emails')
-            .select('id, temp_email_id, from_address, subject, received_at, is_read, is_encrypted, encryption_key_id, message_id', { count: 'exact' })
+            .select('id, temp_email_id, from_address, subject, received_at, is_read, is_encrypted, encryption_key_id', { count: 'exact' })
             .eq('temp_email_id', tempEmailId)
             .order('received_at', { ascending: false })
-            .range(offset, offset + effectiveLimit - 1);
+            .range(offset, offset + effectiveLimit - 1),
+          REQUEST_TIMEOUT_MS,
+          'Email fetch timeout'
+        );
 
-          if (error) {
-            console.error('[secure-email-access] Error fetching emails:', error);
-            throw error;
-          }
-          
-          return { data, count };
-        });
+        if (result.error) {
+          console.error('[secure-email-access] Error fetching emails:', result.error);
+          throw result.error;
+        }
 
-        // Decrypt only subjects for list view (much faster than full decryption)
+        // Decrypt only subjects for list view
         const decryptedEmails = await Promise.all(
-          (emails.data || []).map(async (email) => {
+          (result.data || []).map(async (email: { is_encrypted?: boolean; encryption_key_id?: string; subject?: string }) => {
             if (email.is_encrypted && email.encryption_key_id) {
               const [subjectIv] = email.encryption_key_id.split('|');
               return {
@@ -355,16 +298,16 @@ serve(async (req: Request) => {
           })
         );
 
-        console.log(`[secure-email-access] Returning ${decryptedEmails.length} emails (total: ${emails.count})`);
+        console.log(`[secure-email-access] Returning ${decryptedEmails.length} emails (total: ${result.count})`);
         return new Response(
           JSON.stringify({ 
             emails: decryptedEmails, 
-            tempEmail,
+            tempEmail: { id: tempEmail.id },
             pagination: {
-              total: emails.count || 0,
+              total: result.count || 0,
               limit: effectiveLimit,
               offset,
-              hasMore: (emails.count || 0) > offset + effectiveLimit
+              hasMore: (result.count || 0) > offset + effectiveLimit
             }
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -379,22 +322,22 @@ serve(async (req: Request) => {
           );
         }
 
-        const email = await withRetry(async () => {
-          const { data, error } = await supabase
+        const result = await withTimeout(
+          async () => supabase
             .from('received_emails')
             .select('*')
             .eq('id', emailId)
             .eq('temp_email_id', tempEmailId)
-            .single();
+            .single(),
+          REQUEST_TIMEOUT_MS,
+          'Email fetch timeout'
+        );
 
-          if (error || !data) {
-            throw new Error('Email not found');
-          }
-          
-          return data;
-        });
+        if (result.error || !result.data) {
+          throw new Error('Email not found');
+        }
 
-        // Decrypt full email (subject, body, html_body)
+        const email = result.data;
         let decryptedEmail = email;
         if (email.is_encrypted && email.encryption_key_id) {
           const [subjectIv, bodyIv, htmlIv] = email.encryption_key_id.split('|');
@@ -406,7 +349,6 @@ serve(async (req: Request) => {
           };
         }
 
-        // Normalize bodies if needed
         const normalized = normalizeEmailBodies(decryptedEmail.body || null, decryptedEmail.html_body || null);
         if (normalized) {
           decryptedEmail = { ...decryptedEmail, ...normalized };
@@ -426,15 +368,15 @@ serve(async (req: Request) => {
           );
         }
 
-        await withRetry(async () => {
-          const { error } = await supabase
+        await withTimeout(
+          async () => supabase
             .from('received_emails')
             .update({ is_read: true })
             .eq('id', emailId)
-            .eq('temp_email_id', tempEmailId);
-
-          if (error) throw error;
-        });
+            .eq('temp_email_id', tempEmailId),
+          REQUEST_TIMEOUT_MS,
+          'Update timeout'
+        );
 
         return new Response(
           JSON.stringify({ success: true }),
@@ -452,21 +394,13 @@ serve(async (req: Request) => {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('[secure-email-access] Error:', error);
     
-    // Check if it's a retryable error for the final catch
-    if (isRetryableError(error)) {
-      return new Response(
-        JSON.stringify({ 
-          error: 'Temporary connection issue', 
-          details: 'Please try again in a few seconds.',
-          retryable: true
-        }),
-        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-    
     return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ 
+        error: 'Temporary connection issue', 
+        details: errorMessage,
+        retryable: true
+      }),
+      { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

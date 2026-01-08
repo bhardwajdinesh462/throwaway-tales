@@ -51,6 +51,9 @@ CREATE TABLE IF NOT EXISTS domains (
     name VARCHAR(255) NOT NULL UNIQUE,
     is_active BOOLEAN DEFAULT TRUE,
     is_premium BOOLEAN DEFAULT FALSE,
+    dns_verified BOOLEAN DEFAULT FALSE,
+    dns_last_checked DATETIME,
+    mx_records JSON,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_active (is_active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

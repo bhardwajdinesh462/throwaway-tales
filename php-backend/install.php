@@ -168,7 +168,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
             $configContent .= "define('IMAP_USER', '{$imap['user']}');\n";
             $configContent .= "define('IMAP_PASS', '{$imap['pass']}');\n\n";
             $configContent .= "define('STORAGE_PATH', __DIR__ . '/storage');\n";
-            $configContent .= "define('ENCRYPTION_KEY', '{$jwtSecret}');\n\n";
+            $configContent .= "define('ENCRYPTION_KEY', '{$jwtSecret}');\n";
+            $configContent .= "define('CORS_ORIGIN', '*');\n\n";
             
             // Array format for main application
             $configContent .= "// Array format for main application\n";

@@ -19,7 +19,8 @@ header('Content-Type: text/event-stream');
 header('Cache-Control: no-cache');
 header('Connection: keep-alive');
 header('X-Accel-Buffering: no'); // Disable nginx buffering
-header('Access-Control-Allow-Origin: ' . CORS_ORIGIN);
+$corsOrigin = defined('CORS_ORIGIN') ? CORS_ORIGIN : '*';
+header('Access-Control-Allow-Origin: ' . $corsOrigin);
 header('Access-Control-Allow-Credentials: true');
 
 // Disable output buffering

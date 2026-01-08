@@ -307,6 +307,9 @@ try {
     exit;
 }
 
+// Auto-migrate missing tables on first run
+autoMigrateMissingTables($pdo);
+
 // Check IP blocking (graceful if table doesn't exist)
 $clientIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
 if ($clientIp) {
@@ -687,4 +690,80 @@ function handleBadge($type, $pdo) {
     echo '<text x="' . (($s['width'] + 50) / 2) . '" y="' . ($s['height'] * 0.65) . '">' . $statusText . '</text>';
     echo '</g>';
     echo '</svg>';
+}
+
+// =========== AUTO DATABASE MIGRATION ===========
+
+/**
+ * Automatically create missing database tables on first run
+ * This allows the app to self-heal without manual schema import
+ */
+function autoMigrateMissingTables($pdo) {
+    $schemaPath = __DIR__ . '/schema.sql';
+    if (!file_exists($schemaPath)) {
+        return; // No schema file available
+    }
+    
+    // Check if we've already done migration
+    $migrationKey = 'db_migration_version';
+    $currentVersion = '1.0.6'; // Increment this when schema changes
+    
+    try {
+        // Check if app_settings exists and has migration version
+        $stmt = $pdo->prepare("SELECT value FROM app_settings WHERE `key` = ? LIMIT 1");
+        $stmt->execute([$migrationKey]);
+        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($existing) {
+            $storedVersion = json_decode($existing['value'], true);
+            if ($storedVersion === $currentVersion) {
+                return; // Already migrated to current version
+            }
+        }
+    } catch (PDOException $e) {
+        // app_settings table doesn't exist, need full migration
+    }
+    
+    // Read and execute schema
+    $schema = file_get_contents($schemaPath);
+    
+    // Split by semicolons but preserve DELIMITER blocks
+    $statements = preg_split('/;\s*$/m', $schema);
+    
+    foreach ($statements as $stmt) {
+        $stmt = trim($stmt);
+        if (empty($stmt)) {
+            continue;
+        }
+        
+        // Skip DELIMITER statements and SET statements
+        if (preg_match('/^(DELIMITER|SET FOREIGN_KEY_CHECKS|--|#)/i', $stmt)) {
+            continue;
+        }
+        
+        try {
+            $pdo->exec($stmt);
+        } catch (PDOException $e) {
+            // Ignore "already exists", "duplicate", and "doesn't exist" errors
+            $msg = $e->getMessage();
+            if (strpos($msg, 'already exists') === false && 
+                strpos($msg, 'Duplicate') === false &&
+                strpos($msg, 'doesn\'t exist') === false) {
+                error_log("Migration warning: " . $msg);
+            }
+        }
+    }
+    
+    // Store migration version
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO app_settings (id, `key`, value, updated_at)
+            VALUES (UUID(), ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE value = ?, updated_at = NOW()
+        ");
+        $versionJson = json_encode($currentVersion);
+        $stmt->execute([$migrationKey, $versionJson, $versionJson]);
+    } catch (PDOException $e) {
+        error_log("Failed to store migration version: " . $e->getMessage());
+    }
 }

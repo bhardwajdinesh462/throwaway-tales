@@ -444,6 +444,7 @@ CREATE TABLE IF NOT EXISTS cron_logs (
     status VARCHAR(20) DEFAULT 'running',
     message TEXT,
     duration_ms INT,
+    items_processed INT DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_job (job_id),
     INDEX idx_created (created_at)

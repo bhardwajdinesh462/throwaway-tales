@@ -323,24 +323,29 @@ function getSystemDiagnostics($pdo, $config) {
     try {
         $stmt = $pdo->query("SELECT VERSION() as version");
         $dbVersion = $stmt->fetchColumn();
+        
+        $dbNameVal = $config['db']['name'] ?? (defined('DB_NAME') ? DB_NAME : '');
+        $dbHostVal = $config['db']['host'] ?? (defined('DB_HOST') ? DB_HOST : 'localhost');
+        
         $diagnostics['database'] = [
             'connected' => true,
             'version' => $dbVersion,
-            'host' => $config['db_host'],
-            'name' => $config['db_name']
+            'host' => $dbHostVal,
+            'name' => $dbNameVal
         ];
         
         // Table sizes
-        $stmt = $pdo->query("
+        $stmt = $pdo->prepare("
             SELECT 
                 TABLE_NAME as name,
                 TABLE_ROWS as rows,
                 ROUND((DATA_LENGTH + INDEX_LENGTH) / 1024 / 1024, 2) as size_mb
             FROM information_schema.TABLES 
-            WHERE TABLE_SCHEMA = '{$config['db_name']}'
+            WHERE TABLE_SCHEMA = ?
             ORDER BY (DATA_LENGTH + INDEX_LENGTH) DESC
             LIMIT 10
         ");
+        $stmt->execute([$dbNameVal]);
         $diagnostics['database']['tables'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
         $diagnostics['database'] = [

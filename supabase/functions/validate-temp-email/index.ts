@@ -6,29 +6,15 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Keep the function responsive, but don't be so aggressive that healthy-but-slow DB calls fail.
-const REQUEST_TIMEOUT_MS = 12_000;
-
 // Connection pooling optimization (Edge Functions):
-// create the client once per warm runtime instance so subsequent requests reuse keep-alive connections.
+// Create the client once per warm runtime instance so subsequent requests reuse keep-alive connections.
+// Let the platform handle timeouts naturally - do NOT use custom AbortController.
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-const timeoutFetch: typeof fetch = async (input, init) => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    // Note: we prefer our own signal to guarantee timeout behavior.
-    return await fetch(input, { ...(init ?? {}), signal: controller.signal });
-  } finally {
-    clearTimeout(timeoutId);
-  }
-};
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: { persistSession: false },
   db: { schema: "public" },
-  global: { fetch: timeoutFetch },
 });
 
 serve(async (req) => {

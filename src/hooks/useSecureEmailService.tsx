@@ -850,6 +850,43 @@ export const useSecureEmailService = () => {
     return getStoredToken(currentEmail.id) || currentEmail.secret_token;
   }, [currentEmail]);
 
+  // Fetch full email content (body, html_body) by calling get_email action
+  const getFullEmail = useCallback(async (emailId: string): Promise<ReceivedEmail | null> => {
+    if (!currentEmail) return null;
+    
+    const token = getStoredToken(currentEmail.id) || currentEmail.secret_token;
+    if (!token) {
+      console.error('[email-service] No token available for getFullEmail');
+      return null;
+    }
+
+    try {
+      const { data, error } = await api.functions.invoke<any>('secure-email-access', {
+        body: {
+          action: 'get_email',
+          tempEmailId: currentEmail.id,
+          token,
+          emailId,
+        },
+      });
+
+      if (error) {
+        console.error('[email-service] Error fetching full email:', error);
+        return null;
+      }
+
+      if (data?.error) {
+        console.error('[email-service] API error fetching full email:', data.error);
+        return null;
+      }
+
+      return data?.email || null;
+    } catch (error) {
+      console.error('[email-service] Exception in getFullEmail:', error);
+      return null;
+    }
+  }, [currentEmail]);
+
   return {
     domains,
     currentEmail,
@@ -869,6 +906,7 @@ export const useSecureEmailService = () => {
     refetch: fetchSecureEmails,
     triggerImapFetch,
     getAccessToken,
+    getFullEmail,
   };
 };
 

@@ -47,7 +47,7 @@ const Inbox = () => {
   const { isAdmin } = useAdminRole();
   
   // 2. Custom hooks - Using secure email service with token-based access
-  const { receivedEmails, isLoading, markAsRead, saveEmail, currentEmail, refetch, triggerImapFetch } = useEmailService();
+  const { receivedEmails, isLoading, markAsRead, saveEmail, currentEmail, refetch, triggerImapFetch, getFullEmail } = useEmailService();
   
   // 3. All useState hooks together
   const [selectedEmail, setSelectedEmail] = useState<ReceivedEmail | null>(null);
@@ -418,11 +418,24 @@ const Inbox = () => {
 
 
   const handleSelectEmail = async (email: ReceivedEmail) => {
+    // Show the email immediately with what we have (for fast UI response)
     setSelectedEmail(email);
     setAttachments([]);
     
     if (!email.is_read) {
       markAsRead(email.id);
+    }
+
+    // Fetch full email content (body, html_body) if not already present
+    if (!email.body && !email.html_body) {
+      try {
+        const fullEmail = await getFullEmail(email.id);
+        if (fullEmail) {
+          setSelectedEmail(fullEmail);
+        }
+      } catch (error) {
+        console.error("Error fetching full email:", error);
+      }
     }
 
     // Fetch attachments for this email

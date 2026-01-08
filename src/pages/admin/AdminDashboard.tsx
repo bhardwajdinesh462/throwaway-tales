@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import SubscriptionStatsWidget from "@/components/admin/SubscriptionStatsWidget";
 import PaymentStatsWidget from "@/components/admin/PaymentStatsWidget";
+import DatabaseMetricsWidget from "@/components/admin/DatabaseMetricsWidget";
 
 interface Stats {
   totalUsers: number;
@@ -337,6 +338,9 @@ const AdminDashboard = () => {
           </p>
         )}
       </motion.div>
+
+      {/* Database Metrics Widget */}
+      <DatabaseMetricsWidget />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

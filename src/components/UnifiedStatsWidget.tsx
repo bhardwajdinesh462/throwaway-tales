@@ -11,6 +11,7 @@ const STATS_STORAGE_KEY = 'trashmails_live_stats';
 
 interface Stats {
   emailsToday: number;
+  inboxesToday: number;
   totalEmails: number;
   activeAddresses: number;
   totalInboxesCreated: number;
@@ -58,6 +59,7 @@ const loadCachedStats = (): Stats => {
       const parsed = JSON.parse(cached);
       return {
         emailsToday: parseStatValue(parsed.emailsToday),
+        inboxesToday: parseStatValue(parsed.inboxesToday),
         totalEmails: parseStatValue(parsed.totalEmails),
         activeAddresses: parseStatValue(parsed.activeAddresses),
         totalInboxesCreated: parseStatValue(parsed.totalInboxesCreated),
@@ -68,7 +70,7 @@ const loadCachedStats = (): Stats => {
   } catch {
     // ignore parse errors
   }
-  return { emailsToday: 0, totalEmails: 0, activeAddresses: 0, totalInboxesCreated: 0, activeDomains: 0, totalEmailsGenerated: 0 };
+  return { emailsToday: 0, inboxesToday: 0, totalEmails: 0, activeAddresses: 0, totalInboxesCreated: 0, activeDomains: 0, totalEmailsGenerated: 0 };
 };
 
 const saveCachedStats = (stats: Stats) => {
@@ -129,9 +131,13 @@ const UnifiedStatsWidget = () => {
       const incomingTotalInboxes = parseStatValue(incoming.totalInboxesCreated);
       const incomingTotalEmails = parseStatValue(incoming.totalEmails);
       const incomingTotalGenerated = parseStatValue(incoming.totalEmailsGenerated);
+      const incomingInboxesToday = parseStatValue(incoming.inboxesToday);
       
       const next: Stats = {
         emailsToday: parseStatValue(incoming.emailsToday ?? prev.emailsToday),
+        inboxesToday: isApiResponse && incoming.inboxesToday !== undefined
+          ? incomingInboxesToday
+          : Math.max(prev.inboxesToday, incomingInboxesToday || prev.inboxesToday),
         totalEmails: isApiResponse && incoming.totalEmails !== undefined 
           ? incomingTotalEmails 
           : Math.max(prev.totalEmails, incomingTotalEmails || prev.totalEmails),
@@ -157,6 +163,7 @@ const UnifiedStatsWidget = () => {
         if (!error && data) {
           updateStats({
             emailsToday: data.emailsToday,
+            inboxesToday: data.inboxesToday,
             totalEmails: data.totalEmails,
             activeAddresses: data.activeAddresses,
             totalInboxesCreated: data.totalInboxesCreated,
@@ -196,12 +203,15 @@ const UnifiedStatsWidget = () => {
           if (stat_key === 'total_temp_emails_created') {
             triggerPulse(1); // emailsGenerated index
             updateStats({ totalEmailsGenerated: stat_value, totalInboxesCreated: stat_value });
-          } else if (stat_key === 'total_received_emails') {
+          } else if (stat_key === 'total_emails_received') {
             triggerPulse(0); // emailsToday index
             updateStats({ totalEmails: stat_value });
           } else if (stat_key === 'emails_today') {
             triggerPulse(0);
             updateStats({ emailsToday: stat_value });
+          } else if (stat_key === 'inboxes_today') {
+            triggerPulse(2); // inboxesCreated index
+            updateStats({ inboxesToday: stat_value });
           }
         }
       )
@@ -213,9 +223,9 @@ const UnifiedStatsWidget = () => {
   }, [updateStats, triggerPulse]);
 
   const allStatItems = [
-    { key: 'emailsToday', show: settings.showEmailsToday, icon: Mail, label: settings.customLabels.emailsToday || "Today (IST)", value: stats.emailsToday, color: "text-primary", bgColor: "bg-primary/20", tooltip: "Emails received since midnight IST" },
-    { key: 'emailsGenerated', show: settings.showEmailsGenerated, icon: Zap, label: settings.customLabels.emailsGenerated || "Emails Generated", value: stats.totalEmailsGenerated, color: "text-accent", bgColor: "bg-accent/20", tooltip: tooltips.stats.emailsGenerated },
-    { key: 'inboxesCreated', show: settings.showInboxesCreated, icon: Users, label: settings.customLabels.inboxesCreated || "Inboxes Created", value: stats.totalInboxesCreated, color: "text-green-500", bgColor: "bg-green-500/20", tooltip: "Total temporary inboxes created" },
+    { key: 'emailsToday', show: settings.showEmailsToday, icon: Mail, label: settings.customLabels.emailsToday || "Emails Today (IST)", value: stats.emailsToday, color: "text-primary", bgColor: "bg-primary/20", tooltip: "Emails received since midnight IST" },
+    { key: 'inboxesCreated', show: settings.showInboxesCreated, icon: Users, label: settings.customLabels.inboxesCreated || "Inboxes Today (IST)", value: stats.inboxesToday, color: "text-green-500", bgColor: "bg-green-500/20", tooltip: "Inboxes created since midnight IST" },
+    { key: 'emailsGenerated', show: settings.showEmailsGenerated, icon: Zap, label: settings.customLabels.emailsGenerated || "Total Inboxes", value: stats.totalEmailsGenerated, color: "text-accent", bgColor: "bg-accent/20", tooltip: "Total temporary inboxes ever created" },
     { key: 'domains', show: settings.showDomains, icon: Globe, label: settings.customLabels.domains || "Domains", value: stats.activeDomains, color: "text-blue-500", bgColor: "bg-blue-500/20", tooltip: tooltips.stats.domains },
   ];
 

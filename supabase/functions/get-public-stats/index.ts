@@ -49,12 +49,13 @@ serve(async (req) => {
         totalDomainsResult,
         emailsTodayLiveResult,
         totalEmailsLiveResult,
+        inboxesTodayLiveResult,
       ] = await Promise.all([
         // Get all counters from email_stats in one query (fast - small table)
         supabase
           .from('email_stats')
           .select('stat_key, stat_value')
-          .in('stat_key', ['total_temp_emails_created', 'total_emails_received', 'emails_today']),
+          .in('stat_key', ['total_temp_emails_created', 'total_emails_received', 'emails_today', 'inboxes_today']),
         
         // Currently active temp addresses (needs live count but has index)
         supabase
@@ -78,6 +79,12 @@ serve(async (req) => {
         supabase
           .from('received_emails')
           .select('id', { count: 'exact', head: true }),
+          
+        // Fallback: Live count for inboxes today (IST)
+        supabase
+          .from('temp_emails')
+          .select('id', { count: 'exact', head: true })
+          .gte('created_at', istMidnight),
       ]);
 
       clearTimeout(timeout);
@@ -94,6 +101,7 @@ serve(async (req) => {
       // Use counter if available, otherwise use live count
       const totalEmailsReceived = statsMap['total_emails_received'] || totalEmailsLiveResult.count || 0;
       const emailsToday = statsMap['emails_today'] || emailsTodayLiveResult.count || 0;
+      const inboxesToday = statsMap['inboxes_today'] || inboxesTodayLiveResult.count || 0;
       const activeAddresses = activeAddressesResult.count ?? 0;
       const activeDomains = totalDomainsResult.count ?? 0;
 
@@ -103,6 +111,8 @@ serve(async (req) => {
       const stats = {
         // Emails since midnight IST - from counter or live count
         emailsToday: emailsToday,
+        // Inboxes since midnight IST - from counter or live count
+        inboxesToday: inboxesToday,
         // All-time received emails (monotonic)
         totalEmails: totalEmailsReceived,
         // Currently active inboxes
@@ -132,6 +142,7 @@ serve(async (req) => {
       error: error instanceof Error ? error.message : 'Failed to fetch stats',
       // Return default stats on error
       emailsToday: 0,
+      inboxesToday: 0,
       totalEmails: 0,
       activeAddresses: 0,
       totalInboxesCreated: 0,

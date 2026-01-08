@@ -1,0 +1,98 @@
+name: Validate PHP Backend
+
+on:
+  push:
+    paths:
+      - 'php-backend/**'
+  pull_request:
+    paths:
+      - 'php-backend/**'
+
+jobs:
+  php-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: pdo_mysql, imap, mbstring, json, openssl
+          
+      - name: Validate PHP Syntax
+        run: |
+          echo "Validating PHP syntax..."
+          errors=0
+          while IFS= read -r -d '' file; do
+            output=$(php -l "$file" 2>&1)
+            if echo "$output" | grep -q "Parse error\|syntax error"; then
+              echo "❌ $file"
+              echo "$output"
+              errors=$((errors + 1))
+            else
+              echo "✓ $file"
+            fi
+          done < <(find php-backend -name "*.php" -print0)
+          
+          if [ $errors -gt 0 ]; then
+            echo ""
+            echo "❌ Found $errors PHP syntax error(s)"
+            exit 1
+          fi
+          echo ""
+          echo "✅ All PHP files are syntactically correct"
+          
+      - name: Check required files
+        run: |
+          echo "Checking required files..."
+          required_files=(
+            "php-backend/index.php"
+            "php-backend/schema.sql"
+            "php-backend/install.php"
+            "php-backend/config.example.php"
+            "php-backend/includes/db.php"
+            "php-backend/includes/helpers.php"
+            "php-backend/routes/admin.php"
+            "php-backend/routes/auth.php"
+            "php-backend/routes/data.php"
+            "php-backend/cron/imap-poll.php"
+            "php-backend/cron/maintenance.php"
+            "php-backend/cron/health-check.php"
+          )
+          
+          missing=0
+          for file in "${required_files[@]}"; do
+            if [ -f "$file" ]; then
+              echo "✓ $file"
+            else
+              echo "❌ Missing: $file"
+              missing=$((missing + 1))
+            fi
+          done
+          
+          if [ $missing -gt 0 ]; then
+            echo ""
+            echo "❌ Missing $missing required file(s)"
+            exit 1
+          fi
+          echo ""
+          echo "✅ All required files present"
+          
+      - name: Validate schema.sql
+        run: |
+          echo "Validating schema.sql..."
+          schema="php-backend/schema.sql"
+          
+          required_tables=("users" "emails" "domains" "mailboxes" "app_settings")
+          
+          for table in "${required_tables[@]}"; do
+            if grep -qi "CREATE TABLE.*$table" "$schema"; then
+              echo "✓ Table: $table"
+            else
+              echo "❌ Missing table: $table"
+              exit 1
+            fi
+          done
+          echo ""
+          echo "✅ Schema validation passed"

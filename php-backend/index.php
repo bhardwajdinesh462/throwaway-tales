@@ -5,6 +5,30 @@
  * Security-hardened for production use
  */
 
+// ============================================
+// EARLY ERROR HANDLING
+// ============================================
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+error_reporting(E_ALL);
+
+// Catch fatal errors
+register_shutdown_function(function() {
+    $error = error_get_last();
+    if ($error && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
+        if (!headers_sent()) {
+            header('Content-Type: application/json');
+            http_response_code(500);
+        }
+        // Log error but don't expose details to user
+        error_log("PHP Fatal: {$error['message']} in {$error['file']}:{$error['line']}");
+        echo json_encode([
+            'error' => 'Internal server error',
+            'hint' => 'Check server error logs for details'
+        ]);
+    }
+});
+
 // Security headers
 header("X-Content-Type-Options: nosniff");
 header("X-Frame-Options: DENY");
@@ -38,6 +62,7 @@ if (time() - $_SESSION[$rateKey]['start'] > $ratePeriod) {
     $_SESSION[$rateKey]['count']++;
     if ($_SESSION[$rateKey]['count'] > $rateLimit) {
         http_response_code(429);
+        header('Content-Type: application/json');
         header('Retry-After: ' . ($ratePeriod - (time() - $_SESSION[$rateKey]['start'])));
         echo json_encode(['error' => 'Too many requests']);
         exit;
@@ -76,7 +101,7 @@ if ($earlyPath === 'health') {
             $testPdo = null;
         } catch (Exception $e) {
             $healthResponse['db_connected'] = false;
-            $healthResponse['db_error'] = $e->getMessage();
+            $healthResponse['db_error'] = 'Connection failed';
         }
     } else {
         $healthResponse['db_connected'] = false;

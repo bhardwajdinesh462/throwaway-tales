@@ -2,6 +2,7 @@
 /**
  * Comprehensive Error Logging System
  * Logs all errors, warnings, and debug info to files
+ * Compatible with PHP 8.0+
  */
 
 class ErrorLogger {
@@ -9,6 +10,7 @@ class ErrorLogger {
     private $logDir;
     private $maxFileSize = 10485760; // 10MB
     private $maxFiles = 5;
+    private $isWritable = true;
 
     public const DEBUG = 'DEBUG';
     public const INFO = 'INFO';
@@ -31,31 +33,59 @@ class ErrorLogger {
 
     private function ensureLogDirectory() {
         if (!is_dir($this->logDir)) {
-            mkdir($this->logDir, 0755, true);
+            if (!@mkdir($this->logDir, 0755, true)) {
+                $this->isWritable = false;
+                error_log("ErrorLogger: Cannot create log directory: {$this->logDir}");
+                return;
+            }
+        }
+        
+        if (!is_writable($this->logDir)) {
+            $this->isWritable = false;
+            error_log("ErrorLogger: Log directory not writable: {$this->logDir}");
+            return;
         }
         
         // Create .htaccess to protect log files
         $htaccess = $this->logDir . '/.htaccess';
         if (!file_exists($htaccess)) {
-            file_put_contents($htaccess, "Order deny,allow\nDeny from all\n");
+            @file_put_contents($htaccess, "Order deny,allow\nDeny from all\n");
         }
         
         // Create index.php to prevent directory listing
         $indexFile = $this->logDir . '/index.php';
         if (!file_exists($indexFile)) {
-            file_put_contents($indexFile, '<?php // Silence is golden');
+            @file_put_contents($indexFile, '<?php // Silence is golden');
         }
     }
 
     private function registerErrorHandler() {
         set_error_handler(function($severity, $message, $file, $line) {
-            $level = match($severity) {
-                E_ERROR, E_USER_ERROR, E_CORE_ERROR => self::ERROR,
-                E_WARNING, E_USER_WARNING, E_CORE_WARNING => self::WARNING,
-                E_NOTICE, E_USER_NOTICE => self::INFO,
-                E_DEPRECATED, E_USER_DEPRECATED => self::DEBUG,
-                default => self::WARNING
-            };
+            // Map PHP error severity to log level
+            $level = self::WARNING;
+            switch ($severity) {
+                case E_ERROR:
+                case E_USER_ERROR:
+                case E_CORE_ERROR:
+                case E_COMPILE_ERROR:
+                    $level = self::ERROR;
+                    break;
+                case E_WARNING:
+                case E_USER_WARNING:
+                case E_CORE_WARNING:
+                case E_COMPILE_WARNING:
+                    $level = self::WARNING;
+                    break;
+                case E_NOTICE:
+                case E_USER_NOTICE:
+                    $level = self::INFO;
+                    break;
+                case E_DEPRECATED:
+                case E_USER_DEPRECATED:
+                    $level = self::DEBUG;
+                    break;
+            }
+            
             $this->log($level, $message, ['file' => $file, 'line' => $line]);
             return false; // Continue with PHP's internal handler
         });
@@ -81,6 +111,12 @@ class ErrorLogger {
     }
 
     public function log($level, $message, array $context = []) {
+        // If logs directory isn't writable, fall back to error_log
+        if (!$this->isWritable) {
+            error_log("[{$level}] {$message} " . json_encode($context));
+            return;
+        }
+        
         $timestamp = date('Y-m-d H:i:s');
         $clientIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
         $requestUri = $_SERVER['REQUEST_URI'] ?? 'cli';
@@ -101,12 +137,11 @@ class ErrorLogger {
         $logFile = $this->getLogFile($level);
         $this->rotateLogFile($logFile);
         
-        file_put_contents($logFile, $logLine, FILE_APPEND | LOCK_EX);
+        @file_put_contents($logFile, $logLine, FILE_APPEND | LOCK_EX);
     }
 
     private function getLogFile($level) {
         $date = date('Y-m-d');
-        $levelLower = strtolower($level);
         
         // Critical and error go to error.log, others to app.log
         if (in_array($level, [self::ERROR, self::CRITICAL])) {
@@ -119,7 +154,7 @@ class ErrorLogger {
         if (file_exists($logFile) && filesize($logFile) > $this->maxFileSize) {
             $info = pathinfo($logFile);
             $rotatedName = $info['dirname'] . '/' . $info['filename'] . '-' . date('His') . '.' . ($info['extension'] ?? 'log');
-            rename($logFile, $rotatedName);
+            @rename($logFile, $rotatedName);
             
             // Clean up old files
             $this->cleanupOldLogs();
@@ -128,7 +163,7 @@ class ErrorLogger {
 
     private function cleanupOldLogs() {
         $files = glob($this->logDir . '/*.log');
-        if (count($files) > $this->maxFiles * 2) {
+        if ($files && count($files) > $this->maxFiles * 2) {
             usort($files, function($a, $b) {
                 return filemtime($a) - filemtime($b);
             });
@@ -164,6 +199,8 @@ class ErrorLogger {
         $logs = [];
         $files = glob($this->logDir . '/*.log');
         
+        if (!$files) return $logs;
+        
         // Sort by modification time, newest first
         usort($files, function($a, $b) {
             return filemtime($b) - filemtime($a);
@@ -179,7 +216,9 @@ class ErrorLogger {
         foreach ($files as $file) {
             if (count($logs) >= $limit) break;
             
-            $lines = file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            $lines = @file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if (!$lines) continue;
+            
             $lines = array_reverse($lines); // Newest first
             
             foreach ($lines as $line) {
@@ -208,6 +247,8 @@ class ErrorLogger {
     public function clearLogs($type = 'all') {
         $files = glob($this->logDir . '/*.log');
         
+        if (!$files) return true;
+        
         foreach ($files as $file) {
             if ($type === 'all') {
                 @unlink($file);
@@ -229,9 +270,12 @@ class ErrorLogger {
             'warning_count_today' => 0,
             'oldest_log' => null,
             'newest_log' => null,
+            'writable' => $this->isWritable,
         ];
         
         $files = glob($this->logDir . '/*.log');
+        if (!$files) return $stats;
+        
         $stats['total_files'] = count($files);
         
         foreach ($files as $file) {
@@ -249,15 +293,17 @@ class ErrorLogger {
         // Count today's errors
         $todayErrorFile = $this->logDir . '/error-' . date('Y-m-d') . '.log';
         if (file_exists($todayErrorFile)) {
-            $lines = file($todayErrorFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-            foreach ($lines as $line) {
-                $entry = json_decode($line, true);
-                if ($entry) {
-                    if ($entry['level'] === 'ERROR' || $entry['level'] === 'CRITICAL') {
-                        $stats['error_count_today']++;
-                    }
-                    if ($entry['level'] === 'WARNING') {
-                        $stats['warning_count_today']++;
+            $lines = @file($todayErrorFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if ($lines) {
+                foreach ($lines as $line) {
+                    $entry = json_decode($line, true);
+                    if ($entry) {
+                        if ($entry['level'] === 'ERROR' || $entry['level'] === 'CRITICAL') {
+                            $stats['error_count_today']++;
+                        }
+                        if ($entry['level'] === 'WARNING') {
+                            $stats['warning_count_today']++;
+                        }
                     }
                 }
             }
@@ -265,9 +311,16 @@ class ErrorLogger {
         
         return $stats;
     }
+    
+    /**
+     * Check if logging is available
+     */
+    public function isAvailable(): bool {
+        return $this->isWritable;
+    }
 }
 
-// Global helper function
+// Global helper functions
 function logError($message, array $context = []) {
     ErrorLogger::getInstance()->error($message, $context);
 }
@@ -282,4 +335,8 @@ function logDebug($message, array $context = []) {
 
 function logWarning($message, array $context = []) {
     ErrorLogger::getInstance()->warning($message, $context);
+}
+
+function logCritical($message, array $context = []) {
+    ErrorLogger::getInstance()->critical($message, $context);
 }

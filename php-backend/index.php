@@ -706,7 +706,7 @@ function autoMigrateMissingTables($pdo) {
     
     // Check if we've already done migration
     $migrationKey = 'db_migration_version';
-    $currentVersion = '1.0.6'; // Increment this when schema changes
+    $currentVersion = '1.0.7'; // Increment this when schema changes
     
     try {
         // Check if app_settings exists and has migration version

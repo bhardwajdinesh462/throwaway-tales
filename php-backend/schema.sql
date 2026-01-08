@@ -596,15 +596,16 @@ CREATE TABLE IF NOT EXISTS blog_subscribers (
     INDEX idx_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Insert default data
-INSERT INTO email_stats (id, stat_key, stat_value) VALUES 
+-- Insert default data (use INSERT IGNORE to avoid duplicate key errors)
+INSERT IGNORE INTO email_stats (id, stat_key, stat_value) VALUES 
 (UUID(), 'total_emails_created', 0),
-(UUID(), 'total_emails_received', 0)
-ON DUPLICATE KEY UPDATE stat_key = stat_key;
+(UUID(), 'total_emails_received', 0);
 
-INSERT INTO subscription_tiers (id, name, price_monthly, price_yearly, max_temp_emails, email_expiry_hours, features, is_active) VALUES
+INSERT IGNORE INTO subscription_tiers (id, name, price_monthly, price_yearly, max_temp_emails, email_expiry_hours, features, is_active) VALUES
 (UUID(), 'Free', 0, 0, 3, 1, '["3 temp emails", "1 hour expiry"]', TRUE),
-(UUID(), 'Pro', 9.99, 99.99, 10, 24, '["10 temp emails", "24 hour expiry", "Email forwarding"]', TRUE)
-ON DUPLICATE KEY UPDATE name = name;
+(UUID(), 'Pro', 9.99, 99.99, 10, 24, '["10 temp emails", "24 hour expiry", "Email forwarding"]', TRUE);
+
+-- Add index for mailbox priority and active status
+CREATE INDEX IF NOT EXISTS idx_priority_active ON mailboxes (priority, is_active);
 
 SET FOREIGN_KEY_CHECKS = 1;

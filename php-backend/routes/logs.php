@@ -1,9 +1,62 @@
 <?php
 /**
- * Logs Routes - Admin access to error logs
+ * Logs Routes - Error log access with optional public debug mode
  */
 
 function handleLogsRoute($action, $method, $body, $pdo, $config) {
+    $logger = ErrorLogger::getInstance(__DIR__ . '/../logs');
+    
+    // Special case: 'errors' endpoint can be accessed without auth during setup
+    // or with a debug token from config
+    if ($action === 'errors') {
+        $debugToken = $config['debug_token'] ?? '';
+        $providedToken = $_GET['token'] ?? '';
+        $configExists = file_exists(__DIR__ . '/../config.php');
+        
+        // Allow access if: no config yet (setup mode), or valid debug token, or admin auth
+        $user = getAuthUser($pdo, $config);
+        $userId = $user['id'] ?? null;
+        $isAdmin = $userId ? checkIsAdmin($pdo, $userId) : false;
+        
+        $allowAccess = !$configExists || 
+                       (!empty($debugToken) && $providedToken === $debugToken) || 
+                       $isAdmin;
+        
+        if (!$allowAccess) {
+            http_response_code(403);
+            echo json_encode([
+                'error' => 'Access denied',
+                'hint' => 'Add ?token=YOUR_DEBUG_TOKEN or login as admin'
+            ]);
+            return;
+        }
+        
+        // Return recent errors in a readable format
+        $limit = min(intval($_GET['limit'] ?? 50), 200);
+        $logs = $logger->getRecentLogs('error', $limit);
+        
+        // Also check for PHP error log
+        $phpErrorLog = __DIR__ . '/../logs/php-errors.log';
+        $phpErrors = [];
+        if (file_exists($phpErrorLog)) {
+            $lines = @file($phpErrorLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if ($lines) {
+                $phpErrors = array_slice(array_reverse($lines), 0, 20);
+            }
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'error_count' => count($logs),
+            'logs' => $logs,
+            'php_errors' => $phpErrors,
+            'log_stats' => $logger->getLogStats(),
+            'hint' => 'Errors are stored in logs/error-YYYY-MM-DD.log files'
+        ], JSON_PRETTY_PRINT);
+        return;
+    }
+    
+    // All other log endpoints require admin auth
     $user = getAuthUser($pdo, $config);
     $userId = $user['id'] ?? null;
     $isAdmin = $userId ? checkIsAdmin($pdo, $userId) : false;
@@ -13,8 +66,6 @@ function handleLogsRoute($action, $method, $body, $pdo, $config) {
         echo json_encode(['error' => 'Admin access required']);
         return;
     }
-
-    $logger = ErrorLogger::getInstance(__DIR__ . '/../logs');
 
     switch ($action) {
         case 'recent':
@@ -66,6 +117,22 @@ function handleLogsRoute($action, $method, $body, $pdo, $config) {
             header('Content-Disposition: attachment; filename="' . $filename . '"');
             readfile($filepath);
             exit;
+            
+        case 'test':
+            // Test logging - creates a test error entry
+            $logger->error('Test error log entry', [
+                'triggered_by' => $userId,
+                'purpose' => 'Testing error logging system'
+            ]);
+            $logger->warning('Test warning log entry', ['triggered_by' => $userId]);
+            $logger->info('Test info log entry', ['triggered_by' => $userId]);
+            
+            echo json_encode([
+                'success' => true,
+                'message' => 'Test log entries created',
+                'check' => '/api/logs/errors to view'
+            ]);
+            break;
 
         default:
             // Default: return recent errors

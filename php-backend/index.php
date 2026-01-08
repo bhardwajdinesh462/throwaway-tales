@@ -6,27 +6,67 @@
  */
 
 // ============================================
-// EARLY ERROR HANDLING
+// EARLY ERROR HANDLING & LOGGING
 // ============================================
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 error_reporting(E_ALL);
 
+// Create logs directory early
+$logsDir = __DIR__ . '/logs';
+if (!is_dir($logsDir)) {
+    @mkdir($logsDir, 0755, true);
+}
+
+// Set PHP error log location
+ini_set('error_log', $logsDir . '/php-errors.log');
+
+// Early error logging function (before ErrorLogger class loads)
+function earlyLog($message, $level = 'ERROR') {
+    $logsDir = __DIR__ . '/logs';
+    $timestamp = date('Y-m-d H:i:s');
+    $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    $uri = $_SERVER['REQUEST_URI'] ?? 'cli';
+    $method = $_SERVER['REQUEST_METHOD'] ?? 'CLI';
+    
+    $logEntry = json_encode([
+        'timestamp' => $timestamp,
+        'level' => $level,
+        'message' => $message,
+        'ip' => $ip,
+        'method' => $method,
+        'uri' => $uri
+    ], JSON_UNESCAPED_SLASHES) . "\n";
+    
+    @file_put_contents($logsDir . '/error-' . date('Y-m-d') . '.log', $logEntry, FILE_APPEND | LOCK_EX);
+}
+
 // Catch fatal errors
 register_shutdown_function(function() {
     $error = error_get_last();
     if ($error && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
+        // Log to our custom log file
+        earlyLog("FATAL: {$error['message']} in {$error['file']}:{$error['line']}", 'CRITICAL');
+        
         if (!headers_sent()) {
             header('Content-Type: application/json');
             http_response_code(500);
         }
-        // Log error but don't expose details to user
-        error_log("PHP Fatal: {$error['message']} in {$error['file']}:{$error['line']}");
         echo json_encode([
             'error' => 'Internal server error',
-            'hint' => 'Check server error logs for details'
+            'hint' => 'Check /api/logs/errors endpoint or logs/error-*.log files'
         ]);
     }
+});
+
+// Set custom error handler to log all warnings/notices
+set_error_handler(function($severity, $message, $file, $line) {
+    $level = 'WARNING';
+    if (in_array($severity, [E_ERROR, E_USER_ERROR])) $level = 'ERROR';
+    if (in_array($severity, [E_NOTICE, E_USER_NOTICE])) $level = 'INFO';
+    
+    earlyLog("$level: $message in $file:$line", $level);
+    return false; // Continue with PHP's handler
 });
 
 // Security headers
@@ -450,9 +490,31 @@ try {
             echo json_encode(['error' => 'Not found']);
     }
 } catch (Exception $e) {
-    error_log('API Error: ' . $e->getMessage());
+    // Log detailed error info
+    $errorDetails = [
+        'message' => $e->getMessage(),
+        'file' => $e->getFile(),
+        'line' => $e->getLine(),
+        'trace' => $e->getTraceAsString(),
+        'request' => [
+            'method' => $method,
+            'path' => $path,
+            'body' => $body
+        ]
+    ];
+    
+    if (function_exists('logError')) {
+        logError('API Exception: ' . $e->getMessage(), $errorDetails);
+    } else {
+        earlyLog('API Exception: ' . json_encode($errorDetails), 'ERROR');
+    }
+    
     http_response_code(500);
-    echo json_encode(['error' => 'Internal server error']);
+    echo json_encode([
+        'error' => 'Internal server error',
+        'error_id' => uniqid('err_'),
+        'hint' => 'Check /api/logs/errors for details'
+    ]);
 }
 
 // =========== HELPER FUNCTIONS ===========

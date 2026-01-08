@@ -1748,6 +1748,7 @@ export type Database = {
         Returns: undefined
       }
       remove_admin_role: { Args: { target_user_id: string }; Returns: boolean }
+      reset_emails_today: { Args: never; Returns: undefined }
       reset_mailbox_daily_counters: { Args: never; Returns: undefined }
       reset_mailbox_hourly_counters: { Args: never; Returns: undefined }
       select_available_mailbox: {

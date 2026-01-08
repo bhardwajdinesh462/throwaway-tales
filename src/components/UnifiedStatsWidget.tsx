@@ -183,9 +183,34 @@ const UnifiedStatsWidget = () => {
     };
   }, [updateStats]);
 
-  // REMOVED: Global realtime subscriptions that were causing DB overload
-  // Stats now update via polling only (every 60s) which is sufficient for public display
-  // Real-time updates are not necessary for aggregate stats on the homepage
+  // Realtime subscriptions for live updates
+  useEffect(() => {
+    // Subscribe to email_stats updates (lightweight - small table)
+    const statsChannel = supabase
+      .channel('email_stats_updates')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'email_stats' },
+        (payload) => {
+          const { stat_key, stat_value } = payload.new as { stat_key: string; stat_value: number };
+          if (stat_key === 'total_temp_emails_created') {
+            triggerPulse(1); // emailsGenerated index
+            updateStats({ totalEmailsGenerated: stat_value, totalInboxesCreated: stat_value });
+          } else if (stat_key === 'total_received_emails') {
+            triggerPulse(0); // emailsToday index
+            updateStats({ totalEmails: stat_value });
+          } else if (stat_key === 'emails_today') {
+            triggerPulse(0);
+            updateStats({ emailsToday: stat_value });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(statsChannel);
+    };
+  }, [updateStats, triggerPulse]);
 
   const allStatItems = [
     { key: 'emailsToday', show: settings.showEmailsToday, icon: Mail, label: settings.customLabels.emailsToday || "Today (IST)", value: stats.emailsToday, color: "text-primary", bgColor: "bg-primary/20", tooltip: "Emails received since midnight IST" },

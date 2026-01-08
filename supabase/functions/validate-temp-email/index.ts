@@ -6,32 +6,15 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Retry helper with exponential backoff
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  maxRetries = 3,
-  baseDelayMs = 200
-): Promise<T> {
-  let lastError: Error | null = null;
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      const error = err as Error;
-      lastError = error;
-      const errorMsg = error?.message || '';
-      const isRetryable = errorMsg.includes('timeout') || 
-                          errorMsg.includes('connect error') ||
-                          errorMsg.includes('reset');
-      if (!isRetryable || attempt === maxRetries - 1) {
-        throw error;
-      }
-      const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 100;
-      console.log(`[validate-temp-email] Retry ${attempt + 1}/${maxRetries} after ${Math.round(delay)}ms`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-  throw lastError;
+// HARD TIMEOUT - fail fast, don't wait forever
+const REQUEST_TIMEOUT_MS = 6000; // 6 seconds max
+
+// Timeout wrapper for fail-fast behavior
+async function withTimeout<T>(promiseFn: () => Promise<T>, ms: number): Promise<T> {
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('Request timeout')), ms);
+  });
+  return Promise.race([promiseFn(), timeout]);
 }
 
 serve(async (req) => {
@@ -60,35 +43,34 @@ serve(async (req) => {
 
     // If emailIds array provided, validate multiple emails at once
     if (emailIds && Array.isArray(emailIds) && emailIds.length > 0) {
-      // Limit the batch size to prevent timeouts
       const limitedIds = emailIds.slice(0, 20);
-      console.log(`[validate-temp-email] Validating ${limitedIds.length} emails (limited from ${emailIds.length})`);
+      console.log(`[validate-temp-email] Validating ${limitedIds.length} emails`);
       
-      // Use retry wrapper for database query
-      const { data: emails, error } = await withRetry(async () => {
-        return await supabase
+      const result = await withTimeout(
+        async () => supabase
           .from('temp_emails')
-          .select('id, address, domain_id, user_id, expires_at, is_active, created_at, secret_token')
+          .select('id, address, domain_id, user_id, expires_at, is_active, created_at')
           .in('id', limitedIds)
           .eq('is_active', true)
           .gt('expires_at', now)
-          .order('created_at', { ascending: false });
-      });
+          .order('created_at', { ascending: false }),
+        REQUEST_TIMEOUT_MS
+      );
 
-      if (error) {
-        console.error('[validate-temp-email] Database error:', error);
-        const isTimeout = error.message?.includes('timeout') || error.message?.includes('connect error');
+      if (result.error) {
+        console.error('[validate-temp-email] Database error:', result.error);
         return new Response(
           JSON.stringify({ 
             valid: false, 
             error: 'Database error', 
-            code: isTimeout ? 'DB_TIMEOUT' : 'DB_ERROR',
-            retryable: isTimeout
+            code: 'DB_ERROR',
+            retryable: true
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 503 }
         );
       }
 
+      const emails = result.data;
       if (!emails || emails.length === 0) {
         console.log('[validate-temp-email] No valid emails found from provided IDs');
         return new Response(
@@ -99,7 +81,6 @@ serve(async (req) => {
 
       console.log(`[validate-temp-email] Found ${emails.length} valid emails`);
       
-      // Return the most recent valid email (without exposing secret_token to client)
       const mostRecent = emails[0];
       return new Response(
         JSON.stringify({
@@ -113,8 +94,7 @@ serve(async (req) => {
             is_active: mostRecent.is_active,
             created_at: mostRecent.created_at,
           },
-          // Return which emails are still valid (client can use this to clean up stale tokens)
-          validEmailIds: emails.map(e => e.id),
+          validEmailIds: emails.map((e: { id: string }) => e.id),
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
       );
@@ -131,30 +111,24 @@ serve(async (req) => {
 
     console.log(`[validate-temp-email] Validating single email: ${tempEmailId}`);
 
-    // Query temp_emails with service role (bypasses RLS) with retry
-    const { data: tempEmail, error } = await withRetry(async () => {
-      return await supabase
+    const result = await withTimeout(
+      async () => supabase
         .from('temp_emails')
         .select('id, address, domain_id, user_id, expires_at, is_active, created_at, secret_token')
         .eq('id', tempEmailId)
-        .single();
-    });
+        .single(),
+      REQUEST_TIMEOUT_MS
+    );
 
-    if (error || !tempEmail) {
-      const isTimeout = error?.message?.includes('timeout') || error?.message?.includes('connect error');
-      if (isTimeout) {
-        console.error('[validate-temp-email] Database timeout:', error?.message);
-        return new Response(
-          JSON.stringify({ valid: false, error: 'Database timeout', code: 'DB_TIMEOUT', retryable: true }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 503 }
-        );
-      }
-      console.log('[validate-temp-email] Email not found:', error?.message);
+    if (result.error || !result.data) {
+      console.log('[validate-temp-email] Email not found:', result.error?.message);
       return new Response(
         JSON.stringify({ valid: false, error: 'Email not found', code: 'EMAIL_NOT_FOUND' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
       );
     }
+
+    const tempEmail = result.data;
 
     // Validate token
     if (tempEmail.secret_token !== token) {
@@ -185,7 +159,6 @@ serve(async (req) => {
 
     console.log('[validate-temp-email] Email validated successfully:', tempEmail.address);
 
-    // Return validated email (without exposing secret_token to client)
     return new Response(
       JSON.stringify({
         valid: true,
@@ -205,16 +178,14 @@ serve(async (req) => {
   } catch (err) {
     const error = err as Error;
     console.error('[validate-temp-email] Error:', error);
-    const errorMsg = error?.message || '';
-    const isTimeout = errorMsg.includes('timeout') || errorMsg.includes('connect error');
     return new Response(
       JSON.stringify({ 
         valid: false, 
-        error: 'Internal server error',
-        code: isTimeout ? 'DB_TIMEOUT' : 'INTERNAL_ERROR',
-        retryable: isTimeout
+        error: 'Request timeout or connection error',
+        code: 'TIMEOUT',
+        retryable: true
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: isTimeout ? 503 : 500 }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 503 }
     );
   }
 });

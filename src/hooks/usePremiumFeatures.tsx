@@ -233,9 +233,28 @@ export const usePremiumFeatures = () => {
     };
   }, [user, fetchSubscription]);
 
-  // REMOVED: Global realtime subscription to subscription_tiers
-  // This was causing unnecessary load on the DB for all visitors
-  // Tier changes are rare admin actions - users can refresh to see updates
+  // Realtime subscription to subscription_tiers changes (for admins only to reduce load)
+  useEffect(() => {
+    // Only subscribe for logged-in users - skip for guests
+    if (!user) return;
+
+    const tiersChannel = supabase
+      .channel('subscription_tiers_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'subscription_tiers' },
+        () => {
+          console.log('[PremiumFeatures] Subscription tiers changed, refetching...');
+          lastFetchTimeRef.current = 0;
+          fetchSubscription(true);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(tiersChannel);
+    };
+  }, [user, fetchSubscription]);
 
   const price = TIER_PRICES[tier];
 

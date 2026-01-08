@@ -11,3 +11,9 @@ verify_jwt = false
 
 [functions.reset-daily-stats]
 verify_jwt = false
+
+[functions.get-database-metrics]
+verify_jwt = false
+
+[functions.auto-delete-emails]
+verify_jwt = false

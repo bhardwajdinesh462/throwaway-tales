@@ -8,253 +8,457 @@
  * IMPORTANT: Delete this file after installation for security!
  */
 
+// ============================================
+// EARLY ERROR HANDLING - Before anything else
+// ============================================
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+// Catch fatal errors early
+register_shutdown_function(function() {
+    $error = error_get_last();
+    if ($error && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
+        if (!headers_sent()) {
+            header('Content-Type: application/json');
+        }
+        echo json_encode([
+            'success' => false,
+            'error' => 'PHP Fatal Error: ' . $error['message'],
+            'file' => basename($error['file']),
+            'line' => $error['line'],
+            'hint' => 'Check PHP error logs or contact your hosting provider'
+        ]);
+    }
+});
+
+// ============================================
+// PHP VERSION AND EXTENSION CHECKS
+// ============================================
+if (version_compare(PHP_VERSION, '8.0.0', '<')) {
+    header('Content-Type: application/json');
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'PHP 8.0 or higher is required',
+        'current_version' => PHP_VERSION,
+        'hint' => 'Contact your hosting provider to upgrade PHP or select PHP 8.0+ in cPanel PHP Selector'
+    ]);
+    exit;
+}
+
+// Check required extensions
+$requiredExtensions = ['pdo_mysql', 'mbstring', 'json', 'openssl'];
+$missingExtensions = array_filter($requiredExtensions, fn($ext) => !extension_loaded($ext));
+
+if (!empty($missingExtensions)) {
+    header('Content-Type: application/json');
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Missing required PHP extensions',
+        'missing' => array_values($missingExtensions),
+        'hint' => 'Enable these extensions in cPanel PHP Selector or contact your hosting provider'
+    ]);
+    exit;
+}
+
+// ============================================
+// CREATE LOGS DIRECTORY EARLY
+// ============================================
+$logsDir = __DIR__ . '/logs';
+if (!is_dir($logsDir)) {
+    if (!@mkdir($logsDir, 0755, true)) {
+        // Log directory creation failed - continue anyway, but note it
+        error_log("Warning: Could not create logs directory: $logsDir");
+    }
+}
+
+// Protect logs directory
+$logsHtaccess = $logsDir . '/.htaccess';
+if (is_dir($logsDir) && !file_exists($logsHtaccess)) {
+    @file_put_contents($logsHtaccess, "Order deny,allow\nDeny from all\n");
+}
+
 session_start();
 
-// Handle JSON API requests from frontend SetupWizard
+// ============================================
+// JSON API HANDLERS
+// ============================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== false) {
     header('Content-Type: application/json');
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: POST, OPTIONS');
     header('Access-Control-Allow-Headers: Content-Type');
     
-    $input = json_decode(file_get_contents('php://input'), true);
-    $action = $input['action'] ?? '';
-    
-    switch ($action) {
-        case 'check_setup':
-            // Check if installation is needed
-            $needsSetup = !file_exists(__DIR__ . '/config.php') || !file_exists(__DIR__ . '/.install_lock');
-            echo json_encode(['needs_setup' => $needsSetup]);
+    try {
+        $rawInput = file_get_contents('php://input');
+        $input = json_decode($rawInput, true);
+        
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            echo json_encode(['success' => false, 'error' => 'Invalid JSON input: ' . json_last_error_msg()]);
             exit;
-            
-        case 'test_database':
-            $dbHost = trim($input['host'] ?? 'localhost');
-            $dbName = trim($input['name'] ?? '');
-            $dbUser = trim($input['user'] ?? '');
-            $dbPass = $input['pass'] ?? '';
-            
-            try {
-                $pdo = new PDO(
-                    "mysql:host={$dbHost};charset=utf8mb4",
-                    $dbUser,
-                    $dbPass,
-                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-                );
-                $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-                $pdo->exec("USE `{$dbName}`");
-                echo json_encode(['success' => true, 'message' => 'Database connection successful']);
-            } catch (PDOException $e) {
-                echo json_encode(['success' => false, 'error' => 'Database connection failed: ' . $e->getMessage()]);
-            }
-            exit;
-            
-        case 'create_tables':
-            $db = $input;
-            try {
-                $pdo = new PDO(
-                    "mysql:host={$db['host']};dbname={$db['name']};charset=utf8mb4",
-                    $db['user'],
-                    $db['pass'],
-                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-                );
+        }
+        
+        $action = $input['action'] ?? '';
+        
+        switch ($action) {
+            case 'check_setup':
+                // Check if installation is needed
+                $needsSetup = !file_exists(__DIR__ . '/config.php') || !file_exists(__DIR__ . '/.install_lock');
+                echo json_encode([
+                    'needs_setup' => $needsSetup,
+                    'php_version' => PHP_VERSION,
+                    'extensions' => [
+                        'pdo_mysql' => extension_loaded('pdo_mysql'),
+                        'mbstring' => extension_loaded('mbstring'),
+                        'json' => extension_loaded('json'),
+                        'openssl' => extension_loaded('openssl'),
+                        'imap' => extension_loaded('imap'),
+                    ]
+                ]);
+                exit;
                 
-                $schemaPath = __DIR__ . '/schema.sql';
-                if (!file_exists($schemaPath)) {
-                    echo json_encode(['success' => false, 'error' => 'schema.sql not found']);
+            case 'test_database':
+                $dbHost = trim($input['host'] ?? 'localhost');
+                $dbName = trim($input['name'] ?? '');
+                $dbUser = trim($input['user'] ?? '');
+                $dbPass = $input['pass'] ?? '';
+                
+                // Validate inputs
+                if (empty($dbHost) || empty($dbName) || empty($dbUser)) {
+                    echo json_encode(['success' => false, 'error' => 'Host, database name, and username are required']);
                     exit;
                 }
                 
-                $schema = file_get_contents($schemaPath);
-                $statements = preg_split('/;\s*$/m', $schema);
-                $created = 0;
+                try {
+                    $dsn = "mysql:host={$dbHost};charset=utf8mb4";
+                    $pdo = new PDO($dsn, $dbUser, $dbPass, [
+                        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                        PDO::ATTR_TIMEOUT => 10
+                    ]);
+                    
+                    // Try to create/use database
+                    $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+                    $pdo->exec("USE `{$dbName}`");
+                    
+                    echo json_encode([
+                        'success' => true, 
+                        'message' => 'Database connection successful',
+                        'server_info' => $pdo->getAttribute(PDO::ATTR_SERVER_VERSION)
+                    ]);
+                } catch (PDOException $e) {
+                    $errorMsg = $e->getMessage();
+                    $hint = 'Check your database credentials';
+                    
+                    // Provide helpful hints based on error
+                    if (strpos($errorMsg, 'Access denied') !== false) {
+                        $hint = 'Username or password is incorrect. Check credentials in cPanel MySQL Databases.';
+                    } elseif (strpos($errorMsg, 'Unknown database') !== false) {
+                        $hint = 'Database does not exist. Create it in cPanel MySQL Databases first.';
+                    } elseif (strpos($errorMsg, 'Connection refused') !== false) {
+                        $hint = 'Cannot connect to MySQL server. It may be down or the host is incorrect.';
+                    } elseif (strpos($errorMsg, 'getaddrinfo') !== false || strpos($errorMsg, 'Name or service not known') !== false) {
+                        $hint = 'Invalid database host. For cPanel, usually use "localhost".';
+                    }
+                    
+                    echo json_encode([
+                        'success' => false, 
+                        'error' => 'Database connection failed: ' . $errorMsg,
+                        'hint' => $hint
+                    ]);
+                }
+                exit;
                 
-                foreach ($statements as $stmt) {
-                    $stmt = trim($stmt);
-                    if (!empty($stmt) && !preg_match('/^DELIMITER/i', $stmt)) {
-                        try {
-                            $pdo->exec($stmt);
-                            if (stripos($stmt, 'CREATE TABLE') !== false) $created++;
-                        } catch (PDOException $e) {
-                            // Ignore "already exists" errors
-                            if (strpos($e->getMessage(), 'already exists') === false && 
-                                strpos($e->getMessage(), 'Duplicate') === false) {
-                                throw $e;
+            case 'create_tables':
+                $db = $input;
+                try {
+                    $pdo = new PDO(
+                        "mysql:host={$db['host']};dbname={$db['name']};charset=utf8mb4",
+                        $db['user'],
+                        $db['pass'],
+                        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+                    );
+                    
+                    $schemaPath = __DIR__ . '/schema.sql';
+                    if (!file_exists($schemaPath)) {
+                        echo json_encode([
+                            'success' => false, 
+                            'error' => 'schema.sql not found',
+                            'hint' => 'Upload schema.sql to the api/ directory'
+                        ]);
+                        exit;
+                    }
+                    
+                    $schema = file_get_contents($schemaPath);
+                    $statements = preg_split('/;\s*$/m', $schema);
+                    $created = 0;
+                    $errors = [];
+                    
+                    foreach ($statements as $stmt) {
+                        $stmt = trim($stmt);
+                        if (!empty($stmt) && !preg_match('/^DELIMITER/i', $stmt)) {
+                            try {
+                                $pdo->exec($stmt);
+                                if (stripos($stmt, 'CREATE TABLE') !== false) $created++;
+                            } catch (PDOException $e) {
+                                // Ignore "already exists" errors
+                                if (strpos($e->getMessage(), 'already exists') === false && 
+                                    strpos($e->getMessage(), 'Duplicate') === false) {
+                                    $errors[] = $e->getMessage();
+                                }
                             }
                         }
                     }
+                    
+                    if (!empty($errors)) {
+                        echo json_encode([
+                            'success' => false, 
+                            'error' => 'Some tables failed to create',
+                            'details' => array_slice($errors, 0, 5)
+                        ]);
+                    } else {
+                        echo json_encode(['success' => true, 'tables_created' => $created]);
+                    }
+                } catch (PDOException $e) {
+                    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
                 }
-                
-                echo json_encode(['success' => true, 'tables_created' => $created]);
-            } catch (PDOException $e) {
-                echo json_encode(['success' => false, 'error' => $e->getMessage()]);
-            }
-            exit;
-            
-        case 'create_admin':
-            $db = $input['db'] ?? [];
-            $admin = $input['admin'] ?? [];
-            
-            if (empty($admin['email']) || empty($admin['password'])) {
-                echo json_encode(['success' => false, 'error' => 'Email and password required']);
                 exit;
-            }
-            
-            try {
-                $pdo = new PDO(
-                    "mysql:host={$db['host']};dbname={$db['name']};charset=utf8mb4",
-                    $db['user'],
-                    $db['pass'],
-                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-                );
                 
-                $userId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-                    mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000,
-                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
-                $hashedPassword = password_hash($admin['password'], PASSWORD_BCRYPT, ['cost' => 12]);
+            case 'create_admin':
+                $db = $input['db'] ?? [];
+                $admin = $input['admin'] ?? [];
                 
-                // Create user
-                $stmt = $pdo->prepare("INSERT INTO users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())");
-                $stmt->execute([$userId, $admin['email'], $hashedPassword]);
-                
-                // Create profile
-                $profileId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-                    mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000,
-                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
-                $stmt = $pdo->prepare("INSERT INTO profiles (id, user_id, email, display_name, email_verified, created_at, updated_at) VALUES (?, ?, ?, ?, 1, NOW(), NOW())");
-                $stmt->execute([$profileId, $userId, $admin['email'], $admin['display_name'] ?? 'Admin']);
-                
-                // Assign admin role
-                $roleId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-                    mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000,
-                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
-                $stmt = $pdo->prepare("INSERT INTO user_roles (id, user_id, role, created_at) VALUES (?, ?, 'admin', NOW())");
-                $stmt->execute([$roleId, $userId]);
-                
-                echo json_encode(['success' => true, 'user_id' => $userId]);
-            } catch (PDOException $e) {
-                echo json_encode(['success' => false, 'error' => $e->getMessage()]);
-            }
-            exit;
-            
-        case 'save_config':
-            $db = $input['db'] ?? [];
-            $smtp = $input['smtp'] ?? [];
-            $imap = $input['imap'] ?? [];
-            $jwtSecret = bin2hex(random_bytes(32));
-            $diagToken = bin2hex(random_bytes(16));
-            $date = date('Y-m-d H:i:s');
-            
-            // Generate config with both constants (for cron scripts) and array format (for main app)
-            $configContent = "<?php\n/**\n * TempMail Configuration - Generated {$date}\n */\n\n";
-            
-            // Constants for cron scripts and backward compatibility
-            $configContent .= "// Constants for cron scripts\n";
-            $configContent .= "define('DB_HOST', '{$db['host']}');\n";
-            $configContent .= "define('DB_NAME', '{$db['name']}');\n";
-            $configContent .= "define('DB_USER', '{$db['user']}');\n";
-            $configContent .= "define('DB_PASS', '{$db['pass']}');\n\n";
-            $configContent .= "define('JWT_SECRET', '{$jwtSecret}');\n";
-            $configContent .= "define('JWT_EXPIRY', 604800);\n\n";
-            $configContent .= "define('SMTP_HOST', '{$smtp['host']}');\n";
-            $configContent .= "define('SMTP_PORT', {$smtp['port']});\n";
-            $configContent .= "define('SMTP_USER', '{$smtp['user']}');\n";
-            $configContent .= "define('SMTP_PASS', '{$smtp['pass']}');\n";
-            $configContent .= "define('SMTP_FROM', '{$smtp['from']}');\n\n";
-            $configContent .= "define('IMAP_HOST', '{$imap['host']}');\n";
-            $configContent .= "define('IMAP_PORT', {$imap['port']});\n";
-            $configContent .= "define('IMAP_USER', '{$imap['user']}');\n";
-            $configContent .= "define('IMAP_PASS', '{$imap['pass']}');\n\n";
-            $configContent .= "define('STORAGE_PATH', __DIR__ . '/storage');\n";
-            $configContent .= "define('ENCRYPTION_KEY', '{$jwtSecret}');\n";
-            $configContent .= "define('CORS_ORIGIN', '*');\n\n";
-            
-            // Array format for main application
-            $configContent .= "// Array format for main application\n";
-            $configContent .= "return [\n";
-            $configContent .= "    'db' => [\n";
-            $configContent .= "        'host' => '{$db['host']}',\n";
-            $configContent .= "        'name' => '{$db['name']}',\n";
-            $configContent .= "        'user' => '{$db['user']}',\n";
-            $configContent .= "        'pass' => '{$db['pass']}',\n";
-            $configContent .= "        'charset' => 'utf8mb4'\n";
-            $configContent .= "    ],\n";
-            $configContent .= "    'jwt' => [\n";
-            $configContent .= "        'secret' => '{$jwtSecret}',\n";
-            $configContent .= "        'expiry' => 604800\n";
-            $configContent .= "    ],\n";
-            $configContent .= "    'smtp' => [\n";
-            $configContent .= "        'host' => '{$smtp['host']}',\n";
-            $configContent .= "        'port' => {$smtp['port']},\n";
-            $configContent .= "        'user' => '{$smtp['user']}',\n";
-            $configContent .= "        'pass' => '{$smtp['pass']}',\n";
-            $configContent .= "        'from' => '{$smtp['from']}'\n";
-            $configContent .= "    ],\n";
-            $configContent .= "    'imap' => [\n";
-            $configContent .= "        'host' => '{$imap['host']}',\n";
-            $configContent .= "        'port' => {$imap['port']},\n";
-            $configContent .= "        'user' => '{$imap['user']}',\n";
-            $configContent .= "        'pass' => '{$imap['pass']}'\n";
-            $configContent .= "    ],\n";
-            $configContent .= "    'cors' => [\n";
-            $configContent .= "        'origins' => ['*']\n";
-            $configContent .= "    ],\n";
-            $configContent .= "    'diag_token' => '{$diagToken}',\n";
-            $configContent .= "    'site_name' => 'TempMail',\n";
-            $configContent .= "    'site_url' => ''\n";
-            $configContent .= "];\n";
-            
-            if (file_put_contents(__DIR__ . '/config.php', $configContent)) {
-                // Create directories
-                foreach (['/storage', '/storage/avatars', '/storage/attachments', '/logs'] as $dir) {
-                    if (!is_dir(__DIR__ . $dir)) mkdir(__DIR__ . $dir, 0755, true);
+                if (empty($admin['email']) || empty($admin['password'])) {
+                    echo json_encode(['success' => false, 'error' => 'Email and password required']);
+                    exit;
                 }
                 
-                // Protect logs directory
-                $logsHtaccess = __DIR__ . '/logs/.htaccess';
-                if (!file_exists($logsHtaccess)) {
-                    file_put_contents($logsHtaccess, "Order deny,allow\nDeny from all\n");
+                // Validate email
+                if (!filter_var($admin['email'], FILTER_VALIDATE_EMAIL)) {
+                    echo json_encode(['success' => false, 'error' => 'Invalid email address']);
+                    exit;
                 }
                 
-                // Create index.php in logs to prevent directory listing
-                $logsIndex = __DIR__ . '/logs/index.php';
-                if (!file_exists($logsIndex)) {
-                    file_put_contents($logsIndex, '<?php // Silence is golden');
+                // Validate password strength
+                if (strlen($admin['password']) < 8) {
+                    echo json_encode(['success' => false, 'error' => 'Password must be at least 8 characters']);
+                    exit;
                 }
                 
-                echo json_encode(['success' => true]);
-            } else {
-                echo json_encode(['success' => false, 'error' => 'Failed to write config.php']);
-            }
-            exit;
-            
-        case 'complete_setup':
-            file_put_contents(__DIR__ . '/.install_lock', date('Y-m-d H:i:s'));
-            echo json_encode(['success' => true]);
-            exit;
-            
-        default:
-            echo json_encode(['error' => 'Unknown action']);
-            exit;
+                try {
+                    $pdo = new PDO(
+                        "mysql:host={$db['host']};dbname={$db['name']};charset=utf8mb4",
+                        $db['user'],
+                        $db['pass'],
+                        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+                    );
+                    
+                    $userId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+                        mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+                        mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000,
+                        mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+                    $hashedPassword = password_hash($admin['password'], PASSWORD_BCRYPT, ['cost' => 12]);
+                    
+                    // Create user
+                    $stmt = $pdo->prepare("INSERT INTO users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())");
+                    $stmt->execute([$userId, $admin['email'], $hashedPassword]);
+                    
+                    // Create profile
+                    $profileId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+                        mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+                        mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000,
+                        mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+                    $stmt = $pdo->prepare("INSERT INTO profiles (id, user_id, email, display_name, email_verified, created_at, updated_at) VALUES (?, ?, ?, ?, 1, NOW(), NOW())");
+                    $stmt->execute([$profileId, $userId, $admin['email'], $admin['display_name'] ?? 'Admin']);
+                    
+                    // Assign admin role
+                    $roleId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+                        mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+                        mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000,
+                        mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+                    $stmt = $pdo->prepare("INSERT INTO user_roles (id, user_id, role, created_at) VALUES (?, ?, 'admin', NOW())");
+                    $stmt->execute([$roleId, $userId]);
+                    
+                    echo json_encode(['success' => true, 'user_id' => $userId]);
+                } catch (PDOException $e) {
+                    $error = $e->getMessage();
+                    if (strpos($error, 'Duplicate entry') !== false) {
+                        echo json_encode(['success' => false, 'error' => 'An admin with this email already exists']);
+                    } else {
+                        echo json_encode(['success' => false, 'error' => $error]);
+                    }
+                }
+                exit;
+                
+            case 'save_config':
+                $db = $input['db'] ?? [];
+                $smtp = $input['smtp'] ?? [];
+                $imap = $input['imap'] ?? [];
+                $jwtSecret = bin2hex(random_bytes(32));
+                $diagToken = bin2hex(random_bytes(16));
+                $date = date('Y-m-d H:i:s');
+                
+                // Escape values for PHP string
+                $escapeForPhp = function($val) {
+                    return addslashes($val);
+                };
+                
+                // Generate config with both constants (for cron scripts) and array format (for main app)
+                $configContent = "<?php\n/**\n * TempMail Configuration - Generated {$date}\n * \n * SECURITY: Keep this file secure! Contains database credentials.\n */\n\n";
+                
+                // Constants for cron scripts and backward compatibility
+                $configContent .= "// Database constants for cron scripts\n";
+                $configContent .= "define('DB_HOST', '" . $escapeForPhp($db['host']) . "');\n";
+                $configContent .= "define('DB_NAME', '" . $escapeForPhp($db['name']) . "');\n";
+                $configContent .= "define('DB_USER', '" . $escapeForPhp($db['user']) . "');\n";
+                $configContent .= "define('DB_PASS', '" . $escapeForPhp($db['pass']) . "');\n\n";
+                $configContent .= "define('JWT_SECRET', '{$jwtSecret}');\n";
+                $configContent .= "define('JWT_EXPIRY', 604800);\n\n";
+                $configContent .= "define('SMTP_HOST', '" . $escapeForPhp($smtp['host'] ?? '') . "');\n";
+                $configContent .= "define('SMTP_PORT', " . intval($smtp['port'] ?? 587) . ");\n";
+                $configContent .= "define('SMTP_USER', '" . $escapeForPhp($smtp['user'] ?? '') . "');\n";
+                $configContent .= "define('SMTP_PASS', '" . $escapeForPhp($smtp['pass'] ?? '') . "');\n";
+                $configContent .= "define('SMTP_FROM', '" . $escapeForPhp($smtp['from'] ?? '') . "');\n\n";
+                $configContent .= "define('IMAP_HOST', '" . $escapeForPhp($imap['host'] ?? '') . "');\n";
+                $configContent .= "define('IMAP_PORT', " . intval($imap['port'] ?? 993) . ");\n";
+                $configContent .= "define('IMAP_USER', '" . $escapeForPhp($imap['user'] ?? '') . "');\n";
+                $configContent .= "define('IMAP_PASS', '" . $escapeForPhp($imap['pass'] ?? '') . "');\n\n";
+                $configContent .= "define('STORAGE_PATH', __DIR__ . '/storage');\n";
+                $configContent .= "define('ENCRYPTION_KEY', '{$jwtSecret}');\n";
+                $configContent .= "define('CORS_ORIGIN', '*');\n\n";
+                
+                // Array format for main application
+                $configContent .= "// Array format for main application\n";
+                $configContent .= "return [\n";
+                $configContent .= "    'db' => [\n";
+                $configContent .= "        'host' => '" . $escapeForPhp($db['host']) . "',\n";
+                $configContent .= "        'name' => '" . $escapeForPhp($db['name']) . "',\n";
+                $configContent .= "        'user' => '" . $escapeForPhp($db['user']) . "',\n";
+                $configContent .= "        'pass' => '" . $escapeForPhp($db['pass']) . "',\n";
+                $configContent .= "        'charset' => 'utf8mb4'\n";
+                $configContent .= "    ],\n";
+                $configContent .= "    'jwt' => [\n";
+                $configContent .= "        'secret' => '{$jwtSecret}',\n";
+                $configContent .= "        'expiry' => 604800\n";
+                $configContent .= "    ],\n";
+                $configContent .= "    'smtp' => [\n";
+                $configContent .= "        'host' => '" . $escapeForPhp($smtp['host'] ?? '') . "',\n";
+                $configContent .= "        'port' => " . intval($smtp['port'] ?? 587) . ",\n";
+                $configContent .= "        'user' => '" . $escapeForPhp($smtp['user'] ?? '') . "',\n";
+                $configContent .= "        'pass' => '" . $escapeForPhp($smtp['pass'] ?? '') . "',\n";
+                $configContent .= "        'from' => '" . $escapeForPhp($smtp['from'] ?? '') . "'\n";
+                $configContent .= "    ],\n";
+                $configContent .= "    'imap' => [\n";
+                $configContent .= "        'host' => '" . $escapeForPhp($imap['host'] ?? '') . "',\n";
+                $configContent .= "        'port' => " . intval($imap['port'] ?? 993) . ",\n";
+                $configContent .= "        'user' => '" . $escapeForPhp($imap['user'] ?? '') . "',\n";
+                $configContent .= "        'pass' => '" . $escapeForPhp($imap['pass'] ?? '') . "'\n";
+                $configContent .= "    ],\n";
+                $configContent .= "    'cors' => [\n";
+                $configContent .= "        'origins' => ['*']\n";
+                $configContent .= "    ],\n";
+                $configContent .= "    'diag_token' => '{$diagToken}',\n";
+                $configContent .= "    'site_name' => 'TempMail',\n";
+                $configContent .= "    'site_url' => ''\n";
+                $configContent .= "];\n";
+                
+                $configPath = __DIR__ . '/config.php';
+                if (file_put_contents($configPath, $configContent)) {
+                    // Secure the config file
+                    @chmod($configPath, 0600);
+                    
+                    // Create directories
+                    foreach (['/storage', '/storage/avatars', '/storage/attachments', '/logs'] as $dir) {
+                        $dirPath = __DIR__ . $dir;
+                        if (!is_dir($dirPath)) {
+                            @mkdir($dirPath, 0755, true);
+                        }
+                    }
+                    
+                    // Protect logs directory
+                    $logsHtaccess = __DIR__ . '/logs/.htaccess';
+                    if (!file_exists($logsHtaccess)) {
+                        file_put_contents($logsHtaccess, "Order deny,allow\nDeny from all\n");
+                    }
+                    
+                    // Create index.php in logs to prevent directory listing
+                    $logsIndex = __DIR__ . '/logs/index.php';
+                    if (!file_exists($logsIndex)) {
+                        file_put_contents($logsIndex, '<?php // Silence is golden');
+                    }
+                    
+                    // Protect storage directory
+                    $storageHtaccess = __DIR__ . '/storage/.htaccess';
+                    if (!file_exists($storageHtaccess)) {
+                        file_put_contents($storageHtaccess, "# Protect direct access to files\n<FilesMatch \"\\.php$\">\nOrder deny,allow\nDeny from all\n</FilesMatch>\n");
+                    }
+                    
+                    echo json_encode([
+                        'success' => true,
+                        'diag_token' => $diagToken,
+                        'message' => 'Configuration saved. Keep the diag_token for diagnostics access.'
+                    ]);
+                } else {
+                    echo json_encode([
+                        'success' => false, 
+                        'error' => 'Failed to write config.php',
+                        'hint' => 'Check that the api/ directory is writable. In cPanel, set permissions to 755.'
+                    ]);
+                }
+                exit;
+                
+            case 'complete_setup':
+                file_put_contents(__DIR__ . '/.install_lock', date('Y-m-d H:i:s'));
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'Installation complete! Please delete install.php for security.'
+                ]);
+                exit;
+                
+            default:
+                http_response_code(400);
+                echo json_encode(['error' => 'Unknown action: ' . $action]);
+                exit;
+        }
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Server error: ' . $e->getMessage(),
+            'hint' => 'Check PHP error logs for more details'
+        ]);
+        exit;
     }
 }
 
 // Handle CORS preflight
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     header('Access-Control-Allow-Origin: *');
-    header('Access-Control-Allow-Methods: POST, OPTIONS');
+    header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
     header('Access-Control-Allow-Headers: Content-Type');
     exit;
 }
 
 // Check if already installed (for HTML version)
 if (file_exists(__DIR__ . '/.install_lock') && !isset($_GET['force'])) {
-    die('<h1>Installation Complete</h1><p>TempMail is already installed. Delete this file for security.</p>');
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!DOCTYPE html><html><head><title>TempMail - Already Installed</title>';
+    echo '<style>body{font-family:system-ui,sans-serif;max-width:600px;margin:100px auto;padding:20px;text-align:center;}';
+    echo '.warning{background:#fef3c7;border:1px solid #f59e0b;padding:20px;border-radius:8px;margin:20px 0;}';
+    echo 'h1{color:#059669;}</style></head><body>';
+    echo '<h1>✅ TempMail Already Installed</h1>';
+    echo '<div class="warning"><strong>⚠️ Security Warning:</strong><br>Delete this file (install.php) immediately for security!</div>';
+    echo '<p>Your TempMail backend is already configured.</p>';
+    echo '<p><a href="/api/health">Check API Health</a></p>';
+    echo '</body></html>';
+    exit;
 }
 
-// Installation steps
+// ============================================
+// HTML INSTALLATION WIZARD
+// ============================================
+
 $steps = [
     1 => 'Requirements Check',
     2 => 'Database Configuration',
@@ -294,7 +498,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     "mysql:host={$dbHost};charset=utf8mb4",
                     $dbUser,
                     $dbPass,
-                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_TIMEOUT => 10]
                 );
                 
                 // Check if database exists, create if not
@@ -312,7 +516,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $success[] = "Database connection successful!";
                 $currentStep = 3;
             } catch (PDOException $e) {
-                $errors[] = "Database connection failed: " . $e->getMessage();
+                $msg = $e->getMessage();
+                $hint = '';
+                if (strpos($msg, 'Access denied') !== false) {
+                    $hint = ' Check your username/password in cPanel MySQL Databases.';
+                } elseif (strpos($msg, 'Connection refused') !== false) {
+                    $hint = ' MySQL server may be down. Contact your hosting provider.';
+                }
+                $errors[] = "Database connection failed: " . $msg . $hint;
             }
             break;
             
@@ -347,11 +558,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $currentStmt = '';
                 $inString = false;
                 $stringChar = '';
-                $inDelimiter = false;
                 
                 for ($i = 0; $i < strlen($schema); $i++) {
                     $char = $schema[$i];
-                    $nextChar = $i + 1 < strlen($schema) ? $schema[$i + 1] : '';
                     
                     // Track string literals
                     if (($char === '"' || $char === "'") && ($i === 0 || $schema[$i - 1] !== '\\')) {
@@ -404,27 +613,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 4:
             // Create admin account
             if (!isset($_SESSION['db'])) {
-                $errors[] = "Database configuration not found.";
+                $errors[] = "Database configuration not found. Please go back to step 2.";
                 $currentStep = 2;
                 break;
             }
             
             $adminEmail = trim($_POST['admin_email'] ?? '');
-            $adminPassword = $_POST['admin_password'] ?? '';
-            $adminPasswordConfirm = $_POST['admin_password_confirm'] ?? '';
+            $adminPass = $_POST['admin_pass'] ?? '';
             $adminName = trim($_POST['admin_name'] ?? 'Admin');
             
-            // Validation
-            if (empty($adminEmail) || !filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
-                $errors[] = "Please enter a valid email address.";
+            if (empty($adminEmail) || empty($adminPass)) {
+                $errors[] = "Email and password are required.";
                 break;
             }
-            if (strlen($adminPassword) < 8) {
-                $errors[] = "Password must be at least 8 characters long.";
+            
+            if (!filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
+                $errors[] = "Invalid email address format.";
                 break;
             }
-            if ($adminPassword !== $adminPasswordConfirm) {
-                $errors[] = "Passwords do not match.";
+            
+            if (strlen($adminPass) < 8) {
+                $errors[] = "Password must be at least 8 characters.";
                 break;
             }
             
@@ -437,1006 +646,574 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
                 );
                 
-                // Check if email already exists
-                $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
-                $stmt->execute([$adminEmail]);
-                if ($stmt->fetch()) {
-                    $errors[] = "An account with this email already exists.";
-                    break;
-                }
+                $userId = generateInstallUUID();
+                $hashedPassword = password_hash($adminPass, PASSWORD_BCRYPT, ['cost' => 12]);
                 
                 // Create user
-                $userId = generateInstallUUID();
-                $hashedPassword = password_hash($adminPassword, PASSWORD_BCRYPT, ['cost' => 12]);
-                
-                $stmt = $pdo->prepare("
-                    INSERT INTO users (id, email, password_hash, created_at, updated_at)
-                    VALUES (?, ?, ?, NOW(), NOW())
-                ");
+                $stmt = $pdo->prepare("INSERT INTO users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())");
                 $stmt->execute([$userId, $adminEmail, $hashedPassword]);
                 
                 // Create profile
                 $profileId = generateInstallUUID();
-                $stmt = $pdo->prepare("
-                    INSERT INTO profiles (id, user_id, email, display_name, email_verified, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, 1, NOW(), NOW())
-                ");
+                $stmt = $pdo->prepare("INSERT INTO profiles (id, user_id, email, display_name, email_verified, created_at, updated_at) VALUES (?, ?, ?, ?, 1, NOW(), NOW())");
                 $stmt->execute([$profileId, $userId, $adminEmail, $adminName]);
                 
                 // Assign admin role
                 $roleId = generateInstallUUID();
-                $stmt = $pdo->prepare("
-                    INSERT INTO user_roles (id, user_id, role, created_at)
-                    VALUES (?, ?, 'admin', NOW())
-                ");
+                $stmt = $pdo->prepare("INSERT INTO user_roles (id, user_id, role, created_at) VALUES (?, ?, 'admin', NOW())");
                 $stmt->execute([$roleId, $userId]);
                 
                 $_SESSION['admin_created'] = true;
-                $_SESSION['admin_email'] = $adminEmail;
-                
                 $success[] = "Admin account created successfully!";
                 $currentStep = 5;
             } catch (PDOException $e) {
-                $errors[] = "Failed to create admin account: " . $e->getMessage();
+                if (strpos($e->getMessage(), 'Duplicate entry') !== false) {
+                    $errors[] = "An account with this email already exists.";
+                } else {
+                    $errors[] = "Failed to create admin: " . $e->getMessage();
+                }
             }
             break;
             
         case 5:
-            // Save SMTP configuration and generate config file
+            // Save configuration
             if (!isset($_SESSION['db'])) {
-                $errors[] = "Database configuration not found.";
+                $errors[] = "Database configuration not found. Please go back to step 2.";
                 $currentStep = 2;
                 break;
             }
             
             $db = $_SESSION['db'];
-            $siteName = trim($_POST['site_name'] ?? 'TempMail');
-            $siteUrl = rtrim(trim($_POST['site_url'] ?? ''), '/');
-            $jwtSecret = $_POST['jwt_secret'] ?? bin2hex(random_bytes(32));
-            $corsOrigin = trim($_POST['cors_origin'] ?? '*');
-            
-            // SMTP settings
-            $smtpHost = trim($_POST['smtp_host'] ?? '');
-            $smtpPort = (int)($_POST['smtp_port'] ?? 587);
-            $smtpUser = trim($_POST['smtp_user'] ?? '');
-            $smtpPass = $_POST['smtp_pass'] ?? '';
-            $smtpFrom = trim($_POST['smtp_from'] ?? '');
-            $smtpEncryption = $_POST['smtp_encryption'] ?? 'tls';
-            
-            // IMAP settings
-            $imapHost = trim($_POST['imap_host'] ?? '');
-            $imapPort = (int)($_POST['imap_port'] ?? 993);
-            $imapUser = trim($_POST['imap_user'] ?? '');
-            $imapPass = $_POST['imap_pass'] ?? '';
-            
-            $date = date('Y-m-d H:i:s');
-            
-            // Generate config.php content
-            $configContent = <<<PHP
-<?php
-/**
- * TempMail PHP Backend Configuration
- * Generated by installer on {$date}
- */
-
-// Database Configuration
-define('DB_HOST', '{$db['host']}');
-define('DB_NAME', '{$db['name']}');
-define('DB_USER', '{$db['user']}');
-define('DB_PASS', '{$db['pass']}');
-
-// Application Settings
-define('SITE_NAME', '{$siteName}');
-define('SITE_URL', '{$siteUrl}');
-
-// JWT Configuration
-define('JWT_SECRET', '{$jwtSecret}');
-define('JWT_EXPIRY', 86400 * 7); // 7 days
-
-// CORS Configuration
-define('CORS_ORIGIN', '{$corsOrigin}');
-
-// SMTP Configuration (for sending emails)
-define('SMTP_HOST', '{$smtpHost}');
-define('SMTP_PORT', {$smtpPort});
-define('SMTP_USER', '{$smtpUser}');
-define('SMTP_PASS', '{$smtpPass}');
-define('SMTP_FROM', '{$smtpFrom}');
-define('SMTP_ENCRYPTION', '{$smtpEncryption}');
-
-// IMAP Configuration (for receiving emails)
-define('IMAP_HOST', '{$imapHost}');
-define('IMAP_PORT', {$imapPort});
-define('IMAP_USER', '{$imapUser}');
-define('IMAP_PASS', '{$imapPass}');
-
-// Storage Configuration
-define('STORAGE_PATH', __DIR__ . '/storage');
-define('MAX_UPLOAD_SIZE', 10 * 1024 * 1024); // 10MB
-
-// Rate Limiting
-define('RATE_LIMIT_REQUESTS', 100);
-define('RATE_LIMIT_WINDOW', 60); // seconds
-
-// Email Settings
-define('DEFAULT_EMAIL_EXPIRY_HOURS', 24);
-define('MAX_TEMP_EMAILS_PER_USER', 10);
-
-// Security
-define('BCRYPT_COST', 12);
-define('SESSION_LIFETIME', 86400 * 7); // 7 days
-
-// Encryption key for sensitive data
-define('ENCRYPTION_KEY', '{$jwtSecret}');
-PHP;
-
-            // Write config file
-            $configPath = __DIR__ . '/config.php';
-            if (file_put_contents($configPath, $configContent) === false) {
-                $errors[] = "Failed to write config.php. Please check directory permissions.";
-                break;
-            }
-            
-            // Create storage directories
-            $storageDirs = [
-                __DIR__ . '/storage',
-                __DIR__ . '/storage/avatars',
-                __DIR__ . '/storage/attachments',
-                __DIR__ . '/storage/banners',
-                __DIR__ . '/storage/backups',
-                __DIR__ . '/logs'
+            $smtp = [
+                'host' => trim($_POST['smtp_host'] ?? ''),
+                'port' => intval($_POST['smtp_port'] ?? 587),
+                'user' => trim($_POST['smtp_user'] ?? ''),
+                'pass' => $_POST['smtp_pass'] ?? '',
+                'from' => trim($_POST['smtp_from'] ?? '')
+            ];
+            $imap = [
+                'host' => trim($_POST['imap_host'] ?? ''),
+                'port' => intval($_POST['imap_port'] ?? 993),
+                'user' => trim($_POST['imap_user'] ?? ''),
+                'pass' => $_POST['imap_pass'] ?? ''
             ];
             
-            foreach ($storageDirs as $dir) {
-                if (!is_dir($dir)) {
-                    mkdir($dir, 0755, true);
+            $jwtSecret = bin2hex(random_bytes(32));
+            $diagToken = bin2hex(random_bytes(16));
+            
+            // Escape values for PHP string
+            $escapeForPhp = function($val) {
+                return addslashes($val);
+            };
+            
+            $date = date('Y-m-d H:i:s');
+            $configContent = "<?php\n/**\n * TempMail Configuration - Generated {$date}\n */\n\n";
+            
+            // Constants for cron scripts
+            $configContent .= "// Constants for cron scripts\n";
+            $configContent .= "define('DB_HOST', '" . $escapeForPhp($db['host']) . "');\n";
+            $configContent .= "define('DB_NAME', '" . $escapeForPhp($db['name']) . "');\n";
+            $configContent .= "define('DB_USER', '" . $escapeForPhp($db['user']) . "');\n";
+            $configContent .= "define('DB_PASS', '" . $escapeForPhp($db['pass']) . "');\n\n";
+            $configContent .= "define('JWT_SECRET', '{$jwtSecret}');\n";
+            $configContent .= "define('JWT_EXPIRY', 604800);\n\n";
+            $configContent .= "define('SMTP_HOST', '" . $escapeForPhp($smtp['host']) . "');\n";
+            $configContent .= "define('SMTP_PORT', {$smtp['port']});\n";
+            $configContent .= "define('SMTP_USER', '" . $escapeForPhp($smtp['user']) . "');\n";
+            $configContent .= "define('SMTP_PASS', '" . $escapeForPhp($smtp['pass']) . "');\n";
+            $configContent .= "define('SMTP_FROM', '" . $escapeForPhp($smtp['from']) . "');\n\n";
+            $configContent .= "define('IMAP_HOST', '" . $escapeForPhp($imap['host']) . "');\n";
+            $configContent .= "define('IMAP_PORT', {$imap['port']});\n";
+            $configContent .= "define('IMAP_USER', '" . $escapeForPhp($imap['user']) . "');\n";
+            $configContent .= "define('IMAP_PASS', '" . $escapeForPhp($imap['pass']) . "');\n\n";
+            $configContent .= "define('STORAGE_PATH', __DIR__ . '/storage');\n";
+            $configContent .= "define('ENCRYPTION_KEY', '{$jwtSecret}');\n";
+            $configContent .= "define('CORS_ORIGIN', '*');\n\n";
+            
+            // Array format
+            $configContent .= "return [\n";
+            $configContent .= "    'db' => [\n";
+            $configContent .= "        'host' => '" . $escapeForPhp($db['host']) . "',\n";
+            $configContent .= "        'name' => '" . $escapeForPhp($db['name']) . "',\n";
+            $configContent .= "        'user' => '" . $escapeForPhp($db['user']) . "',\n";
+            $configContent .= "        'pass' => '" . $escapeForPhp($db['pass']) . "',\n";
+            $configContent .= "        'charset' => 'utf8mb4'\n";
+            $configContent .= "    ],\n";
+            $configContent .= "    'jwt' => ['secret' => '{$jwtSecret}', 'expiry' => 604800],\n";
+            $configContent .= "    'smtp' => [\n";
+            $configContent .= "        'host' => '" . $escapeForPhp($smtp['host']) . "',\n";
+            $configContent .= "        'port' => {$smtp['port']},\n";
+            $configContent .= "        'user' => '" . $escapeForPhp($smtp['user']) . "',\n";
+            $configContent .= "        'pass' => '" . $escapeForPhp($smtp['pass']) . "',\n";
+            $configContent .= "        'from' => '" . $escapeForPhp($smtp['from']) . "'\n";
+            $configContent .= "    ],\n";
+            $configContent .= "    'imap' => [\n";
+            $configContent .= "        'host' => '" . $escapeForPhp($imap['host']) . "',\n";
+            $configContent .= "        'port' => {$imap['port']},\n";
+            $configContent .= "        'user' => '" . $escapeForPhp($imap['user']) . "',\n";
+            $configContent .= "        'pass' => '" . $escapeForPhp($imap['pass']) . "'\n";
+            $configContent .= "    ],\n";
+            $configContent .= "    'cors' => ['origins' => ['*']],\n";
+            $configContent .= "    'diag_token' => '{$diagToken}',\n";
+            $configContent .= "    'site_name' => 'TempMail',\n";
+            $configContent .= "    'site_url' => ''\n";
+            $configContent .= "];\n";
+            
+            $configPath = __DIR__ . '/config.php';
+            if (file_put_contents($configPath, $configContent)) {
+                @chmod($configPath, 0600);
+                
+                // Create directories
+                foreach (['/storage', '/storage/avatars', '/storage/attachments', '/logs'] as $dir) {
+                    $dirPath = __DIR__ . $dir;
+                    if (!is_dir($dirPath)) @mkdir($dirPath, 0755, true);
                 }
-            }
-            
-            // Create .htaccess in storage to protect files
-            $storageHtaccess = <<<HTACCESS
-# Protect storage directory
-Options -Indexes
-
-# Only allow specific file types to be accessed directly
-<FilesMatch "\.(jpg|jpeg|png|gif|webp|svg|ico|pdf)$">
-    Order allow,deny
-    Allow from all
-</FilesMatch>
-
-# Deny access to everything else
-<FilesMatch "^(?!.*\.(jpg|jpeg|png|gif|webp|svg|ico|pdf)$).*$">
-    Order allow,deny
-    Deny from all
-</FilesMatch>
-HTACCESS;
-            file_put_contents(__DIR__ . '/storage/.htaccess', $storageHtaccess);
-            
-            // Create logs .htaccess
-            file_put_contents(__DIR__ . '/logs/.htaccess', "Order allow,deny\nDeny from all");
-            
-            // Create install lock file
-            file_put_contents(__DIR__ . '/.install_lock', date('Y-m-d H:i:s'));
-            
-            // If SMTP configured, save to mailboxes table
-            if (!empty($smtpHost) && !empty($smtpUser)) {
-                try {
-                    $pdo = new PDO(
-                        "mysql:host={$db['host']};dbname={$db['name']};charset=utf8mb4",
-                        $db['user'],
-                        $db['pass'],
-                        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-                    );
-                    
-                    $mailboxId = generateInstallUUID();
-                    $stmt = $pdo->prepare("
-                        INSERT INTO mailboxes (id, name, smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, 
-                                              imap_host, imap_port, imap_user, imap_password, receiving_email,
-                                              is_active, priority, hourly_limit, daily_limit, created_at, updated_at)
-                        VALUES (?, 'Primary Mailbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 100, 1000, NOW(), NOW())
-                    ");
-                    $stmt->execute([
-                        $mailboxId, 
-                        $smtpHost, $smtpPort, $smtpUser, $smtpPass, $smtpFrom,
-                        $imapHost, $imapPort, $imapUser, $imapPass, $smtpFrom
-                    ]);
-                } catch (PDOException $e) {
-                    // Non-critical, continue
+                
+                // Protect directories
+                foreach (['/logs', '/storage'] as $dir) {
+                    $htaccess = __DIR__ . $dir . '/.htaccess';
+                    if (!file_exists($htaccess)) {
+                        file_put_contents($htaccess, "Order deny,allow\nDeny from all\n");
+                    }
                 }
+                
+                // Create install lock
+                file_put_contents(__DIR__ . '/.install_lock', date('Y-m-d H:i:s'));
+                
+                $_SESSION['diag_token'] = $diagToken;
+                $currentStep = 6;
+            } else {
+                $errors[] = "Failed to write config.php. Check directory permissions (should be 755).";
             }
-            
-            $success[] = "Configuration saved successfully!";
-            $_SESSION['install_complete'] = true;
-            $currentStep = 6;
             break;
     }
 }
 
-// Check requirements
-function checkRequirements(): array {
-    $requirements = [];
-    
-    // PHP Version
-    $requirements['PHP 8.0+'] = version_compare(PHP_VERSION, '8.0.0', '>=');
-    
-    // Extensions
-    $requirements['PDO Extension'] = extension_loaded('pdo');
-    $requirements['PDO MySQL'] = extension_loaded('pdo_mysql');
-    $requirements['JSON Extension'] = extension_loaded('json');
-    $requirements['OpenSSL Extension'] = extension_loaded('openssl');
-    $requirements['Mbstring Extension'] = extension_loaded('mbstring');
-    
-    // Optional but recommended
-    $requirements['IMAP Extension (optional)'] = extension_loaded('imap');
-    $requirements['cURL Extension'] = extension_loaded('curl');
-    
-    // Writeable directories
-    $requirements['Directory Writeable'] = is_writable(__DIR__);
-    
-    return $requirements;
-}
-
-$requirements = checkRequirements();
-$allRequirementsMet = !in_array(false, array_slice($requirements, 0, 6)); // Only required ones
-
+// Generate HTML page
+header('Content-Type: text/html; charset=utf-8');
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TempMail Installer</title>
+    <title>TempMail Installation</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
-            color: #e4e4e7;
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: system-ui, -apple-system, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            padding: 2rem;
+            padding: 20px;
         }
-        
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
+        .container { max-width: 700px; margin: 0 auto; }
+        .card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
         }
-        
         .header {
+            background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
+            color: white;
+            padding: 30px;
             text-align: center;
-            margin-bottom: 2rem;
         }
-        
-        .header h1 {
-            font-size: 2.5rem;
-            background: linear-gradient(135deg, #14b8a6, #8b5cf6);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 0.5rem;
-        }
-        
-        .header p {
-            color: #a1a1aa;
-        }
-        
+        .header h1 { font-size: 28px; margin-bottom: 10px; }
+        .header p { opacity: 0.9; }
         .steps {
             display: flex;
-            justify-content: space-between;
-            margin-bottom: 2rem;
-            padding: 0 1rem;
+            justify-content: center;
+            gap: 8px;
+            padding: 20px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
             flex-wrap: wrap;
-            gap: 0.5rem;
         }
-        
         .step {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 0.5rem;
-            flex: 1;
-            min-width: 60px;
-        }
-        
-        .step-number {
             width: 36px;
             height: 36px;
             border-radius: 50%;
-            background: #27272a;
-            border: 2px solid #3f3f46;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-weight: bold;
-            font-size: 0.875rem;
+            font-weight: 600;
+            font-size: 14px;
+            background: #e2e8f0;
+            color: #64748b;
         }
-        
-        .step.active .step-number {
-            background: linear-gradient(135deg, #14b8a6, #8b5cf6);
-            border-color: #14b8a6;
-        }
-        
-        .step.completed .step-number {
-            background: #22c55e;
-            border-color: #22c55e;
-        }
-        
-        .step-label {
-            font-size: 0.65rem;
-            color: #71717a;
-            text-align: center;
-        }
-        
-        .step.active .step-label {
-            color: #14b8a6;
-        }
-        
-        .card {
-            background: rgba(39, 39, 42, 0.8);
-            border: 1px solid #3f3f46;
-            border-radius: 1rem;
-            padding: 2rem;
-            backdrop-filter: blur(10px);
-        }
-        
-        .card h2 {
-            margin-bottom: 1.5rem;
-            color: #fafafa;
-        }
-        
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-        
+        .step.active { background: #3b82f6; color: white; }
+        .step.done { background: #10b981; color: white; }
+        .content { padding: 30px; }
+        .form-group { margin-bottom: 20px; }
         .form-group label {
             display: block;
-            margin-bottom: 0.5rem;
-            color: #a1a1aa;
-            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #334155;
         }
-        
-        .form-group input, .form-group select {
+        .form-group input {
             width: 100%;
-            padding: 0.75rem 1rem;
-            border: 1px solid #3f3f46;
-            border-radius: 0.5rem;
-            background: #18181b;
-            color: #fafafa;
-            font-size: 1rem;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.2s;
         }
-        
-        .form-group input:focus, .form-group select:focus {
+        .form-group input:focus {
             outline: none;
-            border-color: #14b8a6;
+            border-color: #3b82f6;
         }
-        
         .form-group small {
             display: block;
-            margin-top: 0.25rem;
-            color: #71717a;
-            font-size: 0.75rem;
+            margin-top: 6px;
+            color: #64748b;
+            font-size: 13px;
         }
-        
         .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.75rem 1.5rem;
+            display: inline-block;
+            padding: 14px 28px;
+            background: #3b82f6;
+            color: white;
             border: none;
-            border-radius: 0.5rem;
-            font-size: 1rem;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: background 0.2s;
         }
-        
-        .btn-primary {
-            background: linear-gradient(135deg, #14b8a6, #0d9488);
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(20, 184, 166, 0.4);
-        }
-        
-        .btn-secondary {
-            background: #3f3f46;
-            color: #e4e4e7;
-        }
-        
-        .btn-test {
-            background: #8b5cf6;
-            color: white;
-            padding: 0.5rem 1rem;
-            font-size: 0.875rem;
-        }
-        
-        .requirements-list {
-            display: grid;
-            gap: 0.75rem;
-        }
-        
-        .requirement {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 0.75rem 1rem;
-            background: #18181b;
-            border-radius: 0.5rem;
-        }
-        
-        .requirement-icon {
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.75rem;
-        }
-        
-        .requirement-icon.pass {
-            background: #22c55e;
-        }
-        
-        .requirement-icon.fail {
-            background: #ef4444;
-        }
-        
+        .btn:hover { background: #2563eb; }
+        .btn-success { background: #10b981; }
+        .btn-success:hover { background: #059669; }
         .alert {
-            padding: 1rem;
-            border-radius: 0.5rem;
-            margin-bottom: 1rem;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
         }
-        
         .alert-error {
-            background: rgba(239, 68, 68, 0.2);
-            border: 1px solid #ef4444;
-            color: #fca5a5;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
         }
-        
         .alert-success {
-            background: rgba(34, 197, 94, 0.2);
-            border: 1px solid #22c55e;
-            color: #86efac;
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #16a34a;
         }
-        
-        .actions {
-            display: flex;
-            gap: 1rem;
-            margin-top: 2rem;
+        .alert-warning {
+            background: #fefce8;
+            border: 1px solid #fef08a;
+            color: #ca8a04;
         }
-        
-        .complete-message {
-            text-align: center;
-            padding: 2rem;
-        }
-        
-        .complete-icon {
-            width: 80px;
-            height: 80px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            border-radius: 50%;
+        .check-list { list-style: none; }
+        .check-list li {
+            padding: 12px 0;
+            border-bottom: 1px solid #e2e8f0;
             display: flex;
             align-items: center;
-            justify-content: center;
-            margin: 0 auto 1.5rem;
-            font-size: 2.5rem;
+            gap: 12px;
         }
-        
-        .warning-box {
-            background: rgba(245, 158, 11, 0.2);
-            border: 1px solid #f59e0b;
-            color: #fcd34d;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            margin-top: 1.5rem;
-            text-align: left;
+        .check-list li:last-child { border-bottom: none; }
+        .check-icon { font-size: 20px; }
+        .check-icon.pass { color: #10b981; }
+        .check-icon.fail { color: #ef4444; }
+        .final-info {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
         }
-        
-        .code-block {
-            background: #18181b;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            font-family: monospace;
-            margin-top: 0.5rem;
-            overflow-x: auto;
-            font-size: 0.875rem;
+        .final-info h3 { color: #1e3a5f; margin-bottom: 15px; }
+        .final-info code {
+            background: #1e293b;
+            color: #10b981;
+            padding: 8px 12px;
+            border-radius: 6px;
+            display: block;
+            margin: 8px 0;
+            word-break: break-all;
+            font-size: 13px;
         }
-        
-        .grid-2 {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 1rem;
-        }
-        
-        .section-title {
-            margin: 2rem 0 1rem;
-            color: #fafafa;
-            padding-bottom: 0.5rem;
-            border-bottom: 1px solid #3f3f46;
-        }
-        
-        .password-strength {
-            margin-top: 0.5rem;
-            font-size: 0.75rem;
-        }
-        
-        .password-strength.weak { color: #ef4444; }
-        .password-strength.medium { color: #f59e0b; }
-        .password-strength.strong { color: #22c55e; }
-        
-        .test-result {
-            margin-top: 1rem;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            display: none;
-        }
-        
-        .test-result.success {
-            background: rgba(34, 197, 94, 0.2);
-            border: 1px solid #22c55e;
-            color: #86efac;
-        }
-        
-        .test-result.error {
-            background: rgba(239, 68, 68, 0.2);
-            border: 1px solid #ef4444;
-            color: #fca5a5;
-        }
-        
-        @media (max-width: 640px) {
-            .grid-2 {
-                grid-template-columns: 1fr;
-            }
-            
-            .steps {
-                justify-content: center;
-            }
-            
-            .step {
-                min-width: 50px;
-            }
+        .row { display: flex; gap: 20px; }
+        .row .form-group { flex: 1; }
+        @media (max-width: 600px) {
+            .row { flex-direction: column; gap: 0; }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>📧 TempMail Installer</h1>
-            <p>Self-Hosted PHP Backend Setup Wizard</p>
-        </div>
-        
-        <div class="steps">
-            <?php foreach ($steps as $num => $label): ?>
-            <div class="step <?php echo $num === $currentStep ? 'active' : ($num < $currentStep ? 'completed' : ''); ?>">
-                <div class="step-number"><?php echo $num < $currentStep ? '✓' : $num; ?></div>
-                <div class="step-label"><?php echo $label; ?></div>
-            </div>
-            <?php endforeach; ?>
-        </div>
-        
-        <?php if (!empty($errors)): ?>
-        <div class="alert alert-error">
-            <?php foreach ($errors as $error): ?>
-            <p><?php echo htmlspecialchars($error); ?></p>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
-        
-        <?php if (!empty($success)): ?>
-        <div class="alert alert-success">
-            <?php foreach ($success as $msg): ?>
-            <p><?php echo htmlspecialchars($msg); ?></p>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
-        
         <div class="card">
-            <?php if ($currentStep === 1): ?>
-            <!-- Step 1: Requirements Check -->
-            <h2>Step 1: Requirements Check</h2>
-            <p style="margin-bottom: 1.5rem; color: #a1a1aa;">
-                Let's make sure your server meets all the requirements.
-            </p>
-            
-            <div class="requirements-list">
-                <?php foreach ($requirements as $name => $passed): ?>
-                <div class="requirement">
-                    <div class="requirement-icon <?php echo $passed ? 'pass' : 'fail'; ?>">
-                        <?php echo $passed ? '✓' : '✗'; ?>
-                    </div>
-                    <span><?php echo htmlspecialchars($name); ?></span>
-                </div>
-                <?php endforeach; ?>
+            <div class="header">
+                <h1>📧 TempMail Installation</h1>
+                <p>Self-hosted temporary email backend setup</p>
             </div>
             
-            <div class="actions">
-                <?php if ($allRequirementsMet): ?>
-                <form method="post">
+            <div class="steps">
+                <?php for ($i = 1; $i <= 6; $i++): ?>
+                <div class="step <?= $i < $currentStep ? 'done' : ($i === $currentStep ? 'active' : '') ?>">
+                    <?= $i < $currentStep ? '✓' : $i ?>
+                </div>
+                <?php endfor; ?>
+            </div>
+            
+            <div class="content">
+                <?php if (!empty($errors)): ?>
+                    <?php foreach ($errors as $error): ?>
+                    <div class="alert alert-error">❌ <?= htmlspecialchars($error) ?></div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+                
+                <?php if (!empty($success)): ?>
+                    <?php foreach ($success as $msg): ?>
+                    <div class="alert alert-success">✅ <?= htmlspecialchars($msg) ?></div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+                
+                <?php if ($currentStep === 1): ?>
+                <!-- Step 1: Requirements Check -->
+                <h2 style="margin-bottom: 20px;">System Requirements</h2>
+                <ul class="check-list">
+                    <li>
+                        <span class="check-icon <?= version_compare(PHP_VERSION, '8.0.0', '>=') ? 'pass' : 'fail' ?>">
+                            <?= version_compare(PHP_VERSION, '8.0.0', '>=') ? '✅' : '❌' ?>
+                        </span>
+                        <div>
+                            <strong>PHP Version</strong>
+                            <div style="color: #64748b; font-size: 14px;">
+                                Required: 8.0+ | Current: <?= PHP_VERSION ?>
+                            </div>
+                        </div>
+                    </li>
+                    <?php
+                    $extensions = [
+                        'pdo_mysql' => 'MySQL Database',
+                        'mbstring' => 'Multibyte String',
+                        'json' => 'JSON Support',
+                        'openssl' => 'OpenSSL Encryption',
+                        'imap' => 'IMAP (optional, for email)'
+                    ];
+                    foreach ($extensions as $ext => $label):
+                        $loaded = extension_loaded($ext);
+                    ?>
+                    <li>
+                        <span class="check-icon <?= $loaded ? 'pass' : ($ext === 'imap' ? 'pass' : 'fail') ?>">
+                            <?= $loaded ? '✅' : ($ext === 'imap' ? '⚠️' : '❌') ?>
+                        </span>
+                        <div>
+                            <strong><?= $label ?></strong>
+                            <div style="color: #64748b; font-size: 14px;">
+                                Extension: <?= $ext ?> | Status: <?= $loaded ? 'Loaded' : 'Not loaded' ?>
+                            </div>
+                        </div>
+                    </li>
+                    <?php endforeach; ?>
+                    <li>
+                        <span class="check-icon <?= is_writable(__DIR__) ? 'pass' : 'fail' ?>">
+                            <?= is_writable(__DIR__) ? '✅' : '❌' ?>
+                        </span>
+                        <div>
+                            <strong>Directory Writable</strong>
+                            <div style="color: #64748b; font-size: 14px;">
+                                api/ directory must be writable for config file
+                            </div>
+                        </div>
+                    </li>
+                </ul>
+                
+                <?php
+                $allRequired = version_compare(PHP_VERSION, '8.0.0', '>=') 
+                    && extension_loaded('pdo_mysql') 
+                    && extension_loaded('mbstring') 
+                    && extension_loaded('json')
+                    && extension_loaded('openssl')
+                    && is_writable(__DIR__);
+                ?>
+                
+                <?php if ($allRequired): ?>
+                <form method="post" style="margin-top: 30px;">
                     <input type="hidden" name="step" value="2">
-                    <button type="submit" class="btn btn-primary">Continue →</button>
+                    <button type="submit" class="btn btn-success">Continue to Database Setup →</button>
                 </form>
                 <?php else: ?>
-                <p style="color: #ef4444;">Please resolve the failed requirements before continuing.</p>
+                <div class="alert alert-error" style="margin-top: 20px;">
+                    Please fix the requirements above before continuing. Contact your hosting provider if needed.
+                </div>
                 <?php endif; ?>
-            </div>
-            
-            <?php elseif ($currentStep === 2): ?>
-            <!-- Step 2: Database Configuration -->
-            <h2>Step 2: Database Configuration</h2>
-            <p style="margin-bottom: 1.5rem; color: #a1a1aa;">
-                Enter your MySQL database credentials. You can find these in cPanel under "MySQL Databases".
-            </p>
-            
-            <form method="post">
-                <input type="hidden" name="step" value="2">
                 
-                <div class="grid-2">
+                <?php elseif ($currentStep === 2): ?>
+                <!-- Step 2: Database Configuration -->
+                <h2 style="margin-bottom: 20px;">Database Configuration</h2>
+                <p style="color: #64748b; margin-bottom: 20px;">Enter your MySQL database credentials from cPanel.</p>
+                
+                <form method="post">
+                    <input type="hidden" name="step" value="2">
+                    
                     <div class="form-group">
-                        <label for="db_host">Database Host</label>
-                        <input type="text" id="db_host" name="db_host" value="localhost" required>
+                        <label>Database Host</label>
+                        <input type="text" name="db_host" value="<?= htmlspecialchars($_POST['db_host'] ?? 'localhost') ?>" required>
                         <small>Usually "localhost" for cPanel hosting</small>
                     </div>
                     
                     <div class="form-group">
-                        <label for="db_name">Database Name</label>
-                        <input type="text" id="db_name" name="db_name" placeholder="cpaneluser_tempmail" required>
-                        <small>The database you created in cPanel</small>
+                        <label>Database Name</label>
+                        <input type="text" name="db_name" value="<?= htmlspecialchars($_POST['db_name'] ?? '') ?>" required placeholder="username_tempmail">
+                        <small>Create this in cPanel → MySQL Databases</small>
                     </div>
-                </div>
+                    
+                    <div class="row">
+                        <div class="form-group">
+                            <label>Database User</label>
+                            <input type="text" name="db_user" value="<?= htmlspecialchars($_POST['db_user'] ?? '') ?>" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Database Password</label>
+                            <input type="password" name="db_pass" value="">
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn">Test Connection & Continue →</button>
+                </form>
                 
-                <div class="grid-2">
+                <?php elseif ($currentStep === 3): ?>
+                <!-- Step 3: Create Tables -->
+                <h2 style="margin-bottom: 20px;">Create Database Tables</h2>
+                <p style="color: #64748b; margin-bottom: 20px;">Click below to create all required database tables.</p>
+                
+                <form method="post">
+                    <input type="hidden" name="step" value="3">
+                    <button type="submit" class="btn">Create Tables →</button>
+                </form>
+                
+                <?php elseif ($currentStep === 4): ?>
+                <!-- Step 4: Admin Account -->
+                <h2 style="margin-bottom: 20px;">Create Admin Account</h2>
+                <p style="color: #64748b; margin-bottom: 20px;">Set up your administrator account.</p>
+                
+                <form method="post">
+                    <input type="hidden" name="step" value="4">
+                    
                     <div class="form-group">
-                        <label for="db_user">Database Username</label>
-                        <input type="text" id="db_user" name="db_user" placeholder="cpaneluser_dbuser" required>
+                        <label>Admin Email</label>
+                        <input type="email" name="admin_email" value="<?= htmlspecialchars($_POST['admin_email'] ?? '') ?>" required>
                     </div>
                     
                     <div class="form-group">
-                        <label for="db_pass">Database Password</label>
-                        <input type="password" id="db_pass" name="db_pass" required>
-                    </div>
-                </div>
-                
-                <div class="actions">
-                    <button type="submit" class="btn btn-primary">Test Connection & Continue →</button>
-                </div>
-            </form>
-            
-            <?php elseif ($currentStep === 3): ?>
-            <!-- Step 3: Create Tables -->
-            <h2>Step 3: Create Database Tables</h2>
-            <p style="margin-bottom: 1.5rem; color: #a1a1aa;">
-                We'll now create all the necessary database tables for TempMail.
-            </p>
-            
-            <form method="post">
-                <input type="hidden" name="step" value="3">
-                
-                <p>This will create the following tables:</p>
-                <div class="code-block">
-                    users, profiles, domains, temp_emails, received_emails,<br>
-                    email_attachments, user_roles, mailboxes, app_settings,<br>
-                    blogs, subscription_tiers, user_subscriptions, and more...
-                </div>
-                
-                <div class="actions">
-                    <button type="submit" class="btn btn-primary">Create Tables →</button>
-                </div>
-            </form>
-            
-            <?php elseif ($currentStep === 4): ?>
-            <!-- Step 4: Admin Account -->
-            <h2>Step 4: Create Admin Account</h2>
-            <p style="margin-bottom: 1.5rem; color: #a1a1aa;">
-                Create the first administrator account for your TempMail installation.
-            </p>
-            
-            <form method="post">
-                <input type="hidden" name="step" value="4">
-                
-                <div class="grid-2">
-                    <div class="form-group">
-                        <label for="admin_name">Display Name</label>
-                        <input type="text" id="admin_name" name="admin_name" value="Admin" required>
+                        <label>Admin Password</label>
+                        <input type="password" name="admin_pass" required minlength="8">
+                        <small>Minimum 8 characters</small>
                     </div>
                     
                     <div class="form-group">
-                        <label for="admin_email">Admin Email</label>
-                        <input type="email" id="admin_email" name="admin_email" placeholder="admin@yourdomain.com" required>
-                        <small>This will be your login email</small>
-                    </div>
-                </div>
-                
-                <div class="grid-2">
-                    <div class="form-group">
-                        <label for="admin_password">Password</label>
-                        <input type="password" id="admin_password" name="admin_password" minlength="8" required 
-                               onkeyup="checkPasswordStrength(this.value)">
-                        <div id="password-strength" class="password-strength"></div>
+                        <label>Display Name</label>
+                        <input type="text" name="admin_name" value="<?= htmlspecialchars($_POST['admin_name'] ?? 'Admin') ?>">
                     </div>
                     
-                    <div class="form-group">
-                        <label for="admin_password_confirm">Confirm Password</label>
-                        <input type="password" id="admin_password_confirm" name="admin_password_confirm" minlength="8" required>
+                    <button type="submit" class="btn">Create Admin →</button>
+                </form>
+                
+                <?php elseif ($currentStep === 5): ?>
+                <!-- Step 5: SMTP/IMAP Configuration -->
+                <h2 style="margin-bottom: 20px;">Email Server Configuration</h2>
+                <p style="color: #64748b; margin-bottom: 20px;">Configure SMTP for sending and IMAP for receiving emails. You can skip this and configure later.</p>
+                
+                <form method="post">
+                    <input type="hidden" name="step" value="5">
+                    
+                    <h3 style="margin: 20px 0 15px; color: #334155;">SMTP Settings (Sending)</h3>
+                    <div class="row">
+                        <div class="form-group">
+                            <label>SMTP Host</label>
+                            <input type="text" name="smtp_host" placeholder="mail.yourdomain.com">
+                        </div>
+                        <div class="form-group">
+                            <label>SMTP Port</label>
+                            <input type="number" name="smtp_port" value="587">
+                        </div>
                     </div>
-                </div>
-                
-                <div class="actions">
-                    <button type="submit" class="btn btn-primary">Create Admin & Continue →</button>
-                </div>
-            </form>
-            
-            <script>
-            function checkPasswordStrength(password) {
-                const indicator = document.getElementById('password-strength');
-                let strength = 0;
-                
-                if (password.length >= 8) strength++;
-                if (password.length >= 12) strength++;
-                if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++;
-                if (/[0-9]/.test(password)) strength++;
-                if (/[^a-zA-Z0-9]/.test(password)) strength++;
-                
-                if (strength < 2) {
-                    indicator.textContent = 'Weak password';
-                    indicator.className = 'password-strength weak';
-                } else if (strength < 4) {
-                    indicator.textContent = 'Medium password';
-                    indicator.className = 'password-strength medium';
-                } else {
-                    indicator.textContent = 'Strong password';
-                    indicator.className = 'password-strength strong';
-                }
-            }
-            </script>
-            
-            <?php elseif ($currentStep === 5): ?>
-            <!-- Step 5: SMTP Configuration -->
-            <h2>Step 5: Email Configuration</h2>
-            <p style="margin-bottom: 1.5rem; color: #a1a1aa;">
-                Configure SMTP settings for sending emails and optionally IMAP for receiving.
-            </p>
-            
-            <form method="post" id="configForm">
-                <input type="hidden" name="step" value="5">
-                
-                <div class="grid-2">
+                    <div class="row">
+                        <div class="form-group">
+                            <label>SMTP Username</label>
+                            <input type="text" name="smtp_user" placeholder="noreply@yourdomain.com">
+                        </div>
+                        <div class="form-group">
+                            <label>SMTP Password</label>
+                            <input type="password" name="smtp_pass">
+                        </div>
+                    </div>
                     <div class="form-group">
-                        <label for="site_name">Site Name</label>
-                        <input type="text" id="site_name" name="site_name" value="TempMail" required>
+                        <label>From Email</label>
+                        <input type="email" name="smtp_from" placeholder="noreply@yourdomain.com">
                     </div>
                     
-                    <div class="form-group">
-                        <label for="site_url">Site URL</label>
-                        <input type="url" id="site_url" name="site_url" placeholder="https://yourdomain.com" required>
+                    <h3 style="margin: 30px 0 15px; color: #334155;">IMAP Settings (Receiving)</h3>
+                    <div class="row">
+                        <div class="form-group">
+                            <label>IMAP Host</label>
+                            <input type="text" name="imap_host" placeholder="mail.yourdomain.com">
+                        </div>
+                        <div class="form-group">
+                            <label>IMAP Port</label>
+                            <input type="number" name="imap_port" value="993">
+                        </div>
                     </div>
-                </div>
-                
-                <div class="grid-2">
-                    <div class="form-group">
-                        <label for="cors_origin">CORS Origin</label>
-                        <input type="text" id="cors_origin" name="cors_origin" value="*">
-                        <small>Use * for any origin, or your frontend URL</small>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="jwt_secret">JWT Secret Key</label>
-                        <input type="text" id="jwt_secret" name="jwt_secret" value="<?php echo bin2hex(random_bytes(32)); ?>">
-                        <small>Auto-generated secure key</small>
-                    </div>
-                </div>
-                
-                <h3 class="section-title">📤 SMTP Settings (Sending Emails)</h3>
-                
-                <div class="grid-2">
-                    <div class="form-group">
-                        <label for="smtp_host">SMTP Host</label>
-                        <input type="text" id="smtp_host" name="smtp_host" placeholder="mail.yourdomain.com">
+                    <div class="row">
+                        <div class="form-group">
+                            <label>IMAP Username</label>
+                            <input type="text" name="imap_user" placeholder="catchall@yourdomain.com">
+                        </div>
+                        <div class="form-group">
+                            <label>IMAP Password</label>
+                            <input type="password" name="imap_pass">
+                        </div>
                     </div>
                     
-                    <div class="form-group">
-                        <label for="smtp_port">SMTP Port</label>
-                        <input type="number" id="smtp_port" name="smtp_port" value="587">
-                        <small>587 for TLS, 465 for SSL, 25 for unencrypted</small>
-                    </div>
+                    <button type="submit" class="btn btn-success">Save Configuration & Finish →</button>
+                </form>
+                
+                <?php elseif ($currentStep === 6): ?>
+                <!-- Step 6: Complete -->
+                <div style="text-align: center;">
+                    <div style="font-size: 80px; margin-bottom: 20px;">🎉</div>
+                    <h2 style="color: #10b981; margin-bottom: 20px;">Installation Complete!</h2>
+                    <p style="color: #64748b; margin-bottom: 30px;">Your TempMail backend is now ready to use.</p>
                 </div>
                 
-                <div class="grid-2">
-                    <div class="form-group">
-                        <label for="smtp_user">SMTP Username</label>
-                        <input type="text" id="smtp_user" name="smtp_user" placeholder="noreply@yourdomain.com">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="smtp_pass">SMTP Password</label>
-                        <input type="password" id="smtp_pass" name="smtp_pass">
-                    </div>
+                <div class="alert alert-warning">
+                    <strong>⚠️ Security:</strong> Delete this file (install.php) immediately!
                 </div>
                 
-                <div class="grid-2">
-                    <div class="form-group">
-                        <label for="smtp_from">From Email</label>
-                        <input type="email" id="smtp_from" name="smtp_from" placeholder="noreply@yourdomain.com">
-                    </div>
+                <div class="final-info">
+                    <h3>📋 Next Steps</h3>
+                    <ol style="padding-left: 20px; line-height: 2;">
+                        <li><strong>Delete install.php</strong> (this file) for security</li>
+                        <li>Set up cron jobs in cPanel:
+                            <code>*/2 * * * * /usr/bin/php ~/public_html/api/cron/imap-poll.php</code>
+                            <code>0 * * * * /usr/bin/php ~/public_html/api/cron/maintenance.php</code>
+                        </li>
+                        <li>Test the API: <a href="/api/health" target="_blank">/api/health</a></li>
+                        <li>Log in to admin panel with your admin credentials</li>
+                    </ol>
                     
-                    <div class="form-group">
-                        <label for="smtp_encryption">Encryption</label>
-                        <select id="smtp_encryption" name="smtp_encryption">
-                            <option value="tls">TLS (Recommended)</option>
-                            <option value="ssl">SSL</option>
-                            <option value="">None</option>
-                        </select>
+                    <?php if (isset($_SESSION['diag_token'])): ?>
+                    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+                        <strong>Diagnostic Token (save this!):</strong>
+                        <code><?= htmlspecialchars($_SESSION['diag_token']) ?></code>
+                        <small style="display: block; margin-top: 8px;">Use this to access /api/health/diag?token=YOUR_TOKEN</small>
                     </div>
+                    <?php endif; ?>
                 </div>
                 
-                <button type="button" class="btn btn-test" onclick="testSmtp()">🧪 Test SMTP Connection</button>
-                <div id="smtp-test-result" class="test-result"></div>
-                
-                <h3 class="section-title">📥 IMAP Settings (Receiving Emails - Optional)</h3>
-                <p style="margin-bottom: 1rem; color: #71717a; font-size: 0.875rem;">
-                    Configure IMAP to automatically fetch incoming emails. This is optional but recommended.
-                </p>
-                
-                <div class="grid-2">
-                    <div class="form-group">
-                        <label for="imap_host">IMAP Host</label>
-                        <input type="text" id="imap_host" name="imap_host" placeholder="mail.yourdomain.com">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="imap_port">IMAP Port</label>
-                        <input type="number" id="imap_port" name="imap_port" value="993">
-                        <small>993 for SSL (default), 143 for TLS</small>
-                    </div>
-                </div>
-                
-                <div class="grid-2">
-                    <div class="form-group">
-                        <label for="imap_user">IMAP Username</label>
-                        <input type="text" id="imap_user" name="imap_user" placeholder="inbox@yourdomain.com">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="imap_pass">IMAP Password</label>
-                        <input type="password" id="imap_pass" name="imap_pass">
-                    </div>
-                </div>
-                
-                <button type="button" class="btn btn-test" onclick="testImap()">🧪 Test IMAP Connection</button>
-                <div id="imap-test-result" class="test-result"></div>
-                
-                <div class="actions">
-                    <button type="submit" class="btn btn-primary">Save & Complete Installation →</button>
-                </div>
-            </form>
-            
-            <script>
-            async function testSmtp() {
-                const result = document.getElementById('smtp-test-result');
-                result.style.display = 'block';
-                result.className = 'test-result';
-                result.textContent = 'Testing SMTP connection...';
-                
-                const data = {
-                    host: document.getElementById('smtp_host').value,
-                    port: document.getElementById('smtp_port').value,
-                    user: document.getElementById('smtp_user').value,
-                    pass: document.getElementById('smtp_pass').value,
-                    from: document.getElementById('smtp_from').value,
-                    encryption: document.getElementById('smtp_encryption').value
-                };
-                
-                try {
-                    const response = await fetch('test-smtp.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data)
-                    });
-                    const json = await response.json();
-                    
-                    if (json.success) {
-                        result.className = 'test-result success';
-                        result.textContent = '✓ SMTP connection successful! ' + (json.message || '');
-                    } else {
-                        result.className = 'test-result error';
-                        result.textContent = '✗ SMTP test failed: ' + (json.error || 'Unknown error');
-                    }
-                } catch (e) {
-                    result.className = 'test-result error';
-                    result.textContent = '✗ Test failed: ' + e.message;
-                }
-            }
-            
-            async function testImap() {
-                const result = document.getElementById('imap-test-result');
-                result.style.display = 'block';
-                result.className = 'test-result';
-                result.textContent = 'Testing IMAP connection...';
-                
-                const data = {
-                    host: document.getElementById('imap_host').value,
-                    port: document.getElementById('imap_port').value,
-                    user: document.getElementById('imap_user').value,
-                    pass: document.getElementById('imap_pass').value
-                };
-                
-                try {
-                    const response = await fetch('test-imap.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data)
-                    });
-                    const json = await response.json();
-                    
-                    if (json.success) {
-                        result.className = 'test-result success';
-                        result.textContent = '✓ IMAP connection successful! Found ' + (json.messageCount || 0) + ' messages.';
-                    } else {
-                        result.className = 'test-result error';
-                        result.textContent = '✗ IMAP test failed: ' + (json.error || 'Unknown error');
-                    }
-                } catch (e) {
-                    result.className = 'test-result error';
-                    result.textContent = '✗ Test failed: ' + e.message;
-                }
-            }
-            </script>
-            
-            <?php elseif ($currentStep === 6): ?>
-            <!-- Step 6: Complete -->
-            <div class="complete-message">
-                <div class="complete-icon">🎉</div>
-                <h2>Installation Complete!</h2>
-                <p style="color: #a1a1aa; margin: 1rem 0;">
-                    Your TempMail PHP backend has been installed successfully.
-                </p>
-                
-                <?php if (isset($_SESSION['admin_email'])): ?>
-                <div class="alert alert-success" style="text-align: left;">
-                    <strong>Admin Account Created:</strong><br>
-                    Email: <?php echo htmlspecialchars($_SESSION['admin_email']); ?>
+                <div style="text-align: center; margin-top: 30px;">
+                    <a href="/" class="btn btn-success">Go to TempMail →</a>
                 </div>
                 <?php endif; ?>
-                
-                <div class="warning-box">
-                    <strong>⚠️ Security Warning:</strong><br>
-                    Please delete these files immediately for security:
-                    <div class="code-block">rm install.php test-smtp.php test-imap.php</div>
-                </div>
-                
-                <div style="margin-top: 2rem; text-align: left;">
-                    <h3 style="margin-bottom: 1rem;">Next Steps:</h3>
-                    <ol style="color: #a1a1aa; padding-left: 1.5rem; line-height: 2;">
-                        <li>Update your frontend's <code>.env</code> file with:</li>
-                    </ol>
-                    <div class="code-block">
-VITE_PHP_API_URL=https://yourdomain.com/api
-                    </div>
-                    <ol start="2" style="color: #a1a1aa; padding-left: 1.5rem; line-height: 2; margin-top: 1rem;">
-                        <li>Set up cron jobs for email polling:</li>
-                    </ol>
-                    <div class="code-block">
-*/5 * * * * /usr/bin/php /path/to/php-backend/cron/imap-poll.php<br>
-0 * * * * /usr/bin/php /path/to/php-backend/cron/maintenance.php
-                    </div>
-                    <ol start="3" style="color: #a1a1aa; padding-left: 1.5rem; line-height: 2; margin-top: 1rem;">
-                        <li>Log in to the admin panel at <code>/admin</code></li>
-                        <li>Add your email domains in Domain Management</li>
-                        <li>Configure additional mailboxes if needed</li>
-                    </ol>
-                </div>
-                
-                <div class="actions" style="justify-content: center; margin-top: 2rem;">
-                    <a href="/" class="btn btn-primary">Go to Homepage →</a>
-                    <a href="/admin" class="btn btn-secondary">Open Admin Panel →</a>
-                </div>
             </div>
-            <?php endif; ?>
         </div>
+        
+        <p style="text-align: center; color: white; opacity: 0.8; margin-top: 20px; font-size: 14px;">
+            TempMail Self-Hosted • PHP <?= PHP_VERSION ?>
+        </p>
     </div>
 </body>
 </html>

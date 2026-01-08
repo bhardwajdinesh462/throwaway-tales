@@ -17,6 +17,10 @@ import {
 import { api } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 
+// Only show debug panel for admins or in development
+const IS_SELF_HOSTED = import.meta.env.VITE_SELF_HOSTED === 'true';
+const IS_DEV = import.meta.env.DEV;
+
 interface RealtimeEvent {
   id: string;
   type: "INSERT" | "UPDATE" | "DELETE" | "STATUS" | "ERROR";
@@ -28,15 +32,21 @@ interface RealtimeEvent {
 interface RealtimeDebugPanelProps {
   tempEmailId?: string;
   className?: string;
+  isAdmin?: boolean; // Only show to admins
 }
 
-export const RealtimeDebugPanel = ({ tempEmailId, className = "" }: RealtimeDebugPanelProps) => {
+export const RealtimeDebugPanel = ({ tempEmailId, className = "", isAdmin = false }: RealtimeDebugPanelProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [events, setEvents] = useState<RealtimeEvent[]>([]);
   const [channelStatus, setChannelStatus] = useState<string>("CLOSED");
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const channelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
+
+  // Hide from non-admins in production self-hosted mode
+  if (IS_SELF_HOSTED && !IS_DEV && !isAdmin) {
+    return null;
+  }
 
   const addEvent = useCallback((event: Omit<RealtimeEvent, "id" | "timestamp">) => {
     setEvents((prev) => [

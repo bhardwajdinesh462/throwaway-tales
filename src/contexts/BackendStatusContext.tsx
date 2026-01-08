@@ -1,7 +1,15 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
-import { supabase } from "@/integrations/supabase/client";
 
 type BackendStatus = "healthy" | "degraded" | "down" | "checking";
+
+// Detect self-hosted mode
+const IS_SELF_HOSTED = import.meta.env.VITE_SELF_HOSTED === 'true' || 
+                       Boolean(import.meta.env.VITE_PHP_API_URL);
+
+const PHP_API_URL = import.meta.env.VITE_PHP_API_URL || 
+  (IS_SELF_HOSTED && typeof window !== 'undefined' 
+    ? `${window.location.origin}/api` 
+    : '');
 
 interface BackendStatusContextType {
   status: BackendStatus;
@@ -36,26 +44,45 @@ export const BackendStatusProvider = ({ children }: { children: ReactNode }) => 
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8000);
-
       const start = performance.now();
-      const { error } = await supabase
-        .from("domains")
-        .select("id")
-        .limit(1)
-        .abortSignal(controller.signal);
       
-      clearTimeout(timeout);
+      let isHealthy = false;
+      
+      if (IS_SELF_HOSTED) {
+        // Use PHP API health endpoint for self-hosted
+        const response = await fetch(`${PHP_API_URL}/health`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        
+        if (response.ok) {
+          const data = await response.json();
+          isHealthy = data.status === 'ok' && data.db_connected === true;
+        }
+      } else {
+        // Use Supabase for Cloud mode
+        const { supabase } = await import('@/integrations/supabase/client');
+        const { error } = await supabase
+          .from("domains")
+          .select("id")
+          .limit(1)
+          .abortSignal(controller.signal);
+        
+        clearTimeout(timeout);
+        isHealthy = !error;
+      }
+      
       const latency = performance.now() - start;
 
-      if (!error && latency < 5000) {
+      if (isHealthy && latency < 5000) {
         setStatus("healthy");
         setConsecutiveFailures(0);
         currentBackoff.current = CHECK_INTERVAL;
-      } else if (!error && latency >= 5000) {
+      } else if (isHealthy && latency >= 5000) {
         setStatus("degraded");
         setConsecutiveFailures(prev => prev + 1);
       } else {
-        throw new Error(error?.message || "DB check failed");
+        throw new Error("Health check failed");
       }
     } catch (err) {
       console.warn("[BackendStatus] Health check failed:", err);
@@ -63,7 +90,6 @@ export const BackendStatusProvider = ({ children }: { children: ReactNode }) => 
         const newVal = prev + 1;
         if (newVal >= CIRCUIT_BREAKER_THRESHOLD) {
           setStatus("down");
-          // Increase backoff
           currentBackoff.current = Math.min(
             currentBackoff.current * BACKOFF_MULTIPLIER,
             MAX_BACKOFF

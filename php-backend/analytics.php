@@ -4,24 +4,44 @@
  * Displays user growth, email activity, and system metrics
  */
 
+session_start();
 require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/index.php';
+require_once __DIR__ . '/includes/helpers.php';
+
+// CORS headers
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Allow-Credentials: true");
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
+// Get config using helper
+$config = getConfigArray();
 
 // Connect to database
 try {
+    $dbHost = $config['db']['host'] ?? (defined('DB_HOST') ? DB_HOST : 'localhost');
+    $dbName = $config['db']['name'] ?? (defined('DB_NAME') ? DB_NAME : '');
+    $dbUser = $config['db']['user'] ?? (defined('DB_USER') ? DB_USER : '');
+    $dbPass = $config['db']['pass'] ?? (defined('DB_PASS') ? DB_PASS : '');
+    
     $pdo = new PDO(
-        "mysql:host={$config['db_host']};dbname={$config['db_name']};charset=utf8mb4",
-        $config['db_user'],
-        $config['db_pass'],
+        "mysql:host={$dbHost};dbname={$dbName};charset=utf8mb4",
+        $dbUser,
+        $dbPass,
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
     );
 } catch (PDOException $e) {
     die("Database connection failed");
 }
 
-// Check admin auth
-$user = getAuthUser($pdo, $config);
-$isAdmin = $user && checkIsAdmin($pdo, $user['id']);
+// Check admin auth using standalone functions
+$user = getAuthUserStandalone($pdo, $config);
+$isAdmin = $user && checkIsAdminStandalone($pdo, $user['id']);
 
 if (!$isAdmin) {
     header('HTTP/1.1 403 Forbidden');

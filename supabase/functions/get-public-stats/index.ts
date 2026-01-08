@@ -47,12 +47,14 @@ serve(async (req) => {
         emailStatsResult,
         activeAddressesResult,
         totalDomainsResult,
+        emailsTodayLiveResult,
+        totalEmailsLiveResult,
       ] = await Promise.all([
         // Get all counters from email_stats in one query (fast - small table)
         supabase
           .from('email_stats')
           .select('stat_key, stat_value')
-          .in('stat_key', ['total_temp_emails_created', 'total_received_emails', 'emails_today']),
+          .in('stat_key', ['total_temp_emails_created', 'total_emails_received', 'emails_today']),
         
         // Currently active temp addresses (needs live count but has index)
         supabase
@@ -65,6 +67,17 @@ serve(async (req) => {
           .from('domains')
           .select('id', { count: 'exact', head: true })
           .eq('is_active', true),
+          
+        // Fallback: Live count for emails today (IST)
+        supabase
+          .from('received_emails')
+          .select('id', { count: 'exact', head: true })
+          .gte('received_at', istMidnight),
+          
+        // Fallback: Live total emails count
+        supabase
+          .from('received_emails')
+          .select('id', { count: 'exact', head: true }),
       ]);
 
       clearTimeout(timeout);
@@ -78,8 +91,9 @@ serve(async (req) => {
       }
 
       const totalEmailsGenerated = statsMap['total_temp_emails_created'] || 0;
-      const totalEmailsReceived = statsMap['total_received_emails'] || 0;
-      const emailsToday = statsMap['emails_today'] || 0;
+      // Use counter if available, otherwise use live count
+      const totalEmailsReceived = statsMap['total_emails_received'] || totalEmailsLiveResult.count || 0;
+      const emailsToday = statsMap['emails_today'] || emailsTodayLiveResult.count || 0;
       const activeAddresses = activeAddressesResult.count ?? 0;
       const activeDomains = totalDomainsResult.count ?? 0;
 
@@ -87,7 +101,7 @@ serve(async (req) => {
       const totalInboxesCreated = totalEmailsGenerated;
 
       const stats = {
-        // Emails since midnight IST - from counter (or 0 if not maintained)
+        // Emails since midnight IST - from counter or live count
         emailsToday: emailsToday,
         // All-time received emails (monotonic)
         totalEmails: totalEmailsReceived,

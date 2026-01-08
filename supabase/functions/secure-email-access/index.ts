@@ -195,7 +195,26 @@ serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { action, tempEmailId, token, emailId, limit = 50, offset = 0 } = await req.json();
+    // Parse request body with error handling
+    let action: string, tempEmailId: string, token: string, emailId: string | undefined;
+    let limit = 50, offset = 0;
+    
+    try {
+      const body = await req.json();
+      action = body.action;
+      tempEmailId = body.tempEmailId;
+      token = body.token;
+      emailId = body.emailId;
+      limit = body.limit ?? 50;
+      offset = body.offset ?? 0;
+    } catch (parseError) {
+      console.error('[secure-email-access] Failed to parse request body:', parseError);
+      return new Response(
+        JSON.stringify({ error: 'Invalid request body' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
     console.log(`[secure-email-access] Action: ${action}, TempEmailId: ${tempEmailId}, limit: ${limit}, offset: ${offset}`);
 
     // Verify token for all actions

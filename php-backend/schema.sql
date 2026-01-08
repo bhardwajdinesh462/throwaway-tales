@@ -440,12 +440,12 @@ CREATE TABLE IF NOT EXISTS uptime_records (
 -- Cron Logs
 CREATE TABLE IF NOT EXISTS cron_logs (
     id CHAR(36) PRIMARY KEY,
-    job_name VARCHAR(100) NOT NULL,
+    job_id VARCHAR(100) NOT NULL,
     status VARCHAR(20) DEFAULT 'running',
     message TEXT,
     duration_ms INT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_job (job_name),
+    INDEX idx_job (job_id),
     INDEX idx_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

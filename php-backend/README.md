@@ -78,7 +78,8 @@ public_html/
     ├── logs/               # Error and application logs (auto-created)
     └── cron/
         ├── imap-poll.php   # Fetch emails via IMAP (runs every 1-2 minutes)
-        └── maintenance.php # Cleanup expired emails
+        ├── maintenance.php # Cleanup expired emails (runs hourly)
+        └── health-check.php # System health monitoring (runs every 6 hours)
 ```
 
 ## Quick Start Installation
@@ -108,17 +109,25 @@ public_html/
 In cPanel → Cron Jobs, add these entries:
 
 ```bash
-# Poll IMAP for new emails every 1-2 minutes (fast polling for quick email delivery)
+# Poll IMAP for new emails every 2 minutes
 */2 * * * * /usr/bin/php /home/username/public_html/api/cron/imap-poll.php >> /home/username/logs/imap-poll.log 2>&1
 
-# For even faster polling (every minute):
-# * * * * * /usr/bin/php /home/username/public_html/api/cron/imap-poll.php >> /home/username/logs/imap-poll.log 2>&1
-
-# Cleanup expired emails every hour
+# Cleanup expired emails and update stats every hour
 0 * * * * /usr/bin/php /home/username/public_html/api/cron/maintenance.php >> /home/username/logs/maintenance.log 2>&1
+
+# System health check and admin alerts every 6 hours
+0 */6 * * * /usr/bin/php /home/username/public_html/api/cron/health-check.php >> /home/username/logs/health-check.log 2>&1
 ```
 
 Replace `/home/username/` with your actual cPanel home directory path.
+
+**Cron Job Summary:**
+
+| Job | Schedule | Purpose |
+|-----|----------|---------|
+| imap-poll.php | Every 2 min | Fetch new emails via IMAP |
+| maintenance.php | Every hour | Cleanup expired data, update stats |
+| health-check.php | Every 6 hours | System health monitoring, admin alerts |
 
 ### Step 4: Add Email Domain
 

@@ -262,31 +262,138 @@ VALUES (UUID(), @user_id, 'admin', NOW());
 
 ---
 
-## ✅ Verification
+## ✅ Deployment Verification Checklist
 
-### Check API Health
+After uploading new files, use this checklist to verify the deployment is correct.
+
+### Step 1: Verify Files Are Updated
+
+Check the health endpoint for the version stamp:
 
 ```bash
 curl https://yourdomain.com/api/health
 ```
 
-Expected response:
+Expected response (look for `selfhost_version`):
 ```json
 {
   "status": "ok",
-  "timestamp": "2024-01-01T00:00:00+00:00",
+  "timestamp": "2026-01-09T00:00:00+00:00",
   "version": "1.0.0",
+  "selfhost_version": "2026-01-09-v2",
   "php_version": "8.2.0",
   "config_present": true,
   "db_connected": true
 }
 ```
 
-### Check Detailed Diagnostics
+**If `selfhost_version` is missing or shows an old date:**
+- Your server is running cached/old files
+- See "Clearing PHP OPcache" section below
+
+### Step 2: Check Detailed Diagnostics
 
 ```bash
 curl "https://yourdomain.com/api/health/diag?token=YOUR_DIAG_TOKEN"
 ```
+
+This shows:
+- PHP extensions loaded
+- Database connectivity
+- File permissions
+- IMAP/SMTP status
+
+### Step 3: Test Core Endpoints
+
+| Endpoint | Expected Result |
+|----------|----------------|
+| `/api/health` | JSON with `status: ok` |
+| `/api/auth/session` | JSON (may show `null` if not logged in) |
+| `/api/data/domains` | JSON list of domains (or auth error) |
+
+### Step 4: Verify No PHP Errors
+
+Check the error logs:
+```bash
+# Via SSH
+tail -f public_html/api/logs/error-*.log
+
+# Or via browser (admin only)
+curl "https://yourdomain.com/api/logs/errors?token=YOUR_DIAG_TOKEN"
+```
+
+**Common errors and fixes:**
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Cannot redeclare function()` | Duplicate function in multiple files | Update to latest version |
+| `Unmatched '}'` | Syntax error in PHP file | Update to latest version |
+| `Class not found` | Missing include/require | Check file paths |
+
+### Step 5: Test Admin Functions
+
+1. Login as admin at `/auth`
+2. Go to Admin → Mailboxes
+3. Click "Test Connection" on any mailbox
+4. Go to Admin → Backups → Generate Backup
+
+---
+
+## 🔄 Clearing PHP OPcache
+
+If your server caches PHP files (most shared hosting does), changes may not reflect immediately.
+
+### Option 1: Wait
+OPcache typically refreshes every 2-5 minutes.
+
+### Option 2: Restart PHP (cPanel)
+1. Go to cPanel → MultiPHP Manager
+2. Click on your domain
+3. Click "Restart PHP"
+
+### Option 3: Touch Files
+SSH to your server and run:
+```bash
+find public_html/api -name "*.php" -exec touch {} \;
+```
+
+### Option 4: Add OPcache Reset Endpoint (Advanced)
+
+Create `api/opcache-reset.php` (delete after use!):
+```php
+<?php
+// WARNING: Delete this file after use!
+$token = $_GET['token'] ?? '';
+if ($token !== 'YOUR_SECRET_TOKEN') {
+    http_response_code(403);
+    die('Forbidden');
+}
+if (function_exists('opcache_reset')) {
+    opcache_reset();
+    echo "OPcache cleared!";
+} else {
+    echo "OPcache not available";
+}
+```
+
+Access: `https://yourdomain.com/api/opcache-reset.php?token=YOUR_SECRET_TOKEN`
+
+---
+
+## 📋 Pre-Upload Checklist
+
+Before uploading new files:
+
+- [ ] Backup `api/config.php` (it contains your credentials)
+- [ ] Note current `selfhost_version` from `/api/health`
+- [ ] Download latest release/build
+
+After uploading:
+
+- [ ] Verify `selfhost_version` has changed in `/api/health`
+- [ ] Check `/api/logs/errors` for any new errors
+- [ ] Test admin login
+- [ ] Test creating a temp email
+- [ ] Test IMAP fetch (Admin → Mailboxes → Fetch Emails)
 
 ---
 

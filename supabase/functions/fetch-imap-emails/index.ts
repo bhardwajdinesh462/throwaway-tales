@@ -587,11 +587,15 @@ serve(async (req: Request): Promise<Response> => {
             const deliveredTo = headers["delivered-to"] || "";
             const originalTo = headers["x-original-to"] || "";
             const envelopeTo = headers["envelope-to"] || "";
+            const xEnvelopeTo = headers["x-envelope-to"] || "";
+            const xRcptTo = headers["x-rcpt-to"] || "";
+            const xForwardedTo = headers["x-forwarded-to"] || "";
             const messageId = headers["message-id"] || "";
 
             const toAddress = toRaw.trim();
 
-            const headerCandidates = `${deliveredTo} ${originalTo} ${envelopeTo} ${toAddress}`;
+            // Collect ALL potential recipient headers
+            const headerCandidates = `${deliveredTo} ${originalTo} ${envelopeTo} ${xEnvelopeTo} ${xRcptTo} ${xForwardedTo} ${toAddress}`;
             const headerEmails = (headerCandidates.match(EMAIL_REGEX) || []).map((e) => e.toLowerCase().trim());
 
             const allEmails: string[] = [...(headerResponse.match(EMAIL_REGEX) ?? []), ...headerEmails].map((e) =>
@@ -602,6 +606,10 @@ serve(async (req: Request): Promise<Response> => {
               ? allEmails.filter((e) => allowedDomainSuffixes.some((suffix) => e.endsWith(suffix)))
               : [];
 
+            // Debug logging for recipient matching - log ALL headers for debugging
+            console.log(`[IMAP] Message ${msgId} - Headers: To=${toAddress}, Delivered-To=${deliveredTo}, X-Original-To=${originalTo}, Envelope-To=${envelopeTo}, X-Envelope-To=${xEnvelopeTo}, X-Rcpt-To=${xRcptTo}`);
+            console.log(`[IMAP] Message ${msgId} - Domain matched emails: [${domainMatchedEmails.join(', ')}]`);
+
             let matchedTempEmailId: string | null = null;
             let matchedRecipient: string | null = null;
 
@@ -610,6 +618,7 @@ serve(async (req: Request): Promise<Response> => {
               if (tempId) {
                 matchedTempEmailId = tempId;
                 matchedRecipient = candidateEmail;
+                console.log(`[IMAP] Message ${msgId} - MATCHED: ${candidateEmail} -> ${tempId}`);
                 break;
               }
             }
@@ -620,11 +629,20 @@ serve(async (req: Request): Promise<Response> => {
                 if (tempId) {
                   matchedTempEmailId = tempId;
                   matchedRecipient = candidateEmail;
+                  console.log(`[IMAP] Message ${msgId} - MATCHED via header: ${candidateEmail} -> ${tempId}`);
                   break;
                 }
               }
             }
 
+            if (!matchedTempEmailId) {
+              console.log(`[IMAP] Message ${msgId} - NO MATCH for any candidate email`);
+              storedCount.noMatch++;
+              await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
+              continue;
+            }
+
+            // Parse from address
             let fromAddress = fromRaw || "unknown@unknown.com";
             const fromEmailMatch = fromAddress.match(/<([^>]+)>/);
             if (fromEmailMatch) {
@@ -632,6 +650,7 @@ serve(async (req: Request): Promise<Response> => {
               fromAddress = displayName ? `${displayName} <${fromEmailMatch[1]}>` : fromEmailMatch[1];
             }
 
+            // Parse subject
             let subject = subjectRaw || "(No Subject)";
             subject = subject.replace(/=\?([^?]+)\?([BQ])\?([^?]+)\?=/gi, (match, _charset, encoding, encodedText) => {
               if (String(encoding).toUpperCase() === "B") {
@@ -647,12 +666,6 @@ serve(async (req: Request): Promise<Response> => {
               return match;
             });
             subject = subject.trim();
-
-            if (!matchedTempEmailId) {
-              storedCount.noMatch++;
-              await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
-              continue;
-            }
 
             const bodyResponse = await sendCommand(`FETCH ${msgId} (BODY[])`, tagNum++);
 

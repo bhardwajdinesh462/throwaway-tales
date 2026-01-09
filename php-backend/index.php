@@ -117,6 +117,9 @@ $earlyPath = str_replace($basePath, '', $earlyPath);
 $earlyPath = trim($earlyPath, '/');
 
 // Basic health endpoint (works even without config/DB)
+// VERSION STAMP: Update this when deploying to verify correct files are running
+define('SELFHOST_VERSION', '2026-01-09-v2');
+
 if ($earlyPath === 'health') {
     header("Content-Type: application/json");
     $configExists = file_exists(__DIR__ . '/config.php');
@@ -124,6 +127,7 @@ if ($earlyPath === 'health') {
         'status' => 'ok',
         'timestamp' => date('c'),
         'version' => '1.0.0',
+        'selfhost_version' => SELFHOST_VERSION,
         'php_version' => phpversion(),
         'config_present' => $configExists,
     ];

@@ -1356,6 +1356,3 @@ function decodeImapPart($data, $encoding) {
             return $data;
     }
 }
-
-    echo json_encode($health);
-}

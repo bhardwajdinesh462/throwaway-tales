@@ -874,6 +874,9 @@ function emailHealthCheck($pdo, $isAdmin) {
 
     if (!empty($health['issues'])) {
         $health['status'] = 'degraded';
+    }
+
+    echo json_encode($health);
 }
 
 /**

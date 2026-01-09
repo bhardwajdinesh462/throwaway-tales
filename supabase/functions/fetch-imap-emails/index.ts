@@ -636,9 +636,12 @@ serve(async (req: Request): Promise<Response> => {
             }
 
             if (!matchedTempEmailId) {
-              console.log(`[IMAP] Message ${msgId} - NO MATCH for any candidate email`);
+              console.log(
+                `[IMAP] Message ${msgId} - NO MATCH for any candidate email (recipient headers appear rewritten; not marking as seen so it can be retried after mail routing is fixed)`
+              );
               storedCount.noMatch++;
-              await sendCommand(`STORE ${msgId} +FLAGS (\\Seen)`, tagNum++);
+              // IMPORTANT: Do not mark as \Seen when we can't match a temp inbox.
+              // Otherwise emails are effectively "lost" until the mail server is fixed.
               continue;
             }
 

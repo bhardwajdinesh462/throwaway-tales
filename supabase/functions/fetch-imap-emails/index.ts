@@ -793,6 +793,11 @@ serve(async (req: Request): Promise<Response> => {
     const tried: Array<{ mailboxId?: string; mailboxName?: string; host: string; error: string }> = [];
     let lastErr: unknown = null;
 
+    // If one mailbox processes messages but stores 0 (because the emails are in a different catch-all inbox),
+    // we should try the next mailbox instead of returning early.
+    let bestResult: any | null = null;
+    let bestCandidate: ImapCandidate | null = null;
+
     for (const candidate of candidates) {
       try {
         const result = await processMailbox(candidate);
@@ -801,18 +806,30 @@ serve(async (req: Request): Promise<Response> => {
           await updateMailboxSuccess(candidate.mailboxId);
         }
 
-        return new Response(
-          JSON.stringify({
-            ...result,
-            mailbox_used: {
-              source: candidate.source,
-              mailbox_id: candidate.mailboxId || null,
-              mailbox_name: candidate.mailboxName || null,
-              host: candidate.host,
-            },
-          }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        bestResult = result;
+        bestCandidate = candidate;
+
+        const stored = (result as any)?.stats?.stored ?? 0;
+
+        // If we stored anything, we found the correct mailbox for this batch.
+        // Return immediately so the UI sees the new mail fast.
+        if (stored > 0 || testOnly) {
+          return new Response(
+            JSON.stringify({
+              ...result,
+              mailbox_used: {
+                source: candidate.source,
+                mailbox_id: candidate.mailboxId || null,
+                mailbox_name: candidate.mailboxName || null,
+                host: candidate.host,
+              },
+            }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        // Nothing stored here → try next mailbox.
+        continue;
       } catch (err) {
         lastErr = err;
         const msg = toShortError(err);
@@ -822,6 +839,23 @@ serve(async (req: Request): Promise<Response> => {
         }
         continue;
       }
+    }
+
+    // If we processed at least one mailbox without errors but stored nothing, return the best attempt.
+    if (bestResult && bestCandidate) {
+      return new Response(
+        JSON.stringify({
+          ...bestResult,
+          mailbox_used: {
+            source: bestCandidate.source,
+            mailbox_id: bestCandidate.mailboxId || null,
+            mailbox_name: bestCandidate.mailboxName || null,
+            host: bestCandidate.host,
+          },
+          note: "No emails matched an active temp address in the checked mailboxes.",
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     const rawMessage = lastErr instanceof Error ? lastErr.message : String(lastErr || "Failed to fetch emails");

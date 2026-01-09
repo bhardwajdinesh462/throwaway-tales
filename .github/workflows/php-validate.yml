@@ -7,9 +7,11 @@ on:
   pull_request:
     paths:
       - 'php-backend/**'
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
-  php-lint:
+  php-validate:
+    name: PHP Validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,32 +24,129 @@ jobs:
           
       - name: Validate PHP Syntax
         run: |
-          echo "Validating PHP syntax..."
+          echo "========================================="
+          echo "🔍 STEP 1: Validating PHP Syntax"
+          echo "========================================="
           errors=0
           success=0
+          error_files=""
+          
           for file in $(find php-backend -name "*.php" -type f); do
-            if php -l "$file" 2>&1 | grep -q "No syntax errors"; then
-              echo "[OK] $file"
+            result=$(php -l "$file" 2>&1)
+            if echo "$result" | grep -q "No syntax errors"; then
+              echo "✓ $file"
               success=$((success + 1))
             else
-              echo "[ERROR] $file"
-              php -l "$file" 2>&1
+              echo "❌ $file"
+              echo "$result"
+              error_files="$error_files\n  - $file"
               errors=$((errors + 1))
             fi
           done
           
           echo ""
-          echo "Checked $((success + errors)) PHP files"
+          echo "📊 Checked $((success + errors)) PHP files"
           
           if [ $errors -gt 0 ]; then
-            echo "[FAILED] Found $errors PHP syntax error(s)"
+            echo ""
+            echo "❌ FAILED: Found $errors PHP syntax error(s):"
+            echo -e "$error_files"
             exit 1
           fi
-          echo "[PASSED] All $success PHP files are syntactically correct"
-          
-      - name: Check required files
+          echo "✅ All $success PHP files are syntactically correct"
+
+      - name: Check for Duplicate Functions
         run: |
-          echo "Checking required files..."
+          echo ""
+          echo "========================================="
+          echo "🔍 STEP 2: Checking for Duplicate Functions"
+          echo "========================================="
+          
+          # Extract all function declarations with file and line info
+          echo "Scanning for function declarations..."
+          
+          duplicates_found=0
+          declare -A function_locations
+          
+          # Find all function declarations (excluding function_exists guards)
+          while IFS=: read -r file line content; do
+            # Skip if it's inside a function_exists check
+            if echo "$content" | grep -q "function_exists"; then
+              continue
+            fi
+            
+            # Extract function name
+            func_name=$(echo "$content" | grep -oP 'function\s+\K[a-zA-Z_][a-zA-Z0-9_]*' | head -1)
+            
+            if [ -n "$func_name" ]; then
+              if [ -n "${function_locations[$func_name]}" ]; then
+                echo "❌ DUPLICATE: $func_name"
+                echo "   First declared: ${function_locations[$func_name]}"
+                echo "   Also declared:  $file:$line"
+                duplicates_found=$((duplicates_found + 1))
+              else
+                function_locations[$func_name]="$file:$line"
+                echo "✓ $func_name ($file:$line)"
+              fi
+            fi
+          done < <(grep -rn "^\s*function\s\+[a-zA-Z_]" php-backend --include="*.php" 2>/dev/null || true)
+          
+          echo ""
+          if [ $duplicates_found -gt 0 ]; then
+            echo "❌ FAILED: Found $duplicates_found duplicate function declaration(s)"
+            echo ""
+            echo "💡 Fix: Rename one of the duplicates or wrap with function_exists()"
+            exit 1
+          fi
+          echo "✅ No duplicate function declarations found"
+
+      - name: Check for Stray Code
+        run: |
+          echo ""
+          echo "========================================="
+          echo "🔍 STEP 3: Checking for Stray Code Patterns"
+          echo "========================================="
+          
+          issues=0
+          
+          # Check for unmatched braces (simple heuristic)
+          echo "Checking for potential brace issues..."
+          for file in $(find php-backend -name "*.php" -type f); do
+            open_braces=$(grep -o '{' "$file" | wc -l)
+            close_braces=$(grep -o '}' "$file" | wc -l)
+            if [ "$open_braces" -ne "$close_braces" ]; then
+              echo "⚠️  Brace mismatch in $file: { = $open_braces, } = $close_braces"
+              issues=$((issues + 1))
+            fi
+          done
+          
+          # Check for git merge conflict markers
+          echo "Checking for merge conflict markers..."
+          if grep -rn "<<<<<<\|>>>>>>\|======" php-backend --include="*.php" 2>/dev/null; then
+            echo "❌ Found merge conflict markers!"
+            issues=$((issues + 1))
+          fi
+          
+          # Check for debug statements that shouldn't be committed
+          echo "Checking for debug statements..."
+          if grep -rn "var_dump\|print_r.*die\|exit.*debug" php-backend --include="*.php" 2>/dev/null | grep -v "// debug" | head -5; then
+            echo "⚠️  Found potential debug statements (review manually)"
+          fi
+          
+          echo ""
+          if [ $issues -gt 0 ]; then
+            echo "⚠️  Found $issues potential issue(s) - review recommended"
+          else
+            echo "✅ No stray code patterns detected"
+          fi
+          
+      - name: Check Required Files
+        run: |
+          echo ""
+          echo "========================================="
+          echo "🔍 STEP 4: Checking Required Files"
+          echo "========================================="
+          
           required_files=(
             "php-backend/index.php"
             "php-backend/schema.sql"
@@ -58,6 +157,9 @@ jobs:
             "php-backend/routes/admin.php"
             "php-backend/routes/auth.php"
             "php-backend/routes/data.php"
+            "php-backend/routes/functions.php"
+            "php-backend/routes/rpc.php"
+            "php-backend/routes/webhooks.php"
             "php-backend/cron/imap-poll.php"
             "php-backend/cron/maintenance.php"
             "php-backend/cron/health-check.php"
@@ -75,26 +177,54 @@ jobs:
           
           if [ $missing -gt 0 ]; then
             echo ""
-            echo "❌ Missing $missing required file(s)"
+            echo "❌ FAILED: Missing $missing required file(s)"
             exit 1
           fi
           echo ""
           echo "✅ All required files present"
           
-      - name: Validate schema.sql
+      - name: Validate Schema
         run: |
-          echo "Validating schema.sql..."
+          echo ""
+          echo "========================================="
+          echo "🔍 STEP 5: Validating Database Schema"
+          echo "========================================="
+          
           schema="php-backend/schema.sql"
+          required_tables=("users" "emails" "domains" "mailboxes" "app_settings" "temp_emails" "received_emails")
           
-          required_tables=("users" "emails" "domains" "mailboxes" "app_settings")
-          
+          missing=0
           for table in "${required_tables[@]}"; do
-            if grep -qi "CREATE TABLE.*$table" "$schema"; then
+            if grep -qi "CREATE TABLE.*\`\?$table\`\?" "$schema"; then
               echo "✓ Table: $table"
             else
               echo "❌ Missing table: $table"
-              exit 1
+              missing=$((missing + 1))
             fi
           done
+          
+          if [ $missing -gt 0 ]; then
+            echo ""
+            echo "❌ FAILED: Missing $missing required table(s) in schema"
+            exit 1
+          fi
           echo ""
           echo "✅ Schema validation passed"
+
+      - name: Validation Summary
+        if: always()
+        run: |
+          echo ""
+          echo "========================================="
+          echo "📋 VALIDATION SUMMARY"
+          echo "========================================="
+          echo "Run completed at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "This workflow checks:"
+          echo "  1. PHP syntax errors (php -l)"
+          echo "  2. Duplicate function declarations"
+          echo "  3. Stray code patterns (brace mismatches, merge markers)"
+          echo "  4. Required files presence"
+          echo "  5. Database schema completeness"
+          echo ""
+          echo "For more info, see: SELF-HOSTED-GUIDE.md"

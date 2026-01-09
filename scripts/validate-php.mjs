@@ -104,6 +104,43 @@ async function validatePhpSyntax(filePath) {
   });
 }
 
+async function findDuplicateFunctionDeclarations(phpFiles, baseDir) {
+  const decls = new Map();
+
+  for (const filePath of phpFiles) {
+    const content = await fs.readFile(filePath, "utf8");
+    const lines = content.split(/\r?\n/);
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const match = line.match(/^\s*function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
+      if (!match) continue;
+
+      const name = match[1];
+      const lookback = lines.slice(Math.max(0, i - 5), i).join("\n");
+      const guarded = new RegExp(
+        `function_exists\\s*\\(\\s*['\"]${name}['\"]\\s*\\)`,
+        "i"
+      ).test(lookback);
+
+      if (!decls.has(name)) decls.set(name, []);
+      decls.get(name).push({
+        file: path.relative(baseDir, filePath),
+        line: i + 1,
+        guarded,
+      });
+    }
+  }
+
+  const duplicates = [];
+  for (const [name, occurrences] of decls.entries()) {
+    if (occurrences.length > 1) duplicates.push({ name, occurrences });
+  }
+
+  duplicates.sort((a, b) => a.name.localeCompare(b.name));
+  return duplicates;
+}
+
 async function validateSchema(schemaPath) {
   const content = await fs.readFile(schemaPath, "utf8");
   const missing = [];
@@ -178,7 +215,38 @@ async function main() {
     console.log(`\n✅ All ${phpFiles.length} PHP files are syntactically correct\n`);
   }
 
+  // 2b. Check duplicate function declarations
+  console.log("🔁 Checking for duplicate function declarations...\n");
+  const duplicates = await findDuplicateFunctionDeclarations(phpFiles, PHP_BACKEND_DIR);
+
+  if (duplicates.length === 0) {
+    console.log("✅ No duplicate function declarations found\n");
+  } else {
+    const problematic = duplicates.filter((d) => d.occurrences.some((o) => !o.guarded));
+
+    for (const d of duplicates) {
+      console.log(`   ⚠️  ${d.name} declared ${d.occurrences.length} times:`);
+      for (const o of d.occurrences) {
+        console.log(
+          `      - ${o.file}:${o.line}${o.guarded ? " (guarded by function_exists)" : ""}`
+        );
+      }
+    }
+
+    if (problematic.length > 0) {
+      console.log(
+        `\n❌ Found ${problematic.length} unguarded duplicate function(s) (will cause fatal redeclare errors)\n`
+      );
+      hasErrors = true;
+    } else {
+      console.log(
+        "\n⚠️  Duplicate functions are present but appear guarded by function_exists; not failing validation\n"
+      );
+    }
+  }
+
   // 3. Validate schema.sql
+
   console.log("📋 Validating schema.sql...\n");
   const schemaPath = path.join(PHP_BACKEND_DIR, "schema.sql");
   

@@ -80,7 +80,7 @@ function handleAdminRoute($action, $body, $pdo, $config) {
             testImapConnection($body, $pdo, $config);
             break;
         case 'mailbox-fetch-emails':
-            fetchImapEmails($body, $pdo, $config);
+            adminFetchImapEmails($body, $pdo, $config);
             break;
 
         // Email Logs
@@ -122,7 +122,7 @@ function handleAdminRoute($action, $body, $pdo, $config) {
             getBackupHistory($pdo);
             break;
         case 'backup-generate':
-            generateBackup($pdo, $userId);
+            adminGenerateBackup($pdo, $userId);
             break;
         case 'backup-delete':
             deleteBackupRecord($body, $pdo, $userId);
@@ -784,7 +784,7 @@ function testImapConnection($body, $pdo, $config) {
     }
 }
 
-function fetchImapEmails($body, $pdo, $config) {
+function adminFetchImapEmails($body, $pdo, $config) {
     $mailboxId = $body['mailbox_id'] ?? null;
 
     // Get mailbox config
@@ -1374,7 +1374,7 @@ function getBackupHistory($pdo) {
     echo json_encode(['history' => $history]);
 }
 
-function generateBackup($pdo, $adminId) {
+function adminGenerateBackup($pdo, $adminId) {
     $tables = [
         'profiles', 'domains', 'temp_emails', 'received_emails', 'email_attachments',
         'email_forwarding', 'mailboxes', 'email_templates', 'app_settings',

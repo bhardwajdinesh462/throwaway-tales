@@ -104,10 +104,8 @@ $diagnostics['files'] = [];
 $filesToCheck = [
     'config.php' => $baseDir . '/config.php',
     'index.php' => $baseDir . '/index.php',
-    'install.php' => $baseDir . '/install.php',
     'schema.sql' => $baseDir . '/schema.sql',
     '.htaccess' => $baseDir . '/.htaccess',
-    '.install_lock' => $baseDir . '/.install_lock',
     'error-logger.php' => $baseDir . '/error-logger.php',
     'includes/db.php' => $baseDir . '/includes/db.php',
     'includes/helpers.php' => $baseDir . '/includes/helpers.php'
@@ -434,7 +432,7 @@ if ($isJson) {
         <ol>
             <li>Fix any <span class="error">ERRORS</span> shown above</li>
             <li>Check the <code>logs/debug.log</code> file for more details</li>
-            <li>Once all checks pass, try the <a href="install.php" style="color: #00d9ff;">installer</a> again</li>
+            <li>Follow the steps in <code>INSTALL.md</code> to complete setup</li>
             <li><strong>DELETE this debug.php file after troubleshooting!</strong></li>
         </ol>
     </div>

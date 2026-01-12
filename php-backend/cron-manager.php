@@ -6,16 +6,11 @@
 
 // Security check - require config
 if (!file_exists(__DIR__ . '/config.php')) {
-    die('Configuration not found. Run install.php first.');
+    die('Configuration not found. Copy config.example.php to config.php and configure it.');
 }
 
 require_once __DIR__ . '/config.php';
 session_start();
-
-// Check for .install_lock 
-if (!file_exists(__DIR__ . '/.install_lock')) {
-    die('Please complete installation first by running install.php');
-}
 
 // Simple JWT verification for admin access
 function verifyAdminAccess($pdo) {

@@ -317,13 +317,13 @@ if ($earlyPath === 'health/diag') {
 
 // Load configuration
 if (!file_exists(__DIR__ . '/config.php')) {
-    // Redirect to installer if not configured
-    if (file_exists(__DIR__ . '/install.php')) {
-        header('Location: /api/install.php');
-        exit;
-    }
     http_response_code(500);
-    echo json_encode(['error' => 'Configuration not found']);
+    header('Content-Type: application/json');
+    echo json_encode([
+        'error' => 'Configuration not found',
+        'hint' => 'Copy config.example.php to config.php and update with your database credentials',
+        'docs' => 'See INSTALL.md for step-by-step instructions'
+    ]);
     exit;
 }
 

@@ -207,14 +207,21 @@ serve(async (req: Request): Promise<Response> => {
             
             const toAddress = toMatch?.[1]?.trim() || "";
             const toEmailMatch = toAddress.match(/<([^>]+)>/) || [null, toAddress];
-            const recipientEmail = (toEmailMatch[1] || toAddress).toLowerCase();
+            const recipientEmail = (toEmailMatch[1] || toAddress).toLowerCase().trim();
 
-            const { data: tempEmail } = await supabase
+            console.log(`[IMAP CRON] Processing email to: ${recipientEmail}`);
+
+            // Use case-insensitive matching with ilike
+            const { data: tempEmail, error: tempEmailError } = await supabase
               .from("temp_emails")
               .select("id")
-              .eq("address", recipientEmail)
+              .ilike("address", recipientEmail)
               .eq("is_active", true)
               .single();
+
+            if (tempEmailError && tempEmailError.code !== 'PGRST116') {
+              console.error(`[IMAP CRON] Error finding temp email:`, tempEmailError);
+            }
 
             if (tempEmail) {
               const bodyStart = fetchResponse.indexOf("\r\n\r\n");

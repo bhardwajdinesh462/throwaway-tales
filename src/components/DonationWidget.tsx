@@ -35,15 +35,15 @@ const DonationWidget = ({ variant = 'full' }: DonationWidgetProps) => {
           onClick={() => setExpanded(!expanded)}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          className="flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-1.5 rounded-full bg-gradient-to-r from-red-500/10 to-pink-500/10 border border-red-500/20 hover:border-red-500/40 transition-all"
+          className="flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-1.5 rounded-full bg-gradient-to-r from-red-500/20 to-pink-500/20 border border-red-500/30 hover:border-red-500/50 transition-all shadow-sm"
         >
           <motion.div
             animate={{ scale: [1, 1.2, 1] }}
             transition={{ duration: 1.5, repeat: Infinity, repeatType: "reverse" }}
           >
-            <Heart className="w-3 h-3 sm:w-4 sm:h-4 text-red-500" fill="currentColor" />
+            <Heart className="w-3 h-3 sm:w-4 sm:h-4 text-red-600 dark:text-red-400" fill="currentColor" />
           </motion.div>
-          <span className="text-[10px] sm:text-xs font-medium text-red-400 hidden xs:inline">Support</span>
+          <span className="text-[10px] sm:text-xs font-semibold text-red-600 dark:text-red-400 hidden xs:inline">Support</span>
         </motion.button>
 
         {/* Expanded modal overlay */}

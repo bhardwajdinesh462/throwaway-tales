@@ -344,7 +344,7 @@ require_once __DIR__ . '/routes/forwarding.php';
 require_once __DIR__ . '/routes/attachments.php';
 require_once __DIR__ . '/routes/webhooks.php';
 require_once __DIR__ . '/routes/logs.php';
-
+require_once __DIR__ . '/routes/seo.php';
 // CORS Headers
 $allowedOrigins = $config['cors']['origins'] ?? ['*'];
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
@@ -477,6 +477,10 @@ try {
             
         case 'logs':
             handleLogsRoute($segments[1] ?? '', $method, $body, $pdo, $config);
+            break;
+            
+        case 'seo':
+            handleSEORoute($segments, $method, $body, $pdo, $config);
             break;
             
         // Note: 'health' case is handled above in the first switch block

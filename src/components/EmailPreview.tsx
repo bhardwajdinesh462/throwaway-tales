@@ -196,13 +196,20 @@ const EmailPreview = ({ email, attachments, loadingAttachments, loadingContent =
       {/* Email Body */}
       <div className="p-3 md:p-4 max-h-[50vh] overflow-y-auto">
         {loadingContent ? (
-          <div className="space-y-4 animate-pulse">
-            <div className="h-4 bg-secondary/50 rounded w-3/4" />
-            <div className="h-4 bg-secondary/50 rounded w-full" />
-            <div className="h-4 bg-secondary/50 rounded w-5/6" />
-            <div className="h-4 bg-secondary/50 rounded w-2/3" />
-            <div className="h-4 bg-secondary/50 rounded w-4/5" />
-            <div className="h-4 bg-secondary/50 rounded w-1/2" />
+          <div className="space-y-4">
+            <div className="h-4 bg-secondary/50 rounded w-3/4 animate-pulse" />
+            <div className="h-4 bg-secondary/50 rounded w-full animate-pulse" />
+            <div className="h-4 bg-secondary/50 rounded w-5/6 animate-pulse" />
+            <div className="h-4 bg-secondary/50 rounded w-2/3 animate-pulse" />
+            <div className="h-4 bg-secondary/50 rounded w-4/5 animate-pulse" />
+            <div className="h-4 bg-secondary/50 rounded w-1/2 animate-pulse" />
+            <p className="text-center text-sm text-muted-foreground mt-4">Loading email content...</p>
+          </div>
+        ) : !hasHtml && !hasText ? (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <Mail className="w-12 h-12 mb-4 opacity-50" />
+            <p className="text-sm">No content available</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">This email may have no body text</p>
           </div>
         ) : viewMode === 'html' && hasHtml ? (
           <div 
@@ -221,12 +228,7 @@ const EmailPreview = ({ email, attachments, loadingAttachments, loadingContent =
           <div className="font-mono text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed bg-secondary/30 rounded-lg p-3 border border-border/50">
             {formattedBody}
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-            <Mail className="w-12 h-12 mb-4 opacity-50" />
-            <p className="text-sm">No content available</p>
-          </div>
-        )}
+        ) : null}
       </div>
 
       {/* Attachments */}

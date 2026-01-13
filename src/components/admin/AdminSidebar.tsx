@@ -101,6 +101,7 @@ const AdminSidebar = () => {
     { title: t('pages'), url: "/admin/pages", icon: FileText },
     { title: "Email Templates", url: "/admin/email-templates", icon: MailOpen },
     { title: "Friendly Sites", url: "/admin/friendly-websites", icon: Heart },
+    { title: "Donation Widget", url: "/admin/donation", icon: Heart },
   ];
 
   const settingsMenuItems: MenuItem[] = [

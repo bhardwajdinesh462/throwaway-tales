@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, RefreshCw, Star, Clock, User, ChevronRight, Inbox as InboxIcon, Loader2, Bell, Shield, Keyboard, BarChart3, ChevronDown, Filter, ArrowUpDown, Zap } from "lucide-react";
+import { Mail, RefreshCw, Star, Clock, User, ChevronRight, Inbox as InboxIcon, Loader2, Bell, Shield, Keyboard, Filter, ArrowUpDown, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ReceivedEmail } from "@/hooks/useSecureEmailService";
@@ -24,7 +24,7 @@ import { useAdminRole } from "@/hooks/useAdminRole";
 import InboxDiagnostics from "@/components/InboxDiagnostics";
 import RealtimeDebugPanel from "@/components/RealtimeDebugPanel";
 import { tooltips } from "@/lib/tooltips";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+
 import {
   Select,
   SelectContent,
@@ -66,7 +66,7 @@ const Inbox = () => {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [filter, setFilter] = useState<'all' | 'unread' | 'read'>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'sender'>('newest');
-  const [showStats, setShowStats] = useState(false);
+  
   
   // Fast Receive mode - polls IMAP every 5s for instant email delivery
   const [fastReceiveEnabled, setFastReceiveEnabled] = useState(false);
@@ -280,12 +280,14 @@ const Inbox = () => {
   }, [currentEmail?.id]);
 
 
-  // Check for new emails from IMAP server
-  // Use 'latest' mode to avoid huge UNSEEN scans on mailboxes with many unseen messages.
+  // Check for new emails from IMAP server AND refresh inbox
+  // Combined function for single "Fetch Emails" button
   const handleCheckMail = async () => {
     setIsCheckingMail(true);
+    setIsRefreshing(true);
     const startTime = Date.now();
     try {
+      // First trigger IMAP fetch to get new emails from server
       const result = await triggerImapFetch({ mode: "latest", limit: 20 });
       const stats = result?.stats;
       
@@ -298,6 +300,9 @@ const Inbox = () => {
         failed: stats?.failed || 0,
         duration: Date.now() - startTime,
       });
+      
+      // Then refetch the inbox to update the list
+      await refetch();
       
       if (stats?.stored > 0) {
         if (soundEnabled) {
@@ -324,6 +329,7 @@ const Inbox = () => {
       toast.error(errorMsg);
     } finally {
       setIsCheckingMail(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -582,31 +588,6 @@ const Inbox = () => {
     return emails;
   }, [receivedEmails, filter, sortBy]);
 
-  // Inbox statistics
-  const inboxStats = useMemo(() => {
-    const today = new Date().toDateString();
-    const emailsToday = receivedEmails.filter(
-      e => new Date(e.received_at).toDateString() === today
-    ).length;
-    
-    const unreadCount = receivedEmails.filter(e => !e.is_read).length;
-    
-    // Find most active sender
-    const senderCounts: Record<string, number> = {};
-    receivedEmails.forEach(e => {
-      const sender = e.from_address.split('<')[0].trim() || e.from_address;
-      senderCounts[sender] = (senderCounts[sender] || 0) + 1;
-    });
-    const topSender = Object.entries(senderCounts)
-      .sort((a, b) => b[1] - a[1])[0];
-    
-    return {
-      total: receivedEmails.length,
-      today: emailsToday,
-      unread: unreadCount,
-      topSender: topSender ? { name: topSender[0], count: topSender[1] } : null,
-    };
-  }, [receivedEmails]);
 
   return (
     <motion.div
@@ -730,32 +711,19 @@ const Inbox = () => {
                   variant="outline"
                   size="sm"
                   onClick={handleCheckMail}
-                  disabled={isCheckingMail}
+                  disabled={isCheckingMail || isRefreshing}
                   className="border-primary/30 hover:bg-primary/10"
                 >
-                  <Mail className={`w-4 h-4 mr-1 ${isCheckingMail ? 'animate-pulse' : ''}`} />
-                  {isCheckingMail ? 'Checking...' : 'Check Mail'}
+                  {isCheckingMail || isRefreshing ? (
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  ) : (
+                    <Mail className="w-4 h-4 mr-1" />
+                  )}
+                  {isCheckingMail || isRefreshing ? 'Fetching...' : 'Fetch Emails'}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>{tooltips.inbox.refresh}</p>
-              </TooltipContent>
-            </Tooltip>
-            
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => handleRefresh(false)}
-                  disabled={isRefreshing}
-                >
-                  <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-                  {t('refresh')}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Refresh inbox to check for new emails</p>
+                <p>Fetch new emails from server and refresh inbox</p>
               </TooltipContent>
             </Tooltip>
 
@@ -820,44 +788,6 @@ const Inbox = () => {
               {filteredEmails.length} {filteredEmails.length === 1 ? 'email' : 'emails'}
             </span>
           </div>
-
-          {/* Collapsible Stats */}
-          <Collapsible open={showStats} onOpenChange={setShowStats}>
-            <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
-              <BarChart3 className="h-3 w-3" />
-              <span>Inbox Statistics</span>
-              <ChevronDown className={`h-3 w-3 transition-transform ${showStats ? 'rotate-180' : ''}`} />
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="grid grid-cols-4 gap-3 mt-3 p-3 bg-background/50 rounded-lg border border-border/50"
-              >
-                <div className="text-center">
-                  <div className="text-xl font-bold text-foreground">{inboxStats.total}</div>
-                  <div className="text-[10px] text-muted-foreground">Total</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-xl font-bold text-green-500">{inboxStats.today}</div>
-                  <div className="text-[10px] text-muted-foreground">Today</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-xl font-bold text-blue-500">{inboxStats.unread}</div>
-                  <div className="text-[10px] text-muted-foreground">Unread</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-xl font-bold text-purple-500">
-                    {inboxStats.topSender?.count || 0}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground truncate max-w-[80px] mx-auto" title={inboxStats.topSender?.name || 'No sender'}>
-                    {inboxStats.topSender?.name?.split('@')[0]?.slice(0, 10) || 'Top sender'}
-                  </div>
-                </div>
-              </motion.div>
-            </CollapsibleContent>
-          </Collapsible>
         </div>
 
         {/* Email List */}

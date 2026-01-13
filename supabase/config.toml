@@ -17,3 +17,9 @@ verify_jwt = false
 
 [functions.auto-delete-emails]
 verify_jwt = false
+
+[functions.generate-sitemap]
+verify_jwt = false
+
+[functions.ping-search-engines]
+verify_jwt = false

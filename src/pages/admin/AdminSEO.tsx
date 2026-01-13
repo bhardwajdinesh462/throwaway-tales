@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
 import { supabase } from "@/integrations/supabase/client";
-import { Search, Save, Code, FileCode, FileText, TrendingUp, AlertTriangle, CheckCircle, XCircle, Lightbulb, Globe } from "lucide-react";
+import { Search, Save, Code, FileCode, FileText, TrendingUp, AlertTriangle, CheckCircle, XCircle, Lightbulb, Globe, RefreshCw, Send, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -27,6 +27,12 @@ interface PageSEO {
   noFollow: boolean;
   canonicalUrl: string;
   schemaType: string;
+}
+
+interface PingStatus {
+  success: boolean;
+  message: string;
+  timestamp: string;
 }
 
 interface SEOSettings {
@@ -49,6 +55,15 @@ interface SEOSettings {
   googleSiteVerification: string;
   bingSiteVerification: string;
   pages: Record<string, PageSEO>;
+  autoPingEnabled?: boolean;
+  indexNowApiKey?: string;
+  lastSitemapGenerated?: string;
+  lastPingStatus?: {
+    google?: PingStatus;
+    bing?: PingStatus;
+    yandex?: PingStatus;
+    seznam?: PingStatus;
+  };
 }
 
 const sitePages = [
@@ -115,6 +130,8 @@ const AdminSEO = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedPage, setSelectedPage] = useState<string>('/');
+  const [isRegeneratingSitemap, setIsRegeneratingSitemap] = useState(false);
+  const [isPinging, setIsPinging] = useState(false);
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -307,6 +324,63 @@ const AdminSEO = () => {
 
   const updateSetting = <K extends keyof SEOSettings>(key: K, value: SEOSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
+  };
+
+  const regenerateSitemap = async () => {
+    setIsRegeneratingSitemap(true);
+    try {
+      const response = await supabase.functions.invoke('generate-sitemap', {
+        body: { siteUrl: window.location.origin }
+      });
+      
+      if (response.error) throw new Error(response.error.message);
+      
+      toast.success("Sitemap regenerated successfully!");
+      
+      // Refresh settings to get updated timestamp
+      const { data } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'seo')
+        .maybeSingle();
+      
+      if (data?.value) {
+        const updatedSettings = data.value as unknown as SEOSettings;
+        setSettings(prev => ({ ...prev, ...updatedSettings }));
+      }
+    } catch (e) {
+      console.error('Error regenerating sitemap:', e);
+      toast.error('Failed to regenerate sitemap');
+    } finally {
+      setIsRegeneratingSitemap(false);
+    }
+  };
+
+  const pingSearchEngines = async () => {
+    setIsPinging(true);
+    try {
+      const response = await supabase.functions.invoke('ping-search-engines', {
+        body: { 
+          siteUrl: window.location.origin,
+          indexNowKey: settings.indexNowApiKey || '',
+        }
+      });
+      
+      if (response.error) throw new Error(response.error.message);
+      
+      const results = response.data;
+      const successCount = Object.values(results).filter((r: any) => r.success).length;
+      
+      toast.success(`Pinged search engines: ${successCount}/4 successful`);
+      
+      // Update settings with new ping status
+      setSettings(prev => ({ ...prev, lastPingStatus: results }));
+    } catch (e) {
+      console.error('Error pinging search engines:', e);
+      toast.error('Failed to ping search engines');
+    } finally {
+      setIsPinging(false);
+    }
   };
 
   const getScoreColor = (score: number) => {
@@ -843,6 +917,122 @@ const AdminSEO = () => {
                   className="font-mono text-sm"
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Search Engine Indexing Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Globe className="w-5 h-5" />
+                Search Engine Indexing
+              </CardTitle>
+              <CardDescription>
+                Notify search engines about content updates and regenerate sitemap
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Auto-ping toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Auto-ping on content update</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Automatically notify search engines when content changes
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.autoPingEnabled || false}
+                  onCheckedChange={(checked) => updateSetting('autoPingEnabled', checked)}
+                />
+              </div>
+              
+              {/* IndexNow API Key */}
+              <div className="space-y-2">
+                <Label htmlFor="indexNowKey">IndexNow API Key</Label>
+                <Input
+                  id="indexNowKey"
+                  value={settings.indexNowApiKey || ''}
+                  onChange={(e) => updateSetting('indexNowApiKey', e.target.value)}
+                  placeholder="Your IndexNow API key (for Bing, Yandex, Seznam)"
+                  className="font-mono"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Used for instant indexing on Bing, Yandex, and Seznam. 
+                  <a 
+                    href="https://www.indexnow.org/documentation" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline ml-1"
+                  >
+                    Learn more about IndexNow
+                  </a>
+                </p>
+              </div>
+              
+              {/* Manual Actions */}
+              <div className="flex flex-wrap gap-3">
+                <Button 
+                  onClick={regenerateSitemap} 
+                  disabled={isRegeneratingSitemap}
+                  variant="outline"
+                >
+                  {isRegeneratingSitemap ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                  )}
+                  Regenerate Sitemap
+                </Button>
+                <Button 
+                  onClick={pingSearchEngines} 
+                  disabled={isPinging}
+                  variant="outline"
+                >
+                  {isPinging ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4 mr-2" />
+                  )}
+                  Ping Search Engines Now
+                </Button>
+              </div>
+              
+              {/* Last Sitemap Generated */}
+              {settings.lastSitemapGenerated && (
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium">Last sitemap generated: </span>
+                  {new Date(settings.lastSitemapGenerated).toLocaleString()}
+                </div>
+              )}
+              
+              {/* Ping Status */}
+              {settings.lastPingStatus && (
+                <div className="border rounded-lg p-4 bg-muted/30">
+                  <Label className="text-sm font-medium mb-3 block">Last Ping Status</Label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {['google', 'bing', 'yandex', 'seznam'].map((engine) => {
+                      const status = settings.lastPingStatus?.[engine as keyof typeof settings.lastPingStatus];
+                      return (
+                        <div key={engine} className="flex items-center gap-2 p-2 rounded-md bg-background border">
+                          {status?.success ? (
+                            <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <span className="text-sm font-medium capitalize block">{engine}</span>
+                            {status?.timestamp && (
+                              <span className="text-xs text-muted-foreground truncate block">
+                                {new Date(status.timestamp).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

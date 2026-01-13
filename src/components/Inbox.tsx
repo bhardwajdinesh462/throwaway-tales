@@ -617,29 +617,32 @@ const Inbox = () => {
     >
       <div className="glass-card overflow-hidden flex-1 flex flex-col">
         {/* Inbox Header */}
-        <div className="flex flex-col gap-3 p-4 border-b border-border sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-1 min-w-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <Mail className="w-5 h-5 text-primary" />
-              <h2 className="font-semibold text-foreground shrink-0">{t('inbox')}</h2>
-              <span className="bg-primary/20 text-primary text-xs px-2 py-1 rounded-full shrink-0">
+        <div className="flex flex-col gap-2 sm:gap-3 p-3 sm:p-4 border-b border-border">
+          {/* Row 1: Title + Donation */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-wrap">
+              <Mail className="w-4 h-4 sm:w-5 sm:h-5 text-primary shrink-0" />
+              <h2 className="text-sm sm:text-base font-semibold text-foreground shrink-0">{t('inbox')}</h2>
+              <span className="bg-primary/20 text-primary text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full shrink-0">
                 {receivedEmails.filter(e => !e.is_read).length} new
               </span>
               {newEmailCount > 0 && (
                 <motion.span 
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  className="bg-green-500 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1 shrink-0"
+                  className="bg-green-500 text-white text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full flex items-center gap-1 shrink-0"
                 >
-                  <Bell className="w-3 h-3" />
+                  <Bell className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                   {newEmailCount} live
                 </motion.span>
               )}
             </div>
-
+            {/* Compact Donation Button */}
+            <DonationWidget variant="compact" />
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap justify-end">
+          {/* Row 2: Controls - horizontally scrollable on mobile */}
+          <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-hide">
             {/* Fast Receive Toggle */}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1002,10 +1005,6 @@ const Inbox = () => {
         {/* Realtime Debug Panel - Only for admins */}
         {isAdmin && <RealtimeDebugPanel tempEmailId={currentEmail?.id} className="mx-4 mb-4" />}
 
-        {/* Donation Widget */}
-        <div className="px-4 pb-2">
-          <DonationWidget />
-        </div>
       </div>
 
       {/* Keyboard Shortcuts Help Modal */}

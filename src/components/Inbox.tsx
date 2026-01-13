@@ -12,6 +12,7 @@ import { storage } from "@/lib/storage";
 import { useRealtimeEmails } from "@/hooks/useRealtimeEmails";
 import { Attachment } from "@/components/EmailAttachments";
 import EmailPreview from "@/components/EmailPreview";
+import DonationWidget from "@/components/DonationWidget";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { saveImapFetchStats } from "@/components/InboxDiagnostics";
@@ -59,6 +60,7 @@ const Inbox = () => {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loadingAttachments, setLoadingAttachments] = useState(false);
+  const [loadingEmailContent, setLoadingEmailContent] = useState(false);
   const [isCheckingMail, setIsCheckingMail] = useState(false);
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -428,6 +430,7 @@ const Inbox = () => {
 
     // Fetch full email content (body, html_body) if not already present
     if (!email.body && !email.html_body) {
+      setLoadingEmailContent(true);
       try {
         const fullEmail = await getFullEmail(email.id);
         if (fullEmail) {
@@ -435,6 +438,8 @@ const Inbox = () => {
         }
       } catch (error) {
         console.error("Error fetching full email:", error);
+      } finally {
+        setLoadingEmailContent(false);
       }
     }
 
@@ -985,6 +990,7 @@ const Inbox = () => {
               email={selectedEmail}
               attachments={attachments}
               loadingAttachments={loadingAttachments}
+              loadingContent={loadingEmailContent}
               onClose={() => setSelectedEmail(null)}
             />
           )}
@@ -995,6 +1001,11 @@ const Inbox = () => {
         
         {/* Realtime Debug Panel - Only for admins */}
         {isAdmin && <RealtimeDebugPanel tempEmailId={currentEmail?.id} className="mx-4 mb-4" />}
+
+        {/* Donation Widget */}
+        <div className="px-4 pb-2">
+          <DonationWidget />
+        </div>
       </div>
 
       {/* Keyboard Shortcuts Help Modal */}

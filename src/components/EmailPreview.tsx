@@ -21,6 +21,7 @@ interface EmailPreviewProps {
   };
   attachments: Attachment[];
   loadingAttachments: boolean;
+  loadingContent?: boolean;
   onClose: () => void;
 }
 
@@ -70,7 +71,7 @@ const getAvatarColor = (email: string) => {
   return colors[Math.abs(hash) % colors.length];
 };
 
-const EmailPreview = ({ email, attachments, loadingAttachments, onClose }: EmailPreviewProps) => {
+const EmailPreview = ({ email, attachments, loadingAttachments, loadingContent = false, onClose }: EmailPreviewProps) => {
   const [viewMode, setViewMode] = useState<'html' | 'text'>('html');
   const { isAdmin } = useAdminRole();
   
@@ -194,7 +195,16 @@ const EmailPreview = ({ email, attachments, loadingAttachments, onClose }: Email
 
       {/* Email Body */}
       <div className="p-3 md:p-4 max-h-[50vh] overflow-y-auto">
-        {viewMode === 'html' && hasHtml ? (
+        {loadingContent ? (
+          <div className="space-y-4 animate-pulse">
+            <div className="h-4 bg-secondary/50 rounded w-3/4" />
+            <div className="h-4 bg-secondary/50 rounded w-full" />
+            <div className="h-4 bg-secondary/50 rounded w-5/6" />
+            <div className="h-4 bg-secondary/50 rounded w-2/3" />
+            <div className="h-4 bg-secondary/50 rounded w-4/5" />
+            <div className="h-4 bg-secondary/50 rounded w-1/2" />
+          </div>
+        ) : viewMode === 'html' && hasHtml ? (
           <div 
             className="email-html-content prose prose-sm dark:prose-invert max-w-none
               prose-headings:text-foreground prose-p:text-foreground/90 prose-a:text-primary

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 
 export interface LimitModalConfig {
   enabled: boolean;
@@ -28,14 +28,14 @@ export const useLimitModalSettings = () => {
 
   const loadConfig = useCallback(async () => {
     try {
-      const { data } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'limit_modal_config')
-        .maybeSingle();
+      const { data } = await api.db.query<{ value: Partial<LimitModalConfig> }[]>('app_settings', {
+        select: 'value',
+        filter: { key: 'limit_modal_config' },
+        limit: 1,
+      });
       
-      if (data?.value && typeof data.value === 'object') {
-        setConfig({ ...defaultLimitModalConfig, ...data.value as Partial<LimitModalConfig> });
+      if (data && data.length > 0 && data[0].value && typeof data[0].value === 'object') {
+        setConfig({ ...defaultLimitModalConfig, ...data[0].value });
       }
     } catch (err) {
       console.error('Failed to load limit modal config:', err);
@@ -51,31 +51,26 @@ export const useLimitModalSettings = () => {
   const saveConfig = async (newConfig: LimitModalConfig) => {
     setIsSaving(true);
     try {
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', 'limit_modal_config')
-        .maybeSingle();
+      const { data: existing } = await api.db.query<{ id: string }[]>('app_settings', {
+        select: 'id',
+        filter: { key: 'limit_modal_config' },
+        limit: 1,
+      });
 
       const configJson = JSON.parse(JSON.stringify(newConfig));
 
       let error;
-      if (existing) {
-        const result = await supabase
-          .from('app_settings')
-          .update({
-            value: configJson,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('key', 'limit_modal_config');
+      if (existing && existing.length > 0) {
+        const result = await api.db.update('app_settings', {
+          value: configJson,
+          updated_at: new Date().toISOString(),
+        }, { key: 'limit_modal_config' });
         error = result.error;
       } else {
-        const result = await supabase
-          .from('app_settings')
-          .insert([{
-            key: 'limit_modal_config',
-            value: configJson,
-          }]);
+        const result = await api.db.insert('app_settings', {
+          key: 'limit_modal_config',
+          value: configJson,
+        });
         error = result.error;
       }
 

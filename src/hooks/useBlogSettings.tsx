@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { storage } from '@/lib/storage';
 
 const BLOG_SETTINGS_KEY = 'trashmails_blog_settings';
@@ -35,16 +35,15 @@ export const useBlogSettings = () => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'blog')
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { data, error } = await api.db.query<{ value: BlogSettings }[]>('app_settings', {
+          select: 'value',
+          filter: { key: 'blog' },
+          order: { column: 'updated_at', ascending: false },
+          limit: 1,
+        });
 
-        if (!error && data?.value) {
-          const dbSettings = data.value as unknown as BlogSettings;
+        if (!error && data && data.length > 0 && data[0].value) {
+          const dbSettings = data[0].value;
           const merged = { ...defaultSettings, ...dbSettings };
           setSettings(merged);
           storage.set(BLOG_SETTINGS_KEY, merged);

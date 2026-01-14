@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { toast } from 'sonner';
 
 export interface CaptchaSettings {
@@ -34,19 +34,19 @@ export const useCaptchaSettings = () => {
   const { data: settings = defaultSettings, isLoading } = useQuery({
     queryKey: ['app_settings', SETTINGS_KEY],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', SETTINGS_KEY)
-        .maybeSingle();
+      const { data, error } = await api.db.query<{ value: CaptchaSettings }[]>('app_settings', {
+        select: 'value',
+        filter: { key: SETTINGS_KEY },
+        limit: 1,
+      });
 
       if (error) {
         console.error('Error fetching captcha settings:', error);
         return defaultSettings;
       }
 
-      if (data?.value) {
-        return { ...defaultSettings, ...(data.value as unknown as CaptchaSettings) };
+      if (data && data.length > 0 && data[0].value) {
+        return { ...defaultSettings, ...data[0].value };
       }
       return defaultSettings;
     },
@@ -58,31 +58,26 @@ export const useCaptchaSettings = () => {
     mutationFn: async (newSettings: Partial<CaptchaSettings>) => {
       const updatedSettings = { ...settings, ...newSettings };
       
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', SETTINGS_KEY)
-        .maybeSingle();
+      const { data: existing } = await api.db.query<{ id: string }[]>('app_settings', {
+        select: 'id',
+        filter: { key: SETTINGS_KEY },
+        limit: 1,
+      });
 
       const settingsJson = JSON.parse(JSON.stringify(updatedSettings));
 
-      if (existing) {
-        const { error } = await supabase
-          .from('app_settings')
-          .update({
-            value: settingsJson,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('key', SETTINGS_KEY);
+      if (existing && existing.length > 0) {
+        const { error } = await api.db.update('app_settings', {
+          value: settingsJson,
+          updated_at: new Date().toISOString(),
+        }, { key: SETTINGS_KEY });
         
         if (error) throw error;
       } else {
-        const { error } = await supabase
-          .from('app_settings')
-          .insert([{
-            key: SETTINGS_KEY,
-            value: settingsJson,
-          }]);
+        const { error } = await api.db.insert('app_settings', {
+          key: SETTINGS_KEY,
+          value: settingsJson,
+        });
         
         if (error) throw error;
       }

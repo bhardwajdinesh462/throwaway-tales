@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/queryClient';
 
 // Admin query keys for prefetching
@@ -14,7 +14,7 @@ const adminQueryKeys = {
 // Prefetch functions
 const prefetchFunctions = {
   users: async () => {
-    const { data } = await supabase.rpc('get_all_profiles_for_admin', {
+    const { data } = await api.db.rpc('get_all_profiles_for_admin', {
       p_search: null,
       p_page: 1,
       p_page_size: 10
@@ -23,31 +23,28 @@ const prefetchFunctions = {
   },
   
   mailboxes: async () => {
-    const { data } = await supabase
-      .from("mailboxes")
-      .select("*")
-      .order("priority", { ascending: true });
+    const { data } = await api.db.query('mailboxes', {
+      order: { column: 'priority', ascending: true },
+    });
     return data;
   },
   
   domains: async () => {
-    const { data } = await supabase
-      .from("domains")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data } = await api.db.query('domains', {
+      order: { column: 'created_at', ascending: false },
+    });
     return data;
   },
   
   blogs: async () => {
-    const { data } = await supabase
-      .from("blogs")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data } = await api.db.query('blogs', {
+      order: { column: 'created_at', ascending: false },
+    });
     return data;
   },
   
   emails: async () => {
-    const { data } = await supabase.rpc('get_email_logs', {
+    const { data } = await api.db.rpc('get_email_logs', {
       p_page: 1,
       p_page_size: 10,
       p_search: null,

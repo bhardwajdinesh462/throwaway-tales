@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Check, X, Crown, Zap, Building2, Loader2 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import {
   Table,
   TableBody,
@@ -34,14 +34,13 @@ const TierComparisonTable = () => {
   useEffect(() => {
     const fetchTiers = async () => {
       try {
-        const { data, error } = await supabase
-          .from('subscription_tiers')
-          .select('*')
-          .eq('is_active', true)
-          .order('price_monthly', { ascending: true });
+        const { data, error } = await api.db.query<SubscriptionTier[]>('subscription_tiers', {
+          filter: { is_active: true },
+          order: { column: 'price_monthly', ascending: true },
+        });
 
         if (!error && data) {
-          setTiers(data as SubscriptionTier[]);
+          setTiers(data);
         }
       } catch (err) {
         console.error('Failed to fetch tiers:', err);

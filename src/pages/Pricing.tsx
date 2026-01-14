@@ -135,7 +135,7 @@ const PricingPage = () => {
         }
       } else {
         // Stripe checkout (default)
-        const { data, error } = await supabase.functions.invoke('create-checkout', {
+        const { data, error } = await api.functions.invoke<{ code?: string; checkout_url?: string }>('create-checkout', {
           body: {
             tier_id: tierId,
             billing_cycle: selectedBilling,

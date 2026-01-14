@@ -33,6 +33,7 @@ export const useAppearanceSettings = () => {
   const [settings, setSettings] = useState<AppearanceSettings>(defaultSettings);
   const [isLoading, setIsLoading] = useState(true);
   const cacheBusterRef = useRef(globalCacheBuster);
+  const channelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
 
   // Helper to add cache buster to URLs
   const addCacheBuster = (url: string): string => {
@@ -47,13 +48,13 @@ export const useAppearanceSettings = () => {
       const backoffMs = Math.min(1000 * Math.pow(2, attempt), 5000);
       
       try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value, updated_at')
-          .eq('key', 'appearance')
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { data: queryData, error } = await api.db.query<{ value: AppearanceSettings; updated_at: string }[]>('app_settings', {
+          select: 'value, updated_at',
+          filter: { key: 'appearance' },
+          order: { column: 'updated_at', ascending: false },
+          limit: 1,
+        });
+        const data = queryData && queryData.length > 0 ? queryData[0] : null;
 
         if (!error && data?.value) {
           const dbSettings = data.value as unknown as AppearanceSettings;
@@ -89,7 +90,7 @@ export const useAppearanceSettings = () => {
     loadSettings();
 
     // Real-time subscription for instant updates across all tabs
-    const channel = supabase
+    const channel = api.realtime
       .channel('appearance-settings-changes')
       .on(
         'postgres_changes',
@@ -111,11 +112,15 @@ export const useAppearanceSettings = () => {
             storage.set(APPEARANCE_SETTINGS_KEY, merged);
           }
         }
-      )
-      .subscribe();
+      );
+
+    channelRef.current = channel;
+    channel.subscribe();
 
     return () => {
-      channel.unsubscribe();
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+      }
     };
   }, []);
 

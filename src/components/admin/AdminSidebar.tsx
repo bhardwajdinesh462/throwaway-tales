@@ -40,7 +40,9 @@ import {
   LucideIcon,
   DollarSign,
   Wrench,
+  Keyboard,
 } from "lucide-react";
+import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
 import {
   Sidebar,
   SidebarContent,
@@ -71,6 +73,14 @@ interface MenuItem {
   icon: LucideIcon;
 }
 
+const GLOBAL_SHORTCUTS = [
+  { key: "r", description: "Refresh current page" },
+  { key: "n", description: "Create new item (where available)" },
+  { key: "s", description: "Focus search" },
+  { key: "/", description: "Focus search (alternative)" },
+  { key: "Escape", description: "Close dialogs / Clear search" },
+];
+
 const AdminSidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -80,6 +90,7 @@ const AdminSidebar = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [editingUrl, setEditingUrl] = useState<string | null>(null);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const { icons, setIcon, getIcon, isSaving } = useSidebarIcons();
   const { prefetchRoute } = usePrefetchAdmin();
 
@@ -389,7 +400,22 @@ const AdminSidebar = () => {
         </ScrollArea>
       </SidebarContent>
 
-      <SidebarFooter className="p-4 border-t border-border">
+      <SidebarFooter className="p-4 border-t border-border space-y-2">
+        {/* Keyboard Shortcuts Indicator */}
+        <Button
+          variant="ghost"
+          className="w-full justify-start text-muted-foreground hover:text-foreground"
+          onClick={() => setShowShortcutsHelp(true)}
+        >
+          <Keyboard className="w-4 h-4" />
+          {!collapsed && (
+            <span className="ml-2 flex items-center gap-2">
+              Shortcuts
+              <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-secondary border border-border rounded">?</kbd>
+            </span>
+          )}
+        </Button>
+        
         <Button variant="ghost" className="w-full justify-start" asChild>
           <NavLink to="/" className="flex items-center gap-2">
             <ArrowLeft className="w-4 h-4" />
@@ -397,6 +423,13 @@ const AdminSidebar = () => {
           </NavLink>
         </Button>
       </SidebarFooter>
+      
+      {/* Global Keyboard Shortcuts Help Modal */}
+      <KeyboardShortcutsHelp
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+        shortcuts={GLOBAL_SHORTCUTS}
+      />
     </Sidebar>
   );
 };

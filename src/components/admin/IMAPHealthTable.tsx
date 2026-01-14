@@ -24,7 +24,7 @@ import {
 import { api } from "@/lib/api";
 import { formatDistanceToNow, differenceInMinutes } from "date-fns";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+
 
 interface MailboxHealth {
   id: string;
@@ -124,16 +124,17 @@ export const IMAPHealthTable = ({ onRefresh }: IMAPHealthTableProps) => {
 
     setTestingId(mailbox.id);
     try {
-      const { data, error } = await supabase.functions.invoke("fetch-imap-emails", {
+      const { data, error } = await api.functions.invoke("fetch-imap-emails", {
         body: { mailboxId: mailbox.id, mode: "latest", limit: 5 },
       });
 
       if (error) throw error;
 
-      if (data?.success) {
-        toast.success(`Mailbox ${mailbox.name} is working! Found ${data.stats?.stored || 0} new emails.`);
+      const result = data as { success?: boolean; stats?: { stored?: number }; error?: string } | null;
+      if (result?.success) {
+        toast.success(`Mailbox ${mailbox.name} is working! Found ${result.stats?.stored || 0} new emails.`);
       } else {
-        toast.error(data?.error || "Test failed");
+        toast.error(result?.error || "Test failed");
       }
       
       // Refresh the table

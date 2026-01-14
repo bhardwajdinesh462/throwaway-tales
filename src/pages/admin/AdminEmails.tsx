@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Mail, Clock, TrendingUp, Calendar, Trash2, AlertTriangle, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
@@ -37,15 +37,16 @@ const AdminEmails = () => {
   const fetchStats = async () => {
     try {
       const [generatedRes, receivedRes, activeRes] = await Promise.all([
-        supabase.from("temp_emails").select("*", { count: "exact", head: true }),
-        supabase.from("received_emails").select("*", { count: "exact", head: true }),
-        supabase.from("temp_emails").select("*", { count: "exact", head: true }).eq("is_active", true),
+        api.db.query<any[]>("temp_emails"),
+        api.db.query<any[]>("received_emails"),
+        api.db.query<any[]>("temp_emails", { filter: { is_active: { eq: true } } }),
       ]);
 
       // Count duplicates
-      const { data: allEmails } = await supabase
-        .from("received_emails")
-        .select("temp_email_id, from_address, subject, received_at");
+      const { data: allEmails } = await api.db.query<{ temp_email_id: string; from_address: string; subject: string; received_at: string }[]>(
+        "received_emails",
+        { select: "temp_email_id, from_address, subject, received_at" }
+      );
 
       const emailMap = new Map<string, number>();
       let duplicateCount = 0;
@@ -69,32 +70,28 @@ const AdminEmails = () => {
         const dayEnd = new Date(date);
         dayEnd.setHours(23, 59, 59, 999);
 
-        const { count: generatedCount } = await supabase
-          .from("temp_emails")
-          .select("*", { count: "exact", head: true })
-          .gte("created_at", dayStart.toISOString())
-          .lte("created_at", dayEnd.toISOString());
+        const { data: genData } = await api.db.query<any[]>("temp_emails", {
+          filter: { created_at: { gte: dayStart.toISOString(), lte: dayEnd.toISOString() } }
+        });
 
-        const { count: receivedCount } = await supabase
-          .from("received_emails")
-          .select("*", { count: "exact", head: true })
-          .gte("received_at", dayStart.toISOString())
-          .lte("received_at", dayEnd.toISOString());
+        const { data: recData } = await api.db.query<any[]>("received_emails", {
+          filter: { received_at: { gte: dayStart.toISOString(), lte: dayEnd.toISOString() } }
+        });
 
         days.push({
           name: date.toLocaleDateString("en-US", { weekday: "short" }),
-          generated: generatedCount || 0,
-          received: receivedCount || 0,
+          generated: genData?.length || 0,
+          received: recData?.length || 0,
         });
       }
 
-      const totalGenerated = generatedRes.count || 0;
+      const totalGenerated = generatedRes.data?.length || 0;
       const avgPerDay = Math.round(totalGenerated / 7);
 
       setStats({
         totalGenerated,
-        totalReceived: receivedRes.count || 0,
-        activeEmails: activeRes.count || 0,
+        totalReceived: receivedRes.data?.length || 0,
+        activeEmails: activeRes.data?.length || 0,
         avgPerDay,
         duplicateCount,
       });
@@ -113,16 +110,17 @@ const AdminEmails = () => {
   const handleDeleteDuplicates = async () => {
     setIsDeleting(true);
     try {
-      const { data, error } = await supabase.functions.invoke("delete-duplicate-emails");
+      const { data, error } = await api.functions.invoke("delete-duplicate-emails");
       
       if (error) throw error;
       
-      if (data.success) {
-        toast.success(`Deleted ${data.deleted} duplicate emails`);
+      const result = data as { success?: boolean; deleted?: number; error?: string } | null;
+      if (result?.success) {
+        toast.success(`Deleted ${result.deleted} duplicate emails`);
         // Refresh stats
         fetchStats();
       } else {
-        toast.error(data.error || "Failed to delete duplicates");
+        toast.error(result?.error || "Failed to delete duplicates");
       }
     } catch (error: any) {
       console.error("Error deleting duplicates:", error);

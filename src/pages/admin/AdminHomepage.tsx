@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -31,12 +31,11 @@ export default function AdminHomepage() {
   const { data: sections, isLoading } = useQuery({
     queryKey: ["homepage-sections-admin"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("homepage_sections")
-        .select("*")
-        .order("display_order", { ascending: true });
+      const { data, error } = await api.db.query<HomepageSection[]>("homepage_sections", {
+        order: { column: "display_order", ascending: true }
+      });
       if (error) throw error;
-      return data as HomepageSection[];
+      return data || [];
     },
   });
 
@@ -45,10 +44,7 @@ export default function AdminHomepage() {
       const updates: any = { content, updated_at: new Date().toISOString() };
       if (isEnabled !== undefined) updates.is_enabled = isEnabled;
       
-      const { error } = await supabase
-        .from("homepage_sections")
-        .update(updates)
-        .eq("section_key", sectionKey);
+      const { error } = await api.db.update("homepage_sections", updates, { section_key: { eq: sectionKey } });
       if (error) throw error;
     },
     onSuccess: () => {

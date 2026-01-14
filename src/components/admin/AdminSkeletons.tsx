@@ -144,23 +144,51 @@ export const AdminBlogCardSkeleton = () => (
 
 // Stats card skeleton
 export const AdminStatsCardSkeleton = () => (
-  <div className="glass-card p-4">
-    <div className="flex items-center gap-3">
-      <Skeleton className="w-10 h-10 rounded-lg" />
-      <div className="space-y-2 flex-1">
-        <Skeleton className="h-3 w-20" />
-        <Skeleton className="h-6 w-16" />
+  <div className="glass-card p-6 animate-pulse">
+    <div className="flex items-start justify-between">
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-8 w-16" />
       </div>
+      <Skeleton className="p-3 rounded-xl w-12 h-12" />
     </div>
   </div>
 );
 
 // Dashboard stats grid skeleton
-export const AdminDashboardStatsSkeleton = () => (
-  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-    {Array.from({ length: 4 }).map((_, i) => (
+export const AdminDashboardStatsSkeleton = ({ count = 4 }: { count?: number }) => (
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    {Array.from({ length: count }).map((_, i) => (
       <AdminStatsCardSkeleton key={i} />
     ))}
+  </div>
+);
+
+// Chart skeleton
+export const AdminChartSkeleton = ({ title }: { title?: string }) => (
+  <div className="glass-card p-6 animate-pulse">
+    {title && <Skeleton className="h-6 w-48 mb-4" />}
+    <Skeleton className="h-64 w-full rounded" />
+  </div>
+);
+
+// Full page loading skeleton with stats + chart
+export const AdminPageLoadingSkeleton = ({ 
+  statsCount = 4, 
+  showChart = true,
+  title 
+}: { 
+  statsCount?: number; 
+  showChart?: boolean;
+  title?: string;
+}) => (
+  <div className="space-y-6">
+    <AdminDashboardStatsSkeleton count={statsCount} />
+    {showChart && <AdminChartSkeleton title={title} />}
+    <div className="flex items-center justify-center py-4">
+      <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      <span className="ml-2 text-muted-foreground text-sm">Loading...</span>
+    </div>
   </div>
 );
 
@@ -191,5 +219,7 @@ export default {
   AdminBlogCardSkeleton,
   AdminStatsCardSkeleton,
   AdminDashboardStatsSkeleton,
+  AdminChartSkeleton,
+  AdminPageLoadingSkeleton,
   AdminDomainSkeleton,
 };

@@ -14,7 +14,7 @@ import {
   Info
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 interface ServiceOverride {
   enabled: boolean;
@@ -84,14 +84,13 @@ const StatusMonitor = () => {
   // Load admin overrides first
   const loadOverrides = async (): Promise<StatusOverrides | null> => {
     try {
-      const { data } = await supabase
-        .from("app_settings")
-        .select("value")
-        .eq("key", "status_overrides")
-        .single();
+      const { data } = await api.db.query<{ value: StatusOverrides }[]>('app_settings', {
+        filter: { key: 'status_overrides' },
+        limit: 1
+      });
 
-      if (data) {
-        return data.value as unknown as StatusOverrides;
+      if (data?.[0]) {
+        return data[0].value as StatusOverrides;
       }
     } catch {
       // No overrides set
@@ -126,7 +125,7 @@ const StatusMonitor = () => {
     } else {
       try {
         const start = performance.now();
-        const { error } = await supabase.from("domains").select("id").limit(1);
+        const { error } = await api.db.query('domains', { limit: 1 });
         const latency = Math.round(performance.now() - start);
         
         const dbIndex = newServices.findIndex(s => s.key === "database");
@@ -177,12 +176,11 @@ const StatusMonitor = () => {
       };
     } else {
       try {
-        const { data: mailboxes } = await supabase
-          .from("mailboxes")
-          .select("last_polled_at, last_error, is_active")
-          .eq("is_active", true)
-          .order("last_polled_at", { ascending: false })
-          .limit(1);
+        const { data: mailboxes } = await api.db.query<{ last_polled_at: string; last_error: string | null; is_active: boolean }[]>('mailboxes', {
+          filter: { is_active: true },
+          order: { column: 'last_polled_at', ascending: false },
+          limit: 1
+        });
 
         const imapIndex = newServices.findIndex(s => s.key === "imap");
         if (mailboxes && mailboxes.length > 0) {
@@ -218,12 +216,10 @@ const StatusMonitor = () => {
     } else {
       try {
         const fiveMinAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
-        const { data: logs } = await supabase
-          .from("email_logs")
-          .select("status, sent_at")
-          .gte("created_at", fiveMinAgo)
-          .order("created_at", { ascending: false })
-          .limit(10);
+        const { data: logs } = await api.db.query<{ status: string; sent_at: string }[]>('email_logs', {
+          order: { column: 'created_at', ascending: false },
+          limit: 10
+        });
 
         const smtpIndex = newServices.findIndex(s => s.key === "smtp");
         if (logs && logs.length > 0) {

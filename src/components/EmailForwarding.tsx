@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { toast } from "sonner";
 import { z } from "zod";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import FeatureGate from "@/components/FeatureGate";
 
 interface ForwardingRule {
@@ -50,11 +50,10 @@ const EmailForwarding = () => {
       setIsLoading(true);
       try {
         // Fetch user's temp emails
-        const { data: tempEmailsData, error: tempError } = await supabase
-          .from("temp_emails")
-          .select("id, address")
-          .eq("user_id", user.id)
-          .eq("is_active", true);
+        const { data: tempEmailsData, error: tempError } = await api.db.query<TempEmail[]>('temp_emails', {
+          select: 'id, address',
+          filter: { user_id: user.id, is_active: true }
+        });
 
         if (tempError) {
           console.error("Error fetching temp emails:", tempError);
@@ -63,16 +62,10 @@ const EmailForwarding = () => {
         }
 
         // Fetch forwarding rules
-        const { data: rulesData, error: rulesError } = await supabase
-          .from("email_forwarding")
-          .select(`
-            id,
-            temp_email_id,
-            forward_to_address,
-            is_active,
-            created_at
-          `)
-          .eq("user_id", user.id);
+        const { data: rulesData, error: rulesError } = await api.db.query<ForwardingRule[]>('email_forwarding', {
+          select: 'id, temp_email_id, forward_to_address, is_active, created_at',
+          filter: { user_id: user.id }
+        });
 
         if (rulesError) {
           console.error("Error fetching forwarding rules:", rulesError);
@@ -119,19 +112,15 @@ const EmailForwarding = () => {
     setIsAdding(true);
 
     try {
-      const { data, error } = await supabase
-        .from("email_forwarding")
-        .insert({
-          temp_email_id: selectedTempEmail,
-          forward_to_address: newForwardTo,
-          user_id: user.id,
-          is_active: true
-        })
-        .select()
-        .single();
+      const { data, error } = await api.db.insert<ForwardingRule>('email_forwarding', {
+        temp_email_id: selectedTempEmail,
+        forward_to_address: newForwardTo,
+        user_id: user.id,
+        is_active: true
+      });
 
       if (error) {
-        if (error.code === "23505") {
+        if ((error as any)?.code === "23505") {
           toast.error("A forwarding rule already exists for this email");
         } else {
           throw error;
@@ -163,10 +152,10 @@ const EmailForwarding = () => {
     if (!rule) return;
 
     try {
-      const { error } = await supabase
-        .from("email_forwarding")
-        .update({ is_active: !rule.is_active })
-        .eq("id", ruleId);
+      const { error } = await api.db.update('email_forwarding',
+        { is_active: !rule.is_active },
+        { id: ruleId }
+      );
 
       if (error) throw error;
 
@@ -182,10 +171,7 @@ const EmailForwarding = () => {
 
   const handleDeleteRule = async (ruleId: string) => {
     try {
-      const { error } = await supabase
-        .from("email_forwarding")
-        .delete()
-        .eq("id", ruleId);
+      const { error } = await api.db.delete('email_forwarding', { id: ruleId });
 
       if (error) throw error;
 

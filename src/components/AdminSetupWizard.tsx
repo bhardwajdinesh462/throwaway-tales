@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Shield, Loader2, CheckCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { toast } from "sonner";
 
@@ -26,7 +26,7 @@ const AdminSetupWizard = ({ onComplete }: AdminSetupWizardProps) => {
     setError(null);
 
     try {
-      const { data, error: rpcError } = await supabase.rpc('claim_first_admin');
+      const { data, error: rpcError } = await api.db.rpc<boolean>('claim_first_admin');
 
       if (rpcError) {
         console.error('Error claiming admin:', rpcError);

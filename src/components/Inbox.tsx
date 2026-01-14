@@ -13,7 +13,7 @@ import { useRealtimeEmails } from "@/hooks/useRealtimeEmails";
 import { Attachment } from "@/components/EmailAttachments";
 import EmailPreview from "@/components/EmailPreview";
 import DonationWidget from "@/components/DonationWidget";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { saveImapFetchStats } from "@/components/InboxDiagnostics";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -372,7 +372,7 @@ const Inbox = () => {
 
       console.log('[Test Email] Using SMTP:', smtpConfig.host, smtpConfig.port, 'from:', smtpConfig.fromEmail);
 
-      const { data, error } = await supabase.functions.invoke('send-test-email', {
+      const { data, error } = await api.functions.invoke('send-test-email', {
         body: {
           recipientEmail: currentEmail.address,
           subject: 'Nullsto inbox test',
@@ -382,7 +382,8 @@ const Inbox = () => {
       });
 
       if (error) throw error;
-      if (data?.success === false) throw new Error(data?.error || 'Send failed');
+      const sendResult = data as { success?: boolean; error?: string } | null;
+      if (sendResult?.success === false) throw new Error(sendResult?.error || 'Send failed');
 
       toast.success(`Test email sent via ${smtpConfig.host}! Waiting for delivery...`);
 
@@ -391,10 +392,10 @@ const Inbox = () => {
 
       toast.loading('Checking for new mail...');
       const fetchStart = Date.now();
-      const result = await triggerImapFetch({ mode: "latest", limit: 20 });
+      const fetchResult = await triggerImapFetch({ mode: "latest", limit: 20 });
       toast.dismiss();
 
-      const stats = result?.stats;
+      const stats = fetchResult?.stats;
       
       // Save stats for diagnostics panel
       saveImapFetchStats({
@@ -452,13 +453,12 @@ const Inbox = () => {
     // Fetch attachments for this email
     setLoadingAttachments(true);
     try {
-      const { data, error } = await supabase
-        .from("email_attachments")
-        .select("*")
-        .eq("received_email_id", email.id);
+      const { data, error } = await api.db.query<Attachment[]>("email_attachments", {
+        filter: { received_email_id: email.id }
+      });
       
       if (!error && data) {
-        setAttachments(data as Attachment[]);
+        setAttachments(data);
       }
     } catch (error) {
       console.error("Error fetching attachments:", error);

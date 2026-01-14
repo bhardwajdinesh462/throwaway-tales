@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { Mail, Ban, Plus, Trash2, Clock, AlertTriangle, RefreshCw, Code } from "lucide-react";
 import {
@@ -64,8 +64,7 @@ const AdminEmailBlocking = () => {
     loadBlockedEmails();
     
     // Setup realtime subscription
-    const channel = supabase
-      .channel('blocked-emails-realtime')
+    const channel = api.realtime.channel('blocked-emails-realtime')
       .on(
         'postgres_changes',
         {
@@ -76,20 +75,20 @@ const AdminEmailBlocking = () => {
         () => {
           loadBlockedEmails();
         }
-      )
-      .subscribe();
+      );
+    
+    channel.subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      api.realtime.removeChannel(channel);
     };
   }, []);
 
   const loadBlockedEmails = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from("blocked_emails")
-      .select("*")
-      .order("blocked_at", { ascending: false });
+    const { data, error } = await api.db.query<BlockedEmail[]>("blocked_emails", {
+      order: { column: "blocked_at", ascending: false }
+    });
 
     if (error) {
       console.error("Error loading blocked emails:", error);
@@ -130,15 +129,13 @@ const AdminEmailBlocking = () => {
       expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
     }
 
-    const { error } = await supabase
-      .from("blocked_emails")
-      .insert([{
-        email_pattern: emailPattern.trim().toLowerCase(),
-        reason: reason.trim() || null,
-        blocked_by: user.id,
-        expires_at: expiresAt,
-        is_regex: isRegex,
-      }]);
+    const { error } = await api.db.insert("blocked_emails", {
+      email_pattern: emailPattern.trim().toLowerCase(),
+      reason: reason.trim() || null,
+      blocked_by: user.id,
+      expires_at: expiresAt,
+      is_regex: isRegex,
+    });
 
     if (error) {
       if (error.code === "23505") {
@@ -159,10 +156,7 @@ const AdminEmailBlocking = () => {
   };
 
   const handleUnblockEmail = async (id: string, pattern: string) => {
-    const { error } = await supabase
-      .from("blocked_emails")
-      .update({ is_active: false })
-      .eq("id", id);
+    const { error } = await api.db.update("blocked_emails", { is_active: false }, { id });
 
     if (error) {
       toast.error("Failed to unblock email");
@@ -173,10 +167,7 @@ const AdminEmailBlocking = () => {
   };
 
   const handleDeleteEmail = async (id: string) => {
-    const { error } = await supabase
-      .from("blocked_emails")
-      .delete()
-      .eq("id", id);
+    const { error } = await api.db.delete("blocked_emails", { id });
 
     if (error) {
       toast.error("Failed to delete record");

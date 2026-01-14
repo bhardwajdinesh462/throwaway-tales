@@ -51,6 +51,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAdminMailboxes, useMailboxMutations } from "@/hooks/useAdminQueries";
 import { AdminMailboxCardSkeleton } from "@/components/admin/AdminSkeletons";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
 
 interface Mailbox {
   id: string;
@@ -266,24 +268,17 @@ const AdminMailboxes = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Mailboxes</h1>
-          <p className="text-muted-foreground">
-            Manage multiple mailboxes for load balancing email sending and receiving
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-          <Button onClick={() => openDialog()}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Mailbox
-          </Button>
-        </div>
-      </div>
+      <AdminPageHeader
+        title="Mailboxes"
+        description="Manage multiple mailboxes for load balancing email sending and receiving"
+        onRefresh={() => refetch()}
+        isRefreshing={isLoading}
+      >
+        <Button onClick={() => openDialog()}>
+          <Plus className="w-4 h-4 mr-2" />
+          Add Mailbox
+        </Button>
+      </AdminPageHeader>
 
       {isLoading ? (
         <div className="grid gap-4">
@@ -292,20 +287,13 @@ const AdminMailboxes = () => {
           ))}
         </div>
       ) : mailboxes.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Mail className="w-12 h-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Mailboxes Configured</h3>
-            <p className="text-muted-foreground mb-4 text-center max-w-md">
-              Add mailboxes to enable multi-mailbox load balancing. The system will
-              automatically rotate between mailboxes to avoid rate limits.
-            </p>
-            <Button onClick={() => openDialog()}>
-              <Plus className="w-4 h-4 mr-2" />
-              Add Your First Mailbox
-            </Button>
-          </CardContent>
-        </Card>
+        <AdminEmptyState
+          icon={Mail}
+          title="No Mailboxes Configured"
+          description="Add mailboxes to enable multi-mailbox load balancing. The system will automatically rotate between mailboxes to avoid rate limits."
+          actionLabel="Add Your First Mailbox"
+          onAction={() => openDialog()}
+        />
       ) : (
         <div className="space-y-4">
           {/* Global warning banner for mailboxes with missing passwords */}

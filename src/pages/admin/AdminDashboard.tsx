@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { AdminDashboardStatsSkeleton, AdminChartSkeleton } from "@/components/admin/AdminSkeletons";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { AdminErrorState } from "@/components/admin/AdminErrorState";
 import SubscriptionStatsWidget from "@/components/admin/SubscriptionStatsWidget";
 import PaymentStatsWidget from "@/components/admin/PaymentStatsWidget";
 import DatabaseMetricsWidget from "@/components/admin/DatabaseMetricsWidget";

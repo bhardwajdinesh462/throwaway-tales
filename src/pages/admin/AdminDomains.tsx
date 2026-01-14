@@ -8,6 +8,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { AdminDomainSkeleton } from "@/components/admin/AdminSkeletons";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
 import DomainSetupWizard from "@/components/admin/DomainSetupWizard";
 import {
   Dialog,
@@ -220,24 +222,17 @@ const AdminDomains = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-foreground">Email Domains</h2>
-          <p className="text-sm text-muted-foreground">
-            Manage domains available for temporary emails
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4" />
-          </Button>
-          <Button variant="neon" onClick={() => setWizardOpen(true)}>
-            <Wand2 className="w-4 h-4 mr-2" />
-            Setup Domain
-          </Button>
-        </div>
-      </div>
+      <AdminPageHeader
+        title="Email Domains"
+        description="Manage domains available for temporary emails"
+        onRefresh={() => refetch()}
+        isRefreshing={isLoading}
+      >
+        <Button variant="neon" onClick={() => setWizardOpen(true)}>
+          <Wand2 className="w-4 h-4 mr-2" />
+          Setup Domain
+        </Button>
+      </AdminPageHeader>
 
       {/* Domain Setup Wizard */}
       <DomainSetupWizard
@@ -255,9 +250,13 @@ const AdminDomains = () => {
         {isLoading ? (
           Array.from({ length: 3 }).map((_, i) => <AdminDomainSkeleton key={i} />)
         ) : domains.length === 0 ? (
-          <div className="glass-card p-8 text-center text-muted-foreground">
-            No domains configured
-          </div>
+          <AdminEmptyState
+            icon={Globe}
+            title="No Domains Configured"
+            description="Add your first domain to start creating temporary email addresses."
+            actionLabel="Setup Domain"
+            onAction={() => setWizardOpen(true)}
+          />
         ) : (
           domains.map((domain, index) => (
             <motion.div

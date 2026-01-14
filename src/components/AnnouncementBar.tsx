@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Sparkles, Crown, MessageCircle } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 interface AnnouncementSettings {
   isEnabled: boolean;
@@ -32,14 +32,13 @@ const AnnouncementBar = () => {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'announcement_settings')
-          .maybeSingle();
+        const { data, error } = await api.db.query<{ value: AnnouncementSettings }[]>('app_settings', {
+          filter: { key: 'announcement_settings' },
+          limit: 1
+        });
 
-        if (!error && data?.value) {
-          const dbSettings = data.value as unknown as AnnouncementSettings;
+        if (!error && data?.[0]?.value) {
+          const dbSettings = data[0].value as AnnouncementSettings;
           setSettings({ ...defaultSettings, ...dbSettings });
         }
       } catch (e) {
@@ -52,28 +51,32 @@ const AnnouncementBar = () => {
     fetchSettings();
 
     // Real-time subscription for instant updates across all tabs
-    const channel = supabase
-      .channel('announcement-settings-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'app_settings',
-          filter: 'key=eq.announcement_settings'
-        },
-        (payload) => {
-          console.log('Announcement settings updated:', payload);
-          if (payload.new && (payload.new as any).value) {
-            const newSettings = (payload.new as any).value as AnnouncementSettings;
-            setSettings({ ...defaultSettings, ...newSettings });
+    let channel: any = null;
+    const setupChannel = async () => {
+      channel = await api.realtime
+        .channel('announcement-settings-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'app_settings',
+            filter: 'key=eq.announcement_settings'
+          },
+          (payload) => {
+            console.log('Announcement settings updated:', payload);
+            if (payload.new && (payload.new as any).value) {
+              const newSettings = (payload.new as any).value as AnnouncementSettings;
+              setSettings({ ...defaultSettings, ...newSettings });
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    };
+    setupChannel();
 
     return () => {
-      channel.unsubscribe();
+      if (channel) channel.unsubscribe();
     };
   }, []);
 

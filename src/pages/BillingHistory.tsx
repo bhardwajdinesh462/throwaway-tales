@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useSupabaseAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,11 +36,10 @@ const BillingHistory = () => {
     const fetchInvoices = async () => {
       if (!user) return;
 
-      const { data, error } = await supabase
-        .from("user_invoices")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+      const { data, error } = await api.db.query<Invoice[]>('user_invoices', {
+        filter: { user_id: user.id },
+        order: { column: 'created_at', ascending: false }
+      });
 
       if (error) {
         console.error("Error fetching invoices:", error);

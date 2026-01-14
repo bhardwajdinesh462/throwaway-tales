@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { Mail, RefreshCw, ArrowLeft, CheckCircle, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useSupabaseAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -36,14 +36,15 @@ const VerifyEmail = () => {
     setVerificationStatus('pending');
     
     try {
-      const { data, error } = await supabase.functions.invoke('verify-email-token', {
+      const { data, error } = await api.functions.invoke<{ success?: boolean; error?: string }>('verify-email-token', {
         body: { token: verificationToken },
       });
 
-      if (error || !data?.success) {
+      const result = data as { success?: boolean; error?: string } | null;
+      if (error || !result?.success) {
         setVerificationStatus('error');
-        setVerificationError(data?.error || error?.message || "Verification failed");
-        toast.error(data?.error || "Verification failed");
+        setVerificationError(result?.error || "Verification failed");
+        toast.error(result?.error || "Verification failed");
       } else {
         setVerificationStatus('success');
         toast.success("Email verified successfully!");
@@ -86,7 +87,7 @@ const VerifyEmail = () => {
     setIsResending(true);
     try {
       // Use the combined edge function that bypasses RLS
-      const { data, error } = await supabase.functions.invoke('create-verification-and-send', {
+      const { data, error } = await api.functions.invoke<{ error?: string }>('create-verification-and-send', {
         body: {
           userId: userId,
           email: emailToUse,
@@ -96,12 +97,13 @@ const VerifyEmail = () => {
 
       if (error) {
         console.error('Error sending verification email:', error);
-        toast.error(error.message || "Failed to send verification email");
+        toast.error("Failed to send verification email");
         return;
       }
 
-      if (data?.error) {
-        toast.error(data.error);
+      const result = data as { error?: string } | null;
+      if (result?.error) {
+        toast.error(result.error);
         return;
       }
 

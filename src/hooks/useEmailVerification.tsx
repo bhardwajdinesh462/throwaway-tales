@@ -1,5 +1,5 @@
 import { useAuth } from "@/hooks/useSupabaseAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useState, useCallback, useEffect, useRef } from "react";
 
@@ -77,11 +77,11 @@ export const useEmailVerification = () => {
       fetchedRef.current = true;
 
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('email_verified')
-          .eq('user_id', user.id)
-          .maybeSingle(); // Use maybeSingle to handle missing profile
+        const { data, error } = await api.db.query<{ email_verified: boolean }[]>('profiles', {
+          select: 'email_verified',
+          filter: { user_id: user.id },
+          limit: 1
+        });
 
         if (error) {
           console.error('Error fetching email verification status:', error);
@@ -89,41 +89,11 @@ export const useEmailVerification = () => {
           if (emailVerified === null) {
             setEmailVerified(false);
           }
-        } else if (!data) {
-          // No profile row yet (common right after signup). Fall back to auth email confirmation.
-          const { data: authData, error: authError } = await supabase.auth.getUser();
-          const confirmed =
-            !authError &&
-            Boolean(
-              (authData.user as any)?.email_confirmed_at ||
-                (authData.user as any)?.confirmed_at
-            );
-
-          setEmailVerified(confirmed);
-
-          // If auth says confirmed, also create/update profile so the rest of the app can rely on it.
-          if (confirmed && user.email) {
-            const { data: existingProfile } = await supabase
-              .from('profiles')
-              .select('id')
-              .eq('user_id', user.id)
-              .maybeSingle();
-
-            if (existingProfile?.id) {
-              await supabase
-                .from('profiles')
-                .update({ email_verified: true, email: user.email })
-                .eq('user_id', user.id);
-            } else {
-              await supabase.from('profiles').insert({
-                user_id: user.id,
-                email: user.email,
-                email_verified: true,
-              });
-            }
-          }
+        } else if (!data || data.length === 0) {
+          // No profile row yet - default to not verified, user will need to verify
+          setEmailVerified(false);
         } else {
-          const verified = data?.email_verified ?? false;
+          const verified = data[0]?.email_verified ?? false;
           setEmailVerified(verified);
           // Update cache
           try {
@@ -173,7 +143,7 @@ export const useEmailVerification = () => {
     setIsResending(true);
     try {
       // Use the combined edge function that bypasses RLS
-      const { data, error } = await supabase.functions.invoke('create-verification-and-send', {
+      const { data, error } = await api.functions.invoke<{ error?: string }>('create-verification-and-send', {
         body: {
           userId: user.id,
           email: user.email,
@@ -183,12 +153,13 @@ export const useEmailVerification = () => {
 
       if (error) {
         console.error('Error sending verification email:', error);
-        toast.error(error.message || "Failed to send verification email");
+        toast.error("Failed to send verification email");
         return false;
       }
 
-      if (data?.error) {
-        toast.error(data.error);
+      const result = data as { error?: string } | null;
+      if (result?.error) {
+        toast.error(result.error);
         return false;
       }
 
@@ -219,42 +190,14 @@ export const useEmailVerification = () => {
     
     setLoading(true);
     try {
-      // First check auth provider for latest status
-      const { data: authData, error: authError } = await supabase.auth.getUser();
-      const confirmed =
-        !authError &&
-        Boolean(
-          (authData.user as any)?.email_confirmed_at ||
-            (authData.user as any)?.confirmed_at
-        );
+      // Check profiles table
+      const { data, error } = await api.db.query<{ email_verified: boolean }[]>('profiles', {
+        select: 'email_verified',
+        filter: { user_id: user.id },
+        limit: 1
+      });
 
-      // Then check profiles table
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('email_verified')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      let verified = !error && data?.email_verified === true;
-
-      // If profile says not verified but auth says confirmed, update profile
-      if (!verified && confirmed && user.email) {
-        verified = true;
-        
-        if (data) {
-          await supabase
-            .from('profiles')
-            .update({ email_verified: true, email: user.email })
-            .eq('user_id', user.id);
-        } else {
-          await supabase.from('profiles').insert({
-            user_id: user.id,
-            email: user.email,
-            email_verified: true,
-          });
-        }
-      }
-
+      const verified = !error && data?.[0]?.email_verified === true;
       setEmailVerified(verified);
       
       // Update cache with new value

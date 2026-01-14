@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { ExternalLink } from "lucide-react";
 import DOMPurify from "dompurify";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 interface Banner {
   id: string;
@@ -33,17 +33,16 @@ const BannerDisplay = ({ position, className = "" }: BannerDisplayProps) => {
     
     try {
       const now = new Date().toISOString();
-      const { data, error } = await supabase
-        .from("banners")
-        .select("id, name, position, type, content, image_url, link_url, is_active, priority, start_date, end_date")
-        .eq("position", position)
-        .eq("is_active", true)
-        .order("priority", { ascending: false });
+      const { data, error } = await api.db.query<Banner[]>('banners', {
+        select: 'id, name, position, type, content, image_url, link_url, is_active, priority, start_date, end_date',
+        filter: { position, is_active: true },
+        order: { column: 'priority', ascending: false }
+      });
 
       if (error) {
-        const isRetryable = error.message?.includes('Failed to fetch') || 
-                            error.message?.includes('fetch') ||
-                            error.message?.includes('timeout');
+        const isRetryable = (error as any)?.message?.includes('Failed to fetch') || 
+                            (error as any)?.message?.includes('fetch') ||
+                            (error as any)?.message?.includes('timeout');
         
         if (isRetryable && attempt < maxRetries) {
           console.log(`[BannerDisplay] Retrying in ${backoffMs}ms (attempt ${attempt + 1})...`);
@@ -85,7 +84,7 @@ const BannerDisplay = ({ position, className = "" }: BannerDisplayProps) => {
 
     // Subscribe to real-time banner changes - use stable channel name
     const channelName = `banners_realtime_${position}`;
-    const channel = supabase.channel(channelName);
+    const channel = api.realtime.channel(channelName);
     
     channel
       .on(
@@ -114,17 +113,17 @@ const BannerDisplay = ({ position, className = "" }: BannerDisplayProps) => {
   const handleBannerClick = async (banner: Banner) => {
     // Track click in database - increment via SQL
     try {
-      const { data } = await supabase
-        .from("banners")
-        .select("click_count")
-        .eq("id", banner.id)
-        .single();
+      const { data } = await api.db.query<{ click_count: number }[]>('banners', {
+        select: 'click_count',
+        filter: { id: banner.id },
+        limit: 1
+      });
       
-      if (data) {
-        await supabase
-          .from("banners")
-          .update({ click_count: (data.click_count || 0) + 1 })
-          .eq("id", banner.id);
+      if (data?.[0]) {
+        await api.db.update('banners', 
+          { click_count: (data[0].click_count || 0) + 1 },
+          { id: banner.id }
+        );
       }
     } catch (err) {
       // Silently fail click tracking
@@ -137,17 +136,17 @@ const BannerDisplay = ({ position, className = "" }: BannerDisplayProps) => {
 
   const trackView = async (bannerId: string) => {
     try {
-      const { data } = await supabase
-        .from("banners")
-        .select("view_count")
-        .eq("id", bannerId)
-        .single();
+      const { data } = await api.db.query<{ view_count: number }[]>('banners', {
+        select: 'view_count',
+        filter: { id: bannerId },
+        limit: 1
+      });
       
-      if (data) {
-        await supabase
-          .from("banners")
-          .update({ view_count: (data.view_count || 0) + 1 })
-          .eq("id", bannerId);
+      if (data?.[0]) {
+        await api.db.update('banners',
+          { view_count: (data[0].view_count || 0) + 1 },
+          { id: bannerId }
+        );
       }
     } catch (err) {
       // Silently fail view tracking
@@ -215,7 +214,7 @@ const BannerDisplay = ({ position, className = "" }: BannerDisplayProps) => {
           {banner.type === "script" && (
             <div
               className="banner-script-container"
-              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.content, { ADD_TAGS: ['script'], ADD_ATTR: ['src'] }) }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.content || '', { ADD_TAGS: ['script'], ADD_ATTR: ['src'] }) }}
             />
           )}
         </motion.div>

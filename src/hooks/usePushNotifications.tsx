@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 interface PushSubscriptionData {
   endpoint: string;
@@ -39,13 +39,12 @@ export const usePushNotifications = () => {
     // Try to load VAPID key from settings
     const loadVapidKey = async () => {
       try {
-        const { data } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'push_notifications')
-          .single();
+        const { data } = await api.db.query<{ value: { vapidPublicKey?: string } }[]>('app_settings', {
+          filter: { key: 'push_notifications' },
+          limit: 1
+        });
         
-        const value = data?.value as { vapidPublicKey?: string } | null;
+        const value = data?.[0]?.value;
         if (value?.vapidPublicKey) {
           setVapidKey(value.vapidPublicKey);
         }
@@ -74,7 +73,7 @@ export const usePushNotifications = () => {
 
     // Browsers commonly block permission prompts inside embedded previews/iframes.
     if (isInIframe()) {
-      toast.error("Notifications can’t be enabled in the embedded preview. Open the app in a new tab, then try again.");
+      toast.error("Notifications can't be enabled in the embedded preview. Open the app in a new tab, then try again.");
       return false;
     }
 

@@ -411,14 +411,15 @@ const AdminSEO = () => {
   const connectGSC = async () => {
     setIsConnectingGSC(true);
     try {
-      const response = await supabase.functions.invoke('google-search-console', {
+      const response = await api.functions.invoke('google-search-console', {
         body: { action: 'authorize', siteUrl: window.location.origin }
       });
       
       if (response.error) throw new Error(response.error.message);
       
-      if (response.data?.authUrl) {
-        window.open(response.data.authUrl, '_blank', 'width=600,height=700');
+      const gscData = response.data as { authUrl?: string } | null;
+      if (gscData?.authUrl) {
+        window.open(gscData.authUrl, '_blank', 'width=600,height=700');
         toast.info("Complete authorization in the popup window");
       }
     } catch (e) {
@@ -431,7 +432,7 @@ const AdminSEO = () => {
 
   const disconnectGSC = async () => {
     try {
-      const response = await supabase.functions.invoke('google-search-console', {
+      const response = await api.functions.invoke('google-search-console', {
         body: { action: 'disconnect' }
       });
       
@@ -451,7 +452,7 @@ const AdminSEO = () => {
   const fetchGSCPerformance = async () => {
     setIsLoadingGSCPerformance(true);
     try {
-      const response = await supabase.functions.invoke('google-search-console', {
+      const response = await api.functions.invoke('google-search-console', {
         body: { 
           action: 'performance',
           siteUrl: settings.gsc?.siteUrl || window.location.origin
@@ -460,12 +461,13 @@ const AdminSEO = () => {
       
       if (response.error) throw new Error(response.error.message);
       
+      const perfData = response.data as { performance?: any } | null;
       setSettings(prev => ({
         ...prev,
         gsc: {
           ...prev.gsc,
           connected: true,
-          performance: response.data?.performance,
+          performance: perfData?.performance,
           lastSync: new Date().toISOString()
         }
       }));
@@ -481,7 +483,7 @@ const AdminSEO = () => {
   const submitSitemapToGSC = async () => {
     setIsSubmittingGSCSitemap(true);
     try {
-      const response = await supabase.functions.invoke('google-search-console', {
+      const response = await api.functions.invoke('google-search-console', {
         body: { 
           action: 'submit-sitemap',
           siteUrl: settings.gsc?.siteUrl || window.location.origin,

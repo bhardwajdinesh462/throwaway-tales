@@ -35,6 +35,7 @@ const AdminEmails = () => {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchStats = async () => {
+    setIsLoading(true);
     try {
       const [generatedRes, receivedRes, activeRes] = await Promise.all([
         api.db.query<any[]>("temp_emails"),
@@ -136,6 +137,38 @@ const AdminEmails = () => {
     { title: "Active Emails", value: stats.activeEmails, icon: Clock, color: "text-neon-green" },
     { title: "Avg Per Day", value: stats.avgPerDay, icon: Calendar, color: "text-neon-pink" },
   ];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        {/* Loading Skeleton for Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, index) => (
+            <div key={index} className="glass-card p-6 animate-pulse">
+              <div className="flex items-start justify-between">
+                <div className="space-y-2">
+                  <div className="h-4 w-24 bg-muted rounded" />
+                  <div className="h-8 w-16 bg-muted rounded" />
+                </div>
+                <div className="p-3 rounded-xl bg-muted w-12 h-12" />
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        {/* Loading Skeleton for Chart */}
+        <div className="glass-card p-6 animate-pulse">
+          <div className="h-6 w-48 bg-muted rounded mb-4" />
+          <div className="h-64 bg-muted rounded" />
+        </div>
+        
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <span className="ml-2 text-muted-foreground">Loading email statistics...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -143,6 +143,20 @@ END;
 $$;
 
 
+--
+-- Name: admin_exists(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.admin_exists() RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_roles WHERE role = 'admin'
+  );
+$$;
+
+
 SET default_table_access_method = heap;
 
 --
@@ -413,6 +427,43 @@ BEGIN
     AND window_start = v_window_start;
   
   RETURN true; -- Request allowed
+END;
+$$;
+
+
+--
+-- Name: claim_first_admin(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.claim_first_admin() RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  admin_count integer;
+  current_user_id uuid;
+BEGIN
+  -- Get current user
+  current_user_id := auth.uid();
+  
+  IF current_user_id IS NULL THEN
+    RAISE EXCEPTION 'Must be authenticated to claim admin role';
+  END IF;
+  
+  -- Check if any admins exist
+  SELECT COUNT(*) INTO admin_count
+  FROM public.user_roles
+  WHERE role = 'admin';
+  
+  IF admin_count > 0 THEN
+    RAISE EXCEPTION 'Admin already exists. Contact existing admin for access.';
+  END IF;
+  
+  -- Grant admin role to current user
+  INSERT INTO public.user_roles (id, user_id, role, created_at)
+  VALUES (gen_random_uuid(), current_user_id, 'admin', now());
+  
+  RETURN true;
 END;
 $$;
 
@@ -1004,8 +1055,16 @@ CREATE FUNCTION public.get_mailbox_imap_password(p_mailbox_id uuid) RETURNS text
 DECLARE
   v_encrypted text;
   v_plaintext text;
+  v_is_service_role boolean;
 BEGIN
-  IF NOT public.is_admin(auth.uid()) THEN
+  -- Check if the caller is using service_role (for edge functions)
+  v_is_service_role := coalesce(
+    (current_setting('request.jwt.claims', true)::json->>'role') = 'service_role',
+    false
+  );
+  
+  -- Allow access if service_role OR if user is admin
+  IF NOT v_is_service_role AND NOT public.is_admin(auth.uid()) THEN
     RAISE EXCEPTION 'Access denied: Admin privileges required';
   END IF;
   
@@ -1033,9 +1092,16 @@ CREATE FUNCTION public.get_mailbox_smtp_password(p_mailbox_id uuid) RETURNS text
 DECLARE
   v_encrypted text;
   v_plaintext text;
+  v_is_service_role boolean;
 BEGIN
-  -- Only admins can access mailbox passwords
-  IF NOT public.is_admin(auth.uid()) THEN
+  -- Check if the caller is using service_role (for edge functions)
+  v_is_service_role := coalesce(
+    (current_setting('request.jwt.claims', true)::json->>'role') = 'service_role',
+    false
+  );
+  
+  -- Allow access if service_role OR if user is admin
+  IF NOT v_is_service_role AND NOT public.is_admin(auth.uid()) THEN
     RAISE EXCEPTION 'Access denied: Admin privileges required';
   END IF;
   
@@ -1043,7 +1109,6 @@ BEGIN
   FROM public.mailboxes
   WHERE id = p_mailbox_id;
   
-  -- Try encrypted first, then fallback to plaintext
   IF v_encrypted IS NOT NULL AND v_encrypted != '' THEN
     RETURN public.decrypt_sensitive(v_encrypted);
   END IF;
@@ -1220,9 +1285,47 @@ CREATE FUNCTION public.increment_email_stats() RETURNS trigger
     SET search_path TO 'public'
     AS $$
 BEGIN
+  -- Increment all-time counter
   UPDATE public.email_stats 
-  SET stat_value = stat_value + 1, updated_at = now()
-  WHERE stat_key = 'total_emails_generated';
+  SET stat_value = COALESCE(stat_value, 0) + 1, 
+      updated_at = now()
+  WHERE stat_key = 'total_temp_emails_created';
+  
+  -- Increment today's counter
+  UPDATE public.email_stats 
+  SET stat_value = COALESCE(stat_value, 0) + 1, 
+      updated_at = now()
+  WHERE stat_key = 'inboxes_today';
+  
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: increment_email_stats_on_temp_email_insert(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.increment_email_stats_on_temp_email_insert() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  -- Increment the total_temp_emails_created counter
+  UPDATE public.email_stats 
+  SET stat_value = stat_value + 1,
+      updated_at = now()
+  WHERE stat_key = 'total_temp_emails_created';
+  
+  -- If no row was updated (counter doesn't exist), insert it
+  IF NOT FOUND THEN
+    INSERT INTO public.email_stats (stat_key, stat_value, updated_at)
+    VALUES ('total_temp_emails_created', 1, now())
+    ON CONFLICT (stat_key) DO UPDATE 
+    SET stat_value = email_stats.stat_value + 1,
+        updated_at = now();
+  END IF;
+  
   RETURN NEW;
 END;
 $$;
@@ -1243,6 +1346,32 @@ BEGIN
         last_sent_at = now(),
         updated_at = now()
     WHERE id = p_mailbox_id;
+END;
+$$;
+
+
+--
+-- Name: increment_received_email_stats(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.increment_received_email_stats() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  -- Increment total received emails
+  UPDATE public.email_stats 
+  SET stat_value = stat_value + 1,
+      updated_at = NOW()
+  WHERE stat_key = 'total_emails_received';
+  
+  -- Increment today's counter
+  UPDATE public.email_stats 
+  SET stat_value = stat_value + 1,
+      updated_at = NOW()
+  WHERE stat_key = 'emails_today';
+  
+  RETURN NEW;
 END;
 $$;
 
@@ -1527,6 +1656,39 @@ BEGIN
   VALUES (auth.uid(), 'REMOVE_ADMIN_ROLE', 'user_roles', target_user_id, jsonb_build_object('reason', 'Admin role removed'));
   
   RETURN true;
+END;
+$$;
+
+
+--
+-- Name: reset_daily_counters(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reset_daily_counters() RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  UPDATE public.email_stats 
+  SET stat_value = 0, updated_at = NOW()
+  WHERE stat_key IN ('emails_today', 'inboxes_today');
+END;
+$$;
+
+
+--
+-- Name: reset_emails_today(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reset_emails_today() RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  UPDATE public.email_stats 
+  SET stat_value = 0,
+      updated_at = NOW()
+  WHERE stat_key = 'emails_today';
 END;
 $$;
 
@@ -1935,6 +2097,8 @@ CREATE TABLE public.app_settings (
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
+ALTER TABLE ONLY public.app_settings REPLICA IDENTITY FULL;
+
 
 --
 -- Name: backup_history; Type: TABLE; Schema: public; Owner: -
@@ -2034,6 +2198,19 @@ CREATE TABLE public.blocked_ips (
 
 
 --
+-- Name: blog_subscribers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.blog_subscribers (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    email text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    unsubscribed_at timestamp with time zone
+);
+
+
+--
 -- Name: blogs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2056,6 +2233,8 @@ CREATE TABLE public.blogs (
     updated_at timestamp with time zone DEFAULT now()
 );
 
+ALTER TABLE ONLY public.blogs REPLICA IDENTITY FULL;
+
 
 --
 -- Name: domains; Type: TABLE; Schema: public; Owner: -
@@ -2068,6 +2247,8 @@ CREATE TABLE public.domains (
     is_premium boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+ALTER TABLE ONLY public.domains REPLICA IDENTITY FULL;
 
 
 --
@@ -2253,6 +2434,8 @@ CREATE TABLE public.mailboxes (
     imap_password_encrypted text,
     is_primary boolean DEFAULT false
 );
+
+ALTER TABLE ONLY public.mailboxes REPLICA IDENTITY FULL;
 
 
 --
@@ -2593,6 +2776,22 @@ ALTER TABLE ONLY public.blocked_emails
 
 ALTER TABLE ONLY public.blocked_ips
     ADD CONSTRAINT blocked_ips_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: blog_subscribers blog_subscribers_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.blog_subscribers
+    ADD CONSTRAINT blog_subscribers_email_key UNIQUE (email);
+
+
+--
+-- Name: blog_subscribers blog_subscribers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.blog_subscribers
+    ADD CONSTRAINT blog_subscribers_pkey PRIMARY KEY (id);
 
 
 --
@@ -2984,6 +3183,20 @@ CREATE UNIQUE INDEX idx_blocked_ips_address ON public.blocked_ips USING btree (i
 
 
 --
+-- Name: idx_blog_subscribers_email; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_blog_subscribers_email ON public.blog_subscribers USING btree (email);
+
+
+--
+-- Name: idx_blog_subscribers_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_blog_subscribers_status ON public.blog_subscribers USING btree (status);
+
+
+--
 -- Name: idx_email_logs_created_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3044,6 +3257,20 @@ CREATE INDEX idx_rate_limits_window_start ON public.rate_limits USING btree (win
 --
 
 CREATE INDEX idx_received_emails_dedup ON public.received_emails USING btree (temp_email_id, from_address, received_at);
+
+
+--
+-- Name: idx_received_emails_inbox; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_received_emails_inbox ON public.received_emails USING btree (temp_email_id, received_at DESC);
+
+
+--
+-- Name: idx_received_emails_received_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_received_emails_received_at ON public.received_emails USING btree (received_at DESC);
 
 
 --
@@ -3121,6 +3348,20 @@ CREATE TRIGGER enforce_temp_email_rate_limit_trigger BEFORE INSERT ON public.tem
 --
 
 CREATE TRIGGER increment_total_emails_generated AFTER INSERT ON public.temp_emails FOR EACH ROW EXECUTE FUNCTION public.increment_email_stats();
+
+
+--
+-- Name: temp_emails trigger_increment_email_stats; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trigger_increment_email_stats AFTER INSERT ON public.temp_emails FOR EACH ROW EXECUTE FUNCTION public.increment_email_stats_on_temp_email_insert();
+
+
+--
+-- Name: received_emails trigger_increment_received_email_stats; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trigger_increment_received_email_stats AFTER INSERT ON public.received_emails FOR EACH ROW EXECUTE FUNCTION public.increment_received_email_stats();
 
 
 --
@@ -3335,6 +3576,15 @@ CREATE POLICY "Admins can delete blocked countries" ON public.blocked_countries 
 
 
 --
+-- Name: blog_subscribers Admins can delete subscribers; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Admins can delete subscribers" ON public.blog_subscribers FOR DELETE USING ((EXISTS ( SELECT 1
+   FROM public.user_roles
+  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.role = ANY (ARRAY['admin'::public.app_role, 'moderator'::public.app_role]))))));
+
+
+--
 -- Name: admin_audit_logs Admins can insert audit logs; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -3489,6 +3739,15 @@ CREATE POLICY "Admins can view all received emails" ON public.received_emails FO
 
 
 --
+-- Name: blog_subscribers Admins can view all subscribers; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Admins can view all subscribers" ON public.blog_subscribers FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM public.user_roles
+  WHERE ((user_roles.user_id = auth.uid()) AND (user_roles.role = ANY (ARRAY['admin'::public.app_role, 'moderator'::public.app_role]))))));
+
+
+--
 -- Name: temp_emails Admins can view all temp emails; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -3612,6 +3871,20 @@ CREATE POLICY "Anyone can read public app settings" ON public.app_settings FOR S
 --
 
 CREATE POLICY "Anyone can read published blogs" ON public.blogs FOR SELECT USING ((published = true));
+
+
+--
+-- Name: blog_subscribers Anyone can subscribe to blog; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Anyone can subscribe to blog" ON public.blog_subscribers FOR INSERT WITH CHECK (true);
+
+
+--
+-- Name: blog_subscribers Anyone can unsubscribe from blog; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Anyone can unsubscribe from blog" ON public.blog_subscribers FOR UPDATE USING (true) WITH CHECK ((status = 'unsubscribed'::text));
 
 
 --
@@ -4165,6 +4438,12 @@ ALTER TABLE public.blocked_emails ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.blocked_ips ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: blog_subscribers; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.blog_subscribers ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: blogs; Type: ROW SECURITY; Schema: public; Owner: -

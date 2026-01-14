@@ -6,6 +6,7 @@ interface AdminPageHeaderProps {
   description?: string;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  actions?: React.ReactNode;
   children?: React.ReactNode;
 }
 
@@ -14,6 +15,7 @@ export const AdminPageHeader = ({
   description,
   onRefresh,
   isRefreshing = false,
+  actions,
   children,
 }: AdminPageHeaderProps) => {
   return (
@@ -25,6 +27,7 @@ export const AdminPageHeader = ({
         )}
       </div>
       <div className="flex items-center gap-2">
+        {actions}
         {onRefresh && (
           <Button
             variant="outline"

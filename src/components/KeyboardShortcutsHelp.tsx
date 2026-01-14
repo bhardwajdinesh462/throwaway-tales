@@ -61,7 +61,7 @@ const KeyboardShortcutsHelp = ({ isOpen, onClose, shortcuts }: KeyboardShortcuts
               </div>
 
               {/* Shortcuts List */}
-              <div className="p-4 max-h-[75vh] min-h-[200px] overflow-y-auto">
+              <div className="p-4 max-h-[60vh] overflow-y-auto">
                 <div className="space-y-2">
                   {shortcuts.map((shortcut, index) => (
                     <motion.div

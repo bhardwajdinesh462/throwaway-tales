@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Users, Mail, Globe, TrendingUp, Activity, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, Server, Shield, Key } from "lucide-react";
+import { Users, Mail, Globe, TrendingUp, Activity, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, Server, Shield, Key, Keyboard } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,13 @@ import { AdminErrorState } from "@/components/admin/AdminErrorState";
 import SubscriptionStatsWidget from "@/components/admin/SubscriptionStatsWidget";
 import PaymentStatsWidget from "@/components/admin/PaymentStatsWidget";
 import DatabaseMetricsWidget from "@/components/admin/DatabaseMetricsWidget";
+import { useAdminKeyboardShortcuts } from "@/hooks/useAdminKeyboardShortcuts";
+import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
+
+const ADMIN_SHORTCUTS = [
+  { key: "r", description: "Refresh data" },
+  { key: "esc", description: "Close dialogs" },
+];
 
 interface Stats {
   totalUsers: number;
@@ -73,6 +80,43 @@ const AdminDashboard = () => {
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
   const [encryptionHealth, setEncryptionHealth] = useState<EncryptionHealthResult | null>(null);
   const [isCheckingEncryption, setIsCheckingEncryption] = useState(false);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const refreshData = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      const [usersRes, emailStatsRes, domainsRes, receivedRes, activeRes, emailsTodayRes] = await Promise.all([
+        api.db.query<{id: string}[]>("profiles", { select: "id", limit: 1000 }),
+        api.db.query<{stat_value: number}[]>("email_stats", { filter: { stat_key: "total_emails_generated" }, limit: 1 }),
+        api.db.query<{id: string}[]>("domains", { select: "id", limit: 1000 }),
+        api.db.query<{id: string}[]>("received_emails", { select: "id", limit: 1000 }),
+        api.db.query<{id: string}[]>("temp_emails", { filter: { is_active: true }, select: "id", limit: 1000 }),
+        api.db.query<{id: string}[]>("received_emails", { select: "id", limit: 1000 }),
+      ]);
+
+      setStats({
+        totalUsers: usersRes.data?.length || 0,
+        totalEmails: emailStatsRes.data?.[0]?.stat_value || 0,
+        totalDomains: domainsRes.data?.length || 0,
+        activeEmails: activeRes.data?.length || 0,
+        emailsToday: emailsTodayRes.data?.length || 0,
+        userGrowth: 12,
+      });
+      toast.success("Data refreshed");
+    } catch (error) {
+      console.error("Error refreshing stats:", error);
+      toast.error("Failed to refresh data");
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
+
+  useAdminKeyboardShortcuts({
+    onRefresh: refreshData,
+    onHelp: () => setShowShortcutsHelp(prev => !prev),
+    onEscape: () => setShowShortcutsHelp(false),
+  });
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -202,6 +246,29 @@ const AdminDashboard = () => {
 
   return (
     <div className="space-y-6">
+      <AdminPageHeader
+        title="Dashboard"
+        description="System overview and quick actions"
+        onRefresh={refreshData}
+        isRefreshing={isRefreshing}
+        actions={
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowShortcutsHelp(true)}
+            title="Keyboard shortcuts (?)"
+          >
+            <Keyboard className="w-4 h-4" />
+          </Button>
+        }
+      />
+
+      <KeyboardShortcutsHelp
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+        shortcuts={ADMIN_SHORTCUTS}
+      />
+
       {/* Email System Health */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}

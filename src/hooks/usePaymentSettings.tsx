@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
@@ -30,24 +30,25 @@ const defaultSettings: PaymentSettings = {
 
 export function usePaymentSettings() {
   const queryClient = useQueryClient();
+  const channelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
 
   const { data: settings, isLoading, error, refetch } = useQuery({
     queryKey: ['payment_settings'],
     queryFn: async () => {
       try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'payment_settings')
-          .maybeSingle();
+        const { data, error } = await api.db.query<{ value: Partial<PaymentSettings> }[]>('app_settings', {
+          select: 'value',
+          filter: { key: 'payment_settings' },
+          limit: 1,
+        });
 
         if (error) {
           console.error('[usePaymentSettings] Error fetching settings:', error);
           return defaultSettings;
         }
 
-        if (data?.value) {
-          const dbSettings = data.value as unknown as Partial<PaymentSettings>;
+        if (data && data.length > 0 && data[0].value) {
+          const dbSettings = data[0].value;
           return { ...defaultSettings, ...dbSettings };
         }
 
@@ -63,7 +64,7 @@ export function usePaymentSettings() {
 
   // Subscribe to real-time changes
   useEffect(() => {
-    const channel = supabase
+    const channel = api.realtime
       .channel('payment_settings_changes')
       .on(
         'postgres_changes',
@@ -77,11 +78,15 @@ export function usePaymentSettings() {
           console.log('[usePaymentSettings] Settings changed, refetching...');
           queryClient.invalidateQueries({ queryKey: ['payment_settings'] });
         }
-      )
-      .subscribe();
+      );
+
+    channelRef.current = channel;
+    channel.subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+      }
     };
   }, [queryClient]);
 

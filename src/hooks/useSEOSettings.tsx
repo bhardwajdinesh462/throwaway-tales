@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
 import { storage } from '@/lib/storage';
 
@@ -73,16 +73,17 @@ const defaultSettings: SEOSettings = {
 export const useSEOSettings = () => {
   const [settings, setSettings] = useState<SEOSettings>(defaultSettings);
   const [isLoading, setIsLoading] = useState(true);
+  const channelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
 
   const fetchSettings = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('value, updated_at')
-        .eq('key', 'seo')
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data: queryData, error } = await api.db.query<{ value: SEOSettings; updated_at: string }[]>('app_settings', {
+        select: 'value, updated_at',
+        filter: { key: 'seo' },
+        order: { column: 'updated_at', ascending: false },
+        limit: 1,
+      });
+      const data = queryData && queryData.length > 0 ? queryData[0] : null;
 
       if (!error && data?.value) {
         const dbSettings = data.value as unknown as SEOSettings;
@@ -108,7 +109,7 @@ export const useSEOSettings = () => {
     fetchSettings();
 
     // Subscribe to real-time updates on app_settings for SEO changes
-    const channel = supabase
+    const channel = api.realtime
       .channel('seo-settings-realtime')
       .on(
         'postgres_changes',
@@ -125,11 +126,15 @@ export const useSEOSettings = () => {
             fetchSettings();
           }
         }
-      )
-      .subscribe();
+      );
+
+    channelRef.current = channel;
+    channel.subscribe();
 
     return () => {
-      channel.unsubscribe();
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+      }
     };
   }, [fetchSettings]);
 

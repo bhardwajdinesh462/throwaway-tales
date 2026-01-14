@@ -23,16 +23,15 @@ export const useRegistrationSettings = () => {
 
   const fetchSettings = async () => {
     try {
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'registration_settings')
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data, error } = await api.db.query<{ value: RegistrationSettings }[]>('app_settings', {
+        select: 'value',
+        filter: { key: 'registration_settings' },
+        order: { column: 'updated_at', ascending: false },
+        limit: 1,
+      });
 
-      if (!error && data?.value) {
-        const dbSettings = data.value as unknown as RegistrationSettings;
+      if (!error && data && data.length > 0 && data[0].value) {
+        const dbSettings = data[0].value;
         setSettings({ ...defaultSettings, ...dbSettings });
       }
     } catch (e) {
@@ -50,29 +49,24 @@ export const useRegistrationSettings = () => {
     const updatedSettings = { ...settings, ...newSettings };
     
     try {
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', 'registration_settings')
-        .maybeSingle();
+      const { data: existing } = await api.db.query<{ id: string }[]>('app_settings', {
+        select: 'id',
+        filter: { key: 'registration_settings' },
+        limit: 1,
+      });
 
       const settingsJson = JSON.parse(JSON.stringify(updatedSettings));
 
-      if (existing) {
-        await supabase
-          .from('app_settings')
-          .update({
-            value: settingsJson,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('key', 'registration_settings');
+      if (existing && existing.length > 0) {
+        await api.db.update('app_settings', {
+          value: settingsJson,
+          updated_at: new Date().toISOString(),
+        }, { key: 'registration_settings' });
       } else {
-        await supabase
-          .from('app_settings')
-          .insert([{
-            key: 'registration_settings',
-            value: settingsJson,
-          }]);
+        await api.db.insert('app_settings', {
+          key: 'registration_settings',
+          value: settingsJson,
+        });
       }
 
       setSettings(updatedSettings);

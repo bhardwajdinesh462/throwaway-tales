@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
 
 export interface AnnouncementSettings {
@@ -26,19 +26,19 @@ const defaultSettings: AnnouncementSettings = {
 export const useAnnouncementSettings = () => {
   const [settings, setSettings] = useState<AnnouncementSettings>(defaultSettings);
   const [isLoading, setIsLoading] = useState(true);
+  const channelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
 
   const fetchSettings = async () => {
     try {
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'announcement_settings')
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data, error } = await api.db.query<{ value: AnnouncementSettings }[]>('app_settings', {
+        select: 'value',
+        filter: { key: 'announcement_settings' },
+        order: { column: 'updated_at', ascending: false },
+        limit: 1,
+      });
 
-      if (!error && data?.value) {
-        const dbSettings = data.value as unknown as AnnouncementSettings;
+      if (!error && data && data.length > 0 && data[0].value) {
+        const dbSettings = data[0].value;
         setSettings({ ...defaultSettings, ...dbSettings });
       }
     } catch (e) {
@@ -52,7 +52,7 @@ export const useAnnouncementSettings = () => {
     fetchSettings();
 
     // Real-time subscription for instant updates across all tabs
-    const channel = supabase
+    const channel = api.realtime
       .channel('announcement-admin-settings-changes')
       .on(
         'postgres_changes',
@@ -69,11 +69,15 @@ export const useAnnouncementSettings = () => {
             setSettings({ ...defaultSettings, ...newSettings });
           }
         }
-      )
-      .subscribe();
+      );
+
+    channelRef.current = channel;
+    channel.subscribe();
 
     return () => {
-      channel.unsubscribe();
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+      }
     };
   }, []);
 
@@ -81,29 +85,24 @@ export const useAnnouncementSettings = () => {
     const updatedSettings = { ...settings, ...newSettings };
     
     try {
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', 'announcement_settings')
-        .maybeSingle();
+      const { data: existing } = await api.db.query<{ id: string }[]>('app_settings', {
+        select: 'id',
+        filter: { key: 'announcement_settings' },
+        limit: 1,
+      });
 
       const settingsJson = JSON.parse(JSON.stringify(updatedSettings));
 
-      if (existing) {
-        await supabase
-          .from('app_settings')
-          .update({
-            value: settingsJson,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('key', 'announcement_settings');
+      if (existing && existing.length > 0) {
+        await api.db.update('app_settings', {
+          value: settingsJson,
+          updated_at: new Date().toISOString(),
+        }, { key: 'announcement_settings' });
       } else {
-        await supabase
-          .from('app_settings')
-          .insert([{
-            key: 'announcement_settings',
-            value: settingsJson,
-          }]);
+        await api.db.insert('app_settings', {
+          key: 'announcement_settings',
+          value: settingsJson,
+        });
       }
 
       setSettings(updatedSettings);

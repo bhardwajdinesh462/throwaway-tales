@@ -33,7 +33,7 @@ import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useSubscription } from "@/hooks/useSubscription";
 import { usePremiumFeatures } from "@/hooks/usePremiumFeatures";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { formatDistanceToNow, format } from "date-fns";
 import { toast } from "sonner";
 import PremiumBadge from "@/components/PremiumBadge";
@@ -76,24 +76,25 @@ const Dashboard = () => {
       if (!user) return;
 
       // Fetch temp emails
-      const { data: emails } = await supabase
-        .from('temp_emails')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
+      const { data: emails } = await api.db.query<TempEmail[]>('temp_emails', {
+        select: '*',
+        filter: { user_id: user.id },
+        order: { column: 'created_at', ascending: false },
+        limit: 10
+      });
       
       if (emails) {
         setTempEmails(emails);
       }
 
-      // Count received emails
-      const { count } = await supabase
-        .from('received_emails')
-        .select('*', { count: 'exact', head: true })
-        .in('temp_email_id', (emails || []).map(e => e.id));
-      
-      setTotalEmailsReceived(count || 0);
+      // Count received emails - need a different approach since api.db doesn't support count directly
+      if (emails && emails.length > 0) {
+        const { data: receivedEmails } = await api.db.query<{ id: string }[]>('received_emails', {
+          select: 'id',
+          in: { temp_email_id: emails.map(e => e.id) }
+        });
+        setTotalEmailsReceived(receivedEmails?.length || 0);
+      }
     };
 
     fetchUserData();

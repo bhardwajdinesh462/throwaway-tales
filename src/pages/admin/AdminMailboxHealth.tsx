@@ -3,7 +3,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { api } from "@/lib/api";
 import { 
   Activity, AlertTriangle, CheckCircle, XCircle, RefreshCw, 
@@ -110,10 +109,13 @@ const AdminMailboxHealth = () => {
         }
       }
 
-      // Supabase backend - fetch mailboxes and logs
+      // Cloud backend - fetch mailboxes and logs
       const [mailboxResult, logResult] = await Promise.all([
-        supabase.from('mailboxes').select('*'),
-        supabase.from('email_logs').select('*').gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+        api.db.query<any[]>('mailboxes', { select: '*' }),
+        api.db.query<any[]>('email_logs', { 
+          select: '*',
+          gte: { created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() }
+        })
       ]);
       
       const mailboxData = mailboxResult.data || [];
@@ -211,10 +213,10 @@ const AdminMailboxHealth = () => {
 
   const clearMailboxError = async (mailboxId: string) => {
     try {
-      const { error } = await supabase
-        .from('mailboxes')
-        .update({ last_error: null, last_error_at: null })
-        .eq('id', mailboxId);
+      const { error } = await api.db.update('mailboxes', 
+        { last_error: null, last_error_at: null },
+        { id: mailboxId }
+      );
 
       if (error) throw error;
       toast.success("Error cleared");

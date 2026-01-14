@@ -15,7 +15,7 @@ import {
   ArrowRight,
   Clock
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -85,7 +85,7 @@ export const IMAPTestWorkflow = () => {
       updateStep("send", { status: "running" });
       const sendStart = Date.now();
 
-      const { data: sendData, error: sendError } = await supabase.functions.invoke("send-test-email", {
+      const { data: sendData, error: sendError } = await api.functions.invoke("send-test-email", {
         body: {
           recipientEmail: testEmail,
           subject: `IMAP Test Workflow - ${new Date().toISOString()}`,
@@ -94,11 +94,12 @@ export const IMAPTestWorkflow = () => {
       });
 
       if (sendError) throw new Error(sendError.message);
-      if (!sendData?.success) throw new Error(sendData?.error || "Failed to send test email");
+      const sendResult = sendData as { success?: boolean; error?: string; mailbox?: string } | null;
+      if (!sendResult?.success) throw new Error(sendResult?.error || "Failed to send test email");
 
       updateStep("send", { 
         status: "success", 
-        message: `Sent via ${sendData.mailbox || "SMTP"}`,
+        message: `Sent via ${sendResult.mailbox || "SMTP"}`,
         duration: Date.now() - sendStart 
       });
 
@@ -116,20 +117,21 @@ export const IMAPTestWorkflow = () => {
       updateStep("poll", { status: "running" });
       const pollStart = Date.now();
 
-      const { data: pollData, error: pollError } = await supabase.functions.invoke("fetch-imap-emails", {
+      const { data: pollData, error: pollError } = await api.functions.invoke("fetch-imap-emails", {
         body: { mode: "latest", limit: 20 },
       });
 
+      const pollResult = pollData as { success?: boolean; stats?: { stored?: number }; error?: string } | null;
       if (pollError) {
         updateStep("poll", { status: "error", message: pollError.message });
-      } else if (pollData?.success) {
+      } else if (pollResult?.success) {
         updateStep("poll", { 
           status: "success", 
-          message: `Stored ${pollData.stats?.stored || 0} emails`,
+          message: `Stored ${pollResult.stats?.stored || 0} emails`,
           duration: Date.now() - pollStart 
         });
       } else {
-        updateStep("poll", { status: "error", message: pollData?.error || "Poll failed" });
+        updateStep("poll", { status: "error", message: pollResult?.error || "Poll failed" });
       }
 
       // Step 4: Verify in database
@@ -139,13 +141,15 @@ export const IMAPTestWorkflow = () => {
       // Wait a moment for the email to be stored
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      const { data: emails, error: dbError } = await supabase
-        .from("received_emails")
-        .select("id, subject, from_address, received_at")
-        .ilike("subject", "%IMAP Test Workflow%")
-        .gte("received_at", new Date(startTime - 60000).toISOString())
-        .order("received_at", { ascending: false })
-        .limit(1);
+      const { data: emails, error: dbError } = await api.db.query<{ id: string; subject: string; from_address: string; received_at: string }[]>(
+        "received_emails",
+        {
+          filter: { subject: { ilike: "%IMAP Test Workflow%" }, received_at: { gte: new Date(startTime - 60000).toISOString() } },
+          select: "id, subject, from_address, received_at",
+          order: { column: "received_at", ascending: false },
+          limit: 1
+        }
+      );
 
       if (dbError) {
         updateStep("verify", { status: "error", message: dbError.message });

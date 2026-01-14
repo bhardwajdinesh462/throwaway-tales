@@ -21,7 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -101,10 +101,9 @@ const AdminPricing = () => {
     setIsLoading(true);
     try {
       // Fetch tiers
-      const { data: tiersData, error: tiersError } = await supabase
-        .from("subscription_tiers")
-        .select("*")
-        .order("price_monthly", { ascending: true });
+      const { data: tiersData, error: tiersError } = await api.db.query<SubscriptionTier[]>("subscription_tiers", {
+        order: { column: "price_monthly", ascending: true }
+      });
 
       if (tiersError) throw tiersError;
       
@@ -117,11 +116,11 @@ const AdminPricing = () => {
       setTiers(mappedTiers);
 
       // Fetch content settings
-      const { data: contentData } = await supabase
-        .from("app_settings")
-        .select("value")
-        .eq("key", "pricing_content")
-        .maybeSingle();
+      const { data: contentData } = await api.db.query<{ value: PricingContent }>("app_settings", {
+        select: "value",
+        filter: { key: { eq: "pricing_content" } },
+        single: true
+      });
 
       if (contentData?.value) {
         setContent({ ...defaultContent, ...(contentData.value as Partial<PricingContent>) });
@@ -142,28 +141,24 @@ const AdminPricing = () => {
     setIsSaving(true);
     console.log('[AdminPricing] Saving content:', content);
     try {
-      const { data: existing } = await supabase
-        .from("app_settings")
-        .select("id")
-        .eq("key", "pricing_content")
-        .maybeSingle();
+      const { data: existing } = await api.db.query<{ id: string }>("app_settings", {
+        select: "id",
+        filter: { key: { eq: "pricing_content" } },
+        single: true
+      });
 
       console.log('[AdminPricing] Existing record:', existing);
       const contentJson = JSON.parse(JSON.stringify(content));
 
       if (existing) {
-        const { error, data } = await supabase
-          .from("app_settings")
-          .update({ value: contentJson, updated_at: new Date().toISOString() })
-          .eq("key", "pricing_content")
-          .select();
+        const { error, data } = await api.db.update("app_settings", 
+          { value: contentJson, updated_at: new Date().toISOString() },
+          { key: { eq: "pricing_content" } }
+        );
         console.log('[AdminPricing] Update result:', { error, data });
         if (error) throw error;
       } else {
-        const { error, data } = await supabase
-          .from("app_settings")
-          .insert([{ key: "pricing_content", value: contentJson }])
-          .select();
+        const { error, data } = await api.db.insert("app_settings", { key: "pricing_content", value: contentJson });
         console.log('[AdminPricing] Insert result:', { error, data });
         if (error) throw error;
       }
@@ -219,16 +214,14 @@ const AdminPricing = () => {
       };
 
       if (editingTier.id) {
-        const { error } = await supabase
-          .from("subscription_tiers")
-          .update({ ...tierData, updated_at: new Date().toISOString() })
-          .eq("id", editingTier.id);
+        const { error } = await api.db.update("subscription_tiers",
+          { ...tierData, updated_at: new Date().toISOString() },
+          { id: { eq: editingTier.id } }
+        );
         if (error) throw error;
         toast.success("Tier updated");
       } else {
-        const { error } = await supabase
-          .from("subscription_tiers")
-          .insert([tierData]);
+        const { error } = await api.db.insert("subscription_tiers", tierData);
         if (error) throw error;
         toast.success("Tier created");
       }
@@ -245,10 +238,7 @@ const AdminPricing = () => {
 
   const deleteTier = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from("subscription_tiers")
-        .delete()
-        .eq("id", id);
+      const { error } = await api.db.delete("subscription_tiers", { id: { eq: id } });
       if (error) throw error;
       toast.success("Tier deleted");
       fetchData();
@@ -260,10 +250,10 @@ const AdminPricing = () => {
 
   const toggleTierActive = async (tier: SubscriptionTier) => {
     try {
-      const { error } = await supabase
-        .from("subscription_tiers")
-        .update({ is_active: !tier.is_active, updated_at: new Date().toISOString() })
-        .eq("id", tier.id);
+      const { error } = await api.db.update("subscription_tiers",
+        { is_active: !tier.is_active, updated_at: new Date().toISOString() },
+        { id: { eq: tier.id } }
+      );
       if (error) throw error;
       toast.success(tier.is_active ? "Tier disabled" : "Tier enabled");
       fetchData();

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useEffect } from "react";
 
 // Type definitions for homepage content
@@ -165,16 +165,15 @@ export function useHomepageContent() {
     queryKey: ["homepage-sections"],
     queryFn: async () => {
       try {
-        const { data, error } = await supabase
-          .from("homepage_sections")
-          .select("*")
-          .order("display_order", { ascending: true });
+        const { data, error } = await api.db.query<HomepageSection[]>("homepage_sections", {
+          order: { column: "display_order", ascending: true }
+        });
 
         if (error) {
           console.warn("[useHomepageContent] Failed to fetch sections, using defaults:", error.message);
           return [] as HomepageSection[];
         }
-        return data as HomepageSection[];
+        return data || [] as HomepageSection[];
       } catch (err) {
         console.warn("[useHomepageContent] Network error, using defaults:", err);
         return [] as HomepageSection[];
@@ -187,24 +186,28 @@ export function useHomepageContent() {
 
   // Subscribe to real-time updates
   useEffect(() => {
-    const channel = supabase
-      .channel("homepage-sections-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "homepage_sections",
-        },
-        () => {
-          // Invalidate and refetch on any change
-          queryClient.invalidateQueries({ queryKey: ["homepage-sections"] });
-        }
-      )
-      .subscribe();
+    let channel: any;
+    const setupChannel = async () => {
+      channel = await api.realtime.channel("homepage-sections-changes");
+      channel
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "homepage_sections",
+          },
+          () => {
+            // Invalidate and refetch on any change
+            queryClient.invalidateQueries({ queryKey: ["homepage-sections"] });
+          }
+        )
+        .subscribe();
+    };
+    setupChannel();
 
     return () => {
-      channel.unsubscribe();
+      if (channel) api.realtime.removeChannel(channel);
     };
   }, [queryClient]);
 

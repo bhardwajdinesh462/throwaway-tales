@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import {
   Table,
@@ -82,10 +82,9 @@ const AdminEmailRestrictions = () => {
   const fetchRestrictions = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('email_restrictions')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const { data, error } = await api.db.query<EmailRestriction[]>('email_restrictions', {
+        order: { column: 'created_at', ascending: false }
+      });
 
       if (error) throw error;
 
@@ -123,13 +122,11 @@ const AdminEmailRestrictions = () => {
 
     setIsAdding(true);
     try {
-      const { error } = await supabase
-        .from('email_restrictions')
-        .insert({
-          restriction_type: 'blocked_word',
-          value: newBlockedWord.trim().toLowerCase(),
-          created_by: user.id
-        });
+      const { error } = await api.db.insert('email_restrictions', {
+        restriction_type: 'blocked_word',
+        value: newBlockedWord.trim().toLowerCase(),
+        created_by: user.id
+      });
 
       if (error) throw error;
 
@@ -159,20 +156,15 @@ const AdminEmailRestrictions = () => {
     setIsSavingMinChars(true);
     try {
       // Delete existing min_characters settings
-      await supabase
-        .from('email_restrictions')
-        .delete()
-        .eq('restriction_type', 'min_characters');
+      await api.db.delete('email_restrictions', { restriction_type: { eq: 'min_characters' } });
 
       // Insert new setting if value is provided
       if (minCharacters && minCharsValue > 0) {
-        const { error } = await supabase
-          .from('email_restrictions')
-          .insert({
-            restriction_type: 'min_characters',
-            value: minCharsValue.toString(),
-            created_by: user.id
-          });
+        const { error } = await api.db.insert('email_restrictions', {
+          restriction_type: 'min_characters',
+          value: minCharsValue.toString(),
+          created_by: user.id
+        });
 
         if (error) throw error;
       }
@@ -189,10 +181,10 @@ const AdminEmailRestrictions = () => {
 
   const toggleRestriction = async (id: string, currentState: boolean) => {
     try {
-      const { error } = await supabase
-        .from('email_restrictions')
-        .update({ is_active: !currentState, updated_at: new Date().toISOString() })
-        .eq('id', id);
+      const { error } = await api.db.update('email_restrictions', {
+        is_active: !currentState,
+        updated_at: new Date().toISOString()
+      }, { id: { eq: id } });
 
       if (error) throw error;
 
@@ -209,10 +201,7 @@ const AdminEmailRestrictions = () => {
   const deleteRestriction = async (id: string) => {
     setDeletingId(id);
     try {
-      const { error } = await supabase
-        .from('email_restrictions')
-        .delete()
-        .eq('id', id);
+      const { error } = await api.db.delete('email_restrictions', { id: { eq: id } });
 
       if (error) throw error;
 
@@ -262,9 +251,7 @@ const AdminEmailRestrictions = () => {
         created_by: user.id
       }));
 
-      const { error } = await supabase
-        .from('email_restrictions')
-        .insert(insertData);
+      const { error } = await api.db.insert('email_restrictions', insertData);
 
       if (error) throw error;
 
@@ -313,9 +300,7 @@ const AdminEmailRestrictions = () => {
         created_by: user.id
       }));
 
-      const { error } = await supabase
-        .from('email_restrictions')
-        .insert(insertData);
+      const { error } = await api.db.insert('email_restrictions', insertData);
 
       if (error) throw error;
 

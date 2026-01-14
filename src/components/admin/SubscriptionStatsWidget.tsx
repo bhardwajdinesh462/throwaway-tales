@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Crown, Users, TrendingUp, Clock, CreditCard, ArrowUpRight, BarChart3 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { format, subDays, startOfDay } from "date-fns";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
@@ -44,9 +44,8 @@ const SubscriptionStatsWidget = () => {
   const fetchStats = async () => {
     try {
       // Fetch subscription counts
-      const { data: subsData, error: subsError } = await supabase
-        .from('user_subscriptions')
-        .select(`
+      const { data: subsData, error: subsError } = await api.db.query<any[]>('user_subscriptions', {
+        select: `
           id,
           status,
           current_period_end,
@@ -56,8 +55,9 @@ const SubscriptionStatsWidget = () => {
             id,
             name
           )
-        `)
-        .order('created_at', { ascending: false });
+        `,
+        order: { column: 'created_at', ascending: false }
+      });
 
       if (subsError) throw subsError;
 
@@ -81,10 +81,10 @@ const SubscriptionStatsWidget = () => {
       
       let userEmails: Record<string, string> = {};
       if (userIds.length > 0) {
-        const { data: profilesData } = await supabase
-          .from('profiles')
-          .select('user_id, email, display_name')
-          .in('user_id', userIds);
+        const { data: profilesData } = await api.db.query<{ user_id: string; email: string; display_name: string }[]>('profiles', {
+          select: 'user_id, email, display_name',
+          filter: { user_id: { in: userIds } }
+        });
         
         if (profilesData) {
           profilesData.forEach(p => {
@@ -142,23 +142,27 @@ const SubscriptionStatsWidget = () => {
     fetchStats();
 
     // Set up realtime subscription
-    const channel = supabase
-      .channel('subscription_stats')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'user_subscriptions'
-        },
-        () => {
-          fetchStats();
-        }
-      )
-      .subscribe();
+    let channel: any;
+    const setupChannel = async () => {
+      channel = await api.realtime.channel('subscription_stats');
+      channel
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'user_subscriptions'
+          },
+          () => {
+            fetchStats();
+          }
+        )
+        .subscribe();
+    };
+    setupChannel();
 
     return () => {
-      channel.unsubscribe();
+      if (channel) api.realtime.removeChannel(channel);
     };
   }, [trendPeriod]);
 

@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+
 import { CreditCard, Save, AlertTriangle, CheckCircle, ExternalLink, Key, Wallet, MessageCircle } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -72,11 +72,11 @@ const AdminPayments = () => {
           setSettings({ ...defaultSettings, ...response.data.value });
         }
       } else {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'payment_settings')
-          .maybeSingle();
+        const { data, error } = await api.db.query<{ value: PaymentSettings }>('app_settings', {
+          select: 'value',
+          filter: { key: { eq: 'payment_settings' } },
+          single: true
+        });
 
         if (!error && data?.value) {
           const dbSettings = data.value as unknown as PaymentSettings;
@@ -98,12 +98,11 @@ const AdminPayments = () => {
       if (isPhpBackend) {
         await api.admin.updateSettings('payment_settings', settingsJson);
       } else {
-        const { error } = await supabase
-          .from('app_settings')
-          .upsert(
-            { key: 'payment_settings', value: settingsJson, updated_at: new Date().toISOString() },
-            { onConflict: 'key' }
-          );
+        const { error } = await api.db.upsert('app_settings', {
+          key: 'payment_settings',
+          value: settingsJson,
+          updated_at: new Date().toISOString()
+        });
 
         if (error) {
           console.error('Error saving settings:', error);

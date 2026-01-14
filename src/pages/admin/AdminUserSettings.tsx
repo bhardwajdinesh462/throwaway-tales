@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Sparkles } from "lucide-react";
 import { Users, Save } from "lucide-react";
 
@@ -54,13 +54,13 @@ const AdminUserSettings = () => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'user_settings')
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { data, error } = await api.db.query<{ value: UserSettings }>('app_settings', {
+          select: 'value',
+          filter: { key: { eq: 'user_settings' } },
+          order: { column: 'updated_at', ascending: false },
+          limit: 1,
+          single: true
+        });
 
         if (!error && data?.value) {
           const dbSettings = data.value as unknown as UserSettings;
@@ -85,31 +85,26 @@ const AdminUserSettings = () => {
     try {
       storage.set(USER_SETTINGS_KEY, settings);
       
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', 'user_settings')
-        .maybeSingle();
+      const { data: existing } = await api.db.query<{ id: string }>('app_settings', {
+        select: 'id',
+        filter: { key: { eq: 'user_settings' } },
+        single: true
+      });
 
       const settingsJson = JSON.parse(JSON.stringify(settings));
 
       let error;
       if (existing) {
-        const result = await supabase
-          .from('app_settings')
-          .update({
-            value: settingsJson,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('key', 'user_settings');
+        const result = await api.db.update('app_settings', {
+          value: settingsJson,
+          updated_at: new Date().toISOString(),
+        }, { key: { eq: 'user_settings' } });
         error = result.error;
       } else {
-        const result = await supabase
-          .from('app_settings')
-          .insert([{
-            key: 'user_settings',
-            value: settingsJson,
-          }]);
+        const result = await api.db.insert('app_settings', {
+          key: 'user_settings',
+          value: settingsJson,
+        });
         error = result.error;
       }
 

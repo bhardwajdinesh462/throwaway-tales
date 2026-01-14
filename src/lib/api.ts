@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * Unified API Client - Supports both Lovable Cloud (Supabase) and Self-Hosted PHP Backend
  * 

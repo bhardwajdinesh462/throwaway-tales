@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { storage } from '@/lib/storage';
 
 const APPEARANCE_SETTINGS_KEY = 'trashmails_appearance_settings';

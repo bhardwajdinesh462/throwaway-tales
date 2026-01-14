@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Newspaper, Save } from "lucide-react";
 
 const BLOG_SETTINGS_KEY = 'trashmails_blog_settings';
@@ -43,16 +43,14 @@ const AdminBlogSettings = () => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'blog')
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { data, error } = await api.db.query<{ value: BlogSettings }[]>('app_settings', {
+          filter: { key: 'blog' },
+          order: { column: 'updated_at', ascending: false },
+          limit: 1
+        });
 
-        if (!error && data?.value) {
-          const dbSettings = data.value as unknown as BlogSettings;
+        if (!error && data && data.length > 0) {
+          const dbSettings = data[0].value as unknown as BlogSettings;
           setSettings({ ...defaultSettings, ...dbSettings });
         } else {
           const localSettings = storage.get<BlogSettings>(BLOG_SETTINGS_KEY, defaultSettings);
@@ -74,31 +72,26 @@ const AdminBlogSettings = () => {
     try {
       storage.set(BLOG_SETTINGS_KEY, settings);
       
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', 'blog')
-        .maybeSingle();
+      const { data: existingData } = await api.db.query<{ id: string }[]>('app_settings', {
+        filter: { key: 'blog' },
+        limit: 1
+      });
+      const existing = existingData && existingData.length > 0 ? existingData[0] : null;
 
       const settingsJson = JSON.parse(JSON.stringify(settings));
 
       let error;
       if (existing) {
-        const result = await supabase
-          .from('app_settings')
-          .update({
-            value: settingsJson,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('key', 'blog');
+        const result = await api.db.update('app_settings', {
+          value: settingsJson,
+          updated_at: new Date().toISOString(),
+        }, { key: 'blog' });
         error = result.error;
       } else {
-        const result = await supabase
-          .from('app_settings')
-          .insert([{
-            key: 'blog',
-            value: settingsJson,
-          }]);
+        const result = await api.db.insert('app_settings', {
+          key: 'blog',
+          value: settingsJson,
+        });
         error = result.error;
       }
 

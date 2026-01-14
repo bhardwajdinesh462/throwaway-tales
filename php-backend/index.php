@@ -483,6 +483,12 @@ try {
             handleSEORoute($segments, $method, $body, $pdo, $config);
             break;
             
+        case 'gsc':
+        case 'google-search-console':
+            require_once __DIR__ . '/routes/google-search-console.php';
+            handleGSCRoute($segments, $method, $body, $pdo, $config);
+            break;
+            
         // Note: 'health' case is handled above in the first switch block
             
         case 'public-status':

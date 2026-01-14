@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
 import { supabase } from "@/integrations/supabase/client";
-import { Search, Save, Code, FileCode, FileText, TrendingUp, AlertTriangle, CheckCircle, XCircle, Lightbulb, Globe, RefreshCw, Send, Loader2 } from "lucide-react";
+import { Search, Save, Code, FileCode, FileText, TrendingUp, AlertTriangle, CheckCircle, XCircle, Lightbulb, Globe, RefreshCw, Send, Loader2, Link, ExternalLink, BarChart3, Unlink } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -33,6 +33,21 @@ interface PingStatus {
   success: boolean;
   message: string;
   timestamp: string;
+}
+
+interface GSCPerformance {
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+
+interface GSCSettings {
+  connected: boolean;
+  siteUrl?: string;
+  connectedAt?: string;
+  lastSync?: string;
+  performance?: GSCPerformance;
 }
 
 interface SEOSettings {
@@ -64,6 +79,7 @@ interface SEOSettings {
     yandex?: PingStatus;
     seznam?: PingStatus;
   };
+  gsc?: GSCSettings;
 }
 
 const sitePages = [
@@ -132,6 +148,9 @@ const AdminSEO = () => {
   const [selectedPage, setSelectedPage] = useState<string>('/');
   const [isRegeneratingSitemap, setIsRegeneratingSitemap] = useState(false);
   const [isPinging, setIsPinging] = useState(false);
+  const [isConnectingGSC, setIsConnectingGSC] = useState(false);
+  const [isLoadingGSCPerformance, setIsLoadingGSCPerformance] = useState(false);
+  const [isSubmittingGSCSitemap, setIsSubmittingGSCSitemap] = useState(false);
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -398,6 +417,98 @@ const AdminSEO = () => {
   };
 
   const currentPageSEO = getPageSEO(selectedPage);
+
+  const connectGSC = async () => {
+    setIsConnectingGSC(true);
+    try {
+      const response = await supabase.functions.invoke('google-search-console', {
+        body: { action: 'authorize', siteUrl: window.location.origin }
+      });
+      
+      if (response.error) throw new Error(response.error.message);
+      
+      if (response.data?.authUrl) {
+        window.open(response.data.authUrl, '_blank', 'width=600,height=700');
+        toast.info("Complete authorization in the popup window");
+      }
+    } catch (e) {
+      console.error('Error connecting GSC:', e);
+      toast.error('Failed to initiate Google Search Console connection');
+    } finally {
+      setIsConnectingGSC(false);
+    }
+  };
+
+  const disconnectGSC = async () => {
+    try {
+      const response = await supabase.functions.invoke('google-search-console', {
+        body: { action: 'disconnect' }
+      });
+      
+      if (response.error) throw new Error(response.error.message);
+      
+      setSettings(prev => ({
+        ...prev,
+        gsc: { connected: false }
+      }));
+      toast.success("Disconnected from Google Search Console");
+    } catch (e) {
+      console.error('Error disconnecting GSC:', e);
+      toast.error('Failed to disconnect');
+    }
+  };
+
+  const fetchGSCPerformance = async () => {
+    setIsLoadingGSCPerformance(true);
+    try {
+      const response = await supabase.functions.invoke('google-search-console', {
+        body: { 
+          action: 'performance',
+          siteUrl: settings.gsc?.siteUrl || window.location.origin
+        }
+      });
+      
+      if (response.error) throw new Error(response.error.message);
+      
+      setSettings(prev => ({
+        ...prev,
+        gsc: {
+          ...prev.gsc,
+          connected: true,
+          performance: response.data?.performance,
+          lastSync: new Date().toISOString()
+        }
+      }));
+      toast.success("Performance data refreshed");
+    } catch (e) {
+      console.error('Error fetching GSC performance:', e);
+      toast.error('Failed to fetch performance data');
+    } finally {
+      setIsLoadingGSCPerformance(false);
+    }
+  };
+
+  const submitSitemapToGSC = async () => {
+    setIsSubmittingGSCSitemap(true);
+    try {
+      const response = await supabase.functions.invoke('google-search-console', {
+        body: { 
+          action: 'submit-sitemap',
+          siteUrl: settings.gsc?.siteUrl || window.location.origin,
+          sitemapUrl: `${window.location.origin}/sitemap.xml`
+        }
+      });
+      
+      if (response.error) throw new Error(response.error.message);
+      
+      toast.success("Sitemap submitted to Google Search Console");
+    } catch (e) {
+      console.error('Error submitting sitemap:', e);
+      toast.error('Failed to submit sitemap');
+    } finally {
+      setIsSubmittingGSCSitemap(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1031,6 +1142,130 @@ const AdminSEO = () => {
                       );
                     })}
                   </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Google Search Console Integration */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="w-5 h-5" />
+                Google Search Console Integration
+              </CardTitle>
+              <CardDescription>
+                Connect your Google Search Console for advanced SEO monitoring and automatic sitemap submission
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {settings.gsc?.connected ? (
+                <>
+                  {/* Connected Status */}
+                  <div className="flex items-center justify-between p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle className="w-5 h-5 text-green-500" />
+                      <div>
+                        <p className="font-medium text-green-700 dark:text-green-400">Connected</p>
+                        <p className="text-sm text-muted-foreground">
+                          Site: {settings.gsc.siteUrl || window.location.origin}
+                        </p>
+                      </div>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={disconnectGSC}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <Unlink className="w-4 h-4 mr-2" />
+                      Disconnect
+                    </Button>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex flex-wrap gap-3">
+                    <Button 
+                      onClick={submitSitemapToGSC}
+                      disabled={isSubmittingGSCSitemap}
+                      variant="outline"
+                    >
+                      {isSubmittingGSCSitemap ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4 mr-2" />
+                      )}
+                      Submit Sitemap to GSC
+                    </Button>
+                    <Button 
+                      onClick={fetchGSCPerformance}
+                      disabled={isLoadingGSCPerformance}
+                      variant="outline"
+                    >
+                      {isLoadingGSCPerformance ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                      )}
+                      Refresh Performance Data
+                    </Button>
+                  </div>
+
+                  {/* Performance Stats */}
+                  {settings.gsc.performance && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="p-4 border rounded-lg bg-background">
+                        <p className="text-sm text-muted-foreground">Clicks</p>
+                        <p className="text-2xl font-bold">{settings.gsc.performance.clicks.toLocaleString()}</p>
+                      </div>
+                      <div className="p-4 border rounded-lg bg-background">
+                        <p className="text-sm text-muted-foreground">Impressions</p>
+                        <p className="text-2xl font-bold">{settings.gsc.performance.impressions.toLocaleString()}</p>
+                      </div>
+                      <div className="p-4 border rounded-lg bg-background">
+                        <p className="text-sm text-muted-foreground">CTR</p>
+                        <p className="text-2xl font-bold">{(settings.gsc.performance.ctr * 100).toFixed(2)}%</p>
+                      </div>
+                      <div className="p-4 border rounded-lg bg-background">
+                        <p className="text-sm text-muted-foreground">Avg Position</p>
+                        <p className="text-2xl font-bold">{settings.gsc.performance.position.toFixed(1)}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {settings.gsc.lastSync && (
+                    <p className="text-xs text-muted-foreground">
+                      Last synced: {new Date(settings.gsc.lastSync).toLocaleString()}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-6">
+                  <BarChart3 className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="font-medium mb-2">Connect Google Search Console</h3>
+                  <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
+                    Get detailed search analytics, submit sitemaps automatically, and monitor your site's performance in Google Search.
+                  </p>
+                  <Button onClick={connectGSC} disabled={isConnectingGSC}>
+                    {isConnectingGSC ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Link className="w-4 h-4 mr-2" />
+                    )}
+                    Connect Google Search Console
+                  </Button>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Requires Google Cloud OAuth credentials configured in settings.
+                    <a 
+                      href="https://console.cloud.google.com/apis/credentials"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline ml-1 inline-flex items-center gap-1"
+                    >
+                      Get credentials
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </p>
                 </div>
               )}
             </CardContent>

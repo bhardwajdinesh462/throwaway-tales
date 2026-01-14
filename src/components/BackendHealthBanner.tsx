@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, CheckCircle2, RefreshCw, WifiOff, Database, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAdminRole } from "@/hooks/useAdminRole";
 
 type ServiceStatus = "ok" | "degraded" | "down" | "checking";
@@ -43,7 +43,7 @@ const BackendHealthBanner = () => {
     // Check database
     try {
       const start = performance.now();
-      const { error } = await supabase.from("domains").select("id").limit(1);
+      const { error } = await api.db.query("domains", { select: "id", limit: 1 });
       const latency = performance.now() - start;
       dbOk = !error && latency < 5000;
     } catch {
@@ -84,15 +84,9 @@ const BackendHealthBanner = () => {
     // Force re-check
     await checkHealth(true);
 
-    // If still failing, try to reconnect supabase realtime
+    // If still failing, just log it - realtime reconnect is handled internally
     if (health.realtime === "down") {
-      try {
-        await supabase.realtime.disconnect();
-        await new Promise(r => setTimeout(r, 500));
-        supabase.realtime.connect();
-      } catch {
-        // ignore
-      }
+      console.log("Backend realtime is down, waiting for auto-recovery...");
     }
 
     setIsRecovering(false);

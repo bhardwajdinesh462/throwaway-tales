@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 export const useAdminExists = () => {
   const [hasAdmin, setHasAdmin] = useState<boolean | null>(null);
@@ -8,7 +8,7 @@ export const useAdminExists = () => {
   useEffect(() => {
     const checkAdmins = async () => {
       try {
-        const { data, error } = await supabase.rpc('admin_exists');
+        const { data, error } = await api.db.rpc<boolean>('admin_exists');
         
         if (error) {
           console.error('Error checking admin existence:', error);
@@ -30,7 +30,7 @@ export const useAdminExists = () => {
 
   const refetch = async () => {
     setIsLoading(true);
-    const { data } = await supabase.rpc('admin_exists');
+    const { data } = await api.db.rpc<boolean>('admin_exists');
     setHasAdmin(data === true);
     setIsLoading(false);
   };

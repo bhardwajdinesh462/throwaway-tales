@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Shield, Plus, Trash2, Crown, Loader2 } from "lucide-react";
 import {
   Table,
@@ -71,7 +71,7 @@ const AdminAdmins = () => {
   const fetchAdmins = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.rpc('get_admin_users');
+      const { data, error } = await api.db.rpc<AdminUser[]>('get_admin_users');
 
       if (error) throw error;
 
@@ -107,7 +107,7 @@ const AdminAdmins = () => {
     setFoundUser(null);
 
     try {
-      const { data, error } = await supabase.rpc('find_user_by_email', {
+      const { data, error } = await api.db.rpc<{ found_user_id: string; found_email: string; found_display_name: string; found_role: string }[]>('find_user_by_email', {
         search_email: searchEmail.trim()
       });
 
@@ -145,7 +145,7 @@ const AdminAdmins = () => {
 
     setIsAdding(true);
     try {
-      const { error } = await supabase.rpc('add_admin_role', {
+      const { error } = await api.db.rpc('add_admin_role', {
         target_user_id: foundUser.user_id,
         target_role: selectedRole
       });
@@ -169,7 +169,7 @@ const AdminAdmins = () => {
   const removeAdmin = async (userId: string) => {
     setRemovingUserId(userId);
     try {
-      const { error } = await supabase.rpc('remove_admin_role', {
+      const { error } = await api.db.rpc('remove_admin_role', {
         target_user_id: userId
       });
 

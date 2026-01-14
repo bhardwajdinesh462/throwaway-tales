@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { motion } from "framer-motion";
 import { Calendar, User, ArrowRight, Clock, Loader2, Search, X, Filter } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,11 +31,11 @@ const Blog = () => {
   useEffect(() => {
     const fetchPosts = async () => {
       try {
-        const { data, error } = await supabase
-          .from("blogs")
-          .select("id, title, slug, excerpt, featured_image_url, author, category, reading_time, created_at")
-          .eq("published", true)
-          .order("created_at", { ascending: false });
+        const { data, error } = await api.db.query<BlogPost[]>("blogs", {
+          select: "id, title, slug, excerpt, featured_image_url, author, category, reading_time, created_at",
+          filter: { published: true },
+          order: { column: "created_at", ascending: false }
+        });
         
         if (error) throw error;
         setPosts(data || []);

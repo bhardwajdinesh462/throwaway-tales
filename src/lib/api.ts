@@ -527,6 +527,23 @@ export const auth = {
     return {
       unsubscribe: () => clearInterval(interval)
     };
+  },
+
+  async getUser(): Promise<{ data: { user: any } | null; error: ApiError | null }> {
+    if (USE_SUPABASE) {
+      const supabase = await getSupabaseClient();
+      if (supabase) {
+        const { data, error } = await supabase.auth.getUser();
+        return { data, error: error ? { message: error.message } : null };
+      }
+    }
+
+    // PHP Backend
+    const { data, error } = await fetchApi<{ user: User }>('/auth/user');
+    if (error) {
+      return { data: null, error };
+    }
+    return { data: { user: data?.user || null }, error: null };
   }
 };
 

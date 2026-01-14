@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -47,14 +47,14 @@ const FriendlyWebsitesWidget = () => {
   const { data: settings = defaultSettings } = useQuery({
     queryKey: ['app_settings', 'friendly_sites_widget'],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'friendly_sites_widget')
-        .maybeSingle();
+      const { data } = await api.db.query<{ value: Partial<WidgetSettings> }>('app_settings', {
+        select: 'value',
+        filter: { key: 'friendly_sites_widget' },
+        single: true
+      });
 
       if (data?.value) {
-        return { ...defaultSettings, ...(data.value as Partial<WidgetSettings>) };
+        return { ...defaultSettings, ...data.value };
       }
       return defaultSettings;
     },
@@ -66,11 +66,11 @@ const FriendlyWebsitesWidget = () => {
   const { data: websites = [], isLoading } = useQuery({
     queryKey: ['friendly_websites', 'active'],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('friendly_websites')
-        .select('*')
-        .eq('is_active', true)
-        .order('display_order', { ascending: true });
+      const { data } = await api.db.query<FriendlyWebsite[]>('friendly_websites', {
+        select: '*',
+        filter: { is_active: true },
+        order: { column: 'display_order', ascending: true }
+      });
 
       return data || [];
     },

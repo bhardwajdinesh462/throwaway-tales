@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { toast } from 'sonner';
 import { Mail, Loader2 } from 'lucide-react';
 
@@ -21,7 +21,7 @@ export const BlogSubscribeForm = () => {
     setIsLoading(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('blog-subscribe', {
+      const { data, error } = await api.functions.invoke<{ success?: boolean; alreadySubscribed?: boolean; error?: string }>('blog-subscribe', {
         body: { email }
       });
 

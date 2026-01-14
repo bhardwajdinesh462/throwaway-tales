@@ -4,7 +4,7 @@ import { AlertTriangle, Clock, Crown, MessageCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePaymentSettings } from '@/hooks/usePaymentSettings';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 
 interface EmailLimitModalProps {
   isOpen: boolean;
@@ -47,14 +47,14 @@ const EmailLimitModal = ({ isOpen, onClose, resetAt, limit }: EmailLimitModalPro
   useEffect(() => {
     const loadConfig = async () => {
       try {
-        const { data } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'limit_modal_config')
-          .maybeSingle();
+        const { data } = await api.db.query<{ value: Partial<LimitModalConfig> }>('app_settings', {
+          select: 'value',
+          filter: { key: 'limit_modal_config' },
+          single: true
+        });
         
         if (data?.value && typeof data.value === 'object') {
-          setConfig({ ...defaultConfig, ...data.value as Partial<LimitModalConfig> });
+          setConfig({ ...defaultConfig, ...data.value });
         }
       } catch (err) {
         console.error('Failed to load limit modal config:', err);
@@ -63,29 +63,33 @@ const EmailLimitModal = ({ isOpen, onClose, resetAt, limit }: EmailLimitModalPro
     loadConfig();
 
     // Subscribe to real-time changes
-    const channel = supabase
-      .channel('limit_modal_config')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'app_settings',
-          filter: 'key=eq.limit_modal_config'
-        },
-        (payload) => {
-          if (payload.new && typeof payload.new === 'object' && 'value' in payload.new) {
-            const newValue = payload.new.value;
-            if (newValue && typeof newValue === 'object') {
-              setConfig({ ...defaultConfig, ...newValue as Partial<LimitModalConfig> });
+    let channelRef: any = null;
+    (async () => {
+      channelRef = api.realtime.channel('limit_modal_config')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'app_settings',
+            filter: 'key=eq.limit_modal_config'
+          },
+          (payload) => {
+            if (payload.new && typeof payload.new === 'object' && 'value' in payload.new) {
+              const newValue = (payload.new as any).value;
+              if (newValue && typeof newValue === 'object') {
+                setConfig({ ...defaultConfig, ...newValue as Partial<LimitModalConfig> });
+              }
             }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    })();
 
     return () => {
-      channel.unsubscribe();
+      if (channelRef) {
+        channelRef.unsubscribe();
+      }
     };
   }, []);
 

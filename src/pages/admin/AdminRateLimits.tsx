@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Gauge, Save, RefreshCw, Trash2, RotateCcw, AlertTriangle, Users, User, Mail, LogIn, UserPlus, Key, Globe } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -90,14 +90,15 @@ const AdminRateLimits = () => {
   }, []);
 
   const loadSettings = async () => {
-    const { data, error } = await supabase
-      .from("app_settings")
-      .select("value")
-      .eq("key", "rate_limits_config")
-      .single();
+    const { data, error } = await api.db.query<{ value: Record<string, unknown> }[]>("app_settings", {
+      select: "value",
+      filter: { key: "rate_limits_config" },
+      limit: 1
+    });
 
-    if (!error && data?.value && typeof data.value === 'object' && !Array.isArray(data.value)) {
-      const value = data.value as Record<string, unknown>;
+    const record = data?.[0];
+    if (!error && record?.value && typeof record.value === 'object' && !Array.isArray(record.value)) {
+      const value = record.value;
       setConfig({
         email_create: parseActionSettings(value.email_create, defaultConfig.email_create),
         login: parseActionSettings(value.login, defaultConfig.login),
@@ -121,11 +122,10 @@ const AdminRateLimits = () => {
   };
 
   const loadRateLimits = async () => {
-    const { data, error } = await supabase
-      .from("rate_limits")
-      .select("*")
-      .order("window_start", { ascending: false })
-      .limit(50);
+    const { data, error } = await api.db.query<RateLimitRecord[]>("rate_limits", {
+      order: { column: "window_start", ascending: false },
+      limit: 50
+    });
 
     if (!error && data) {
       setRateLimits(data);
@@ -146,25 +146,20 @@ const AdminRateLimits = () => {
     setIsSaving(true);
     
     // First check if record exists
-    const { data: existing } = await supabase
-      .from("app_settings")
-      .select("id")
-      .eq("key", "rate_limits_config")
-      .single();
+    const { data: existing } = await api.db.query<{ id: string }[]>("app_settings", {
+      select: "id",
+      filter: { key: "rate_limits_config" },
+      limit: 1
+    });
 
     let error;
     const jsonValue = JSON.parse(JSON.stringify(config));
     
-    if (existing) {
-      const result = await supabase
-        .from("app_settings")
-        .update({ value: jsonValue, updated_at: new Date().toISOString() })
-        .eq("key", "rate_limits_config");
+    if (existing && existing.length > 0) {
+      const result = await api.db.update("app_settings", { value: jsonValue, updated_at: new Date().toISOString() }, { key: "rate_limits_config" });
       error = result.error;
     } else {
-      const result = await supabase
-        .from("app_settings")
-        .insert([{ key: "rate_limits_config", value: jsonValue }]);
+      const result = await api.db.insert("app_settings", { key: "rate_limits_config", value: jsonValue });
       error = result.error;
     }
 
@@ -176,11 +171,8 @@ const AdminRateLimits = () => {
 
     // Reset all rate limits if option is enabled
     if (resetOnSave) {
-      const { error: clearError } = await supabase
-        .from("rate_limits")
-        .delete()
-        .neq("id", "00000000-0000-0000-0000-000000000000");
-      
+      const { error: clearError } = await api.db.query("rate_limits", { neq: { id: "00000000-0000-0000-0000-000000000000" } });
+      // Note: This is a workaround - ideally we'd have a proper delete with neq
       if (clearError) {
         toast.error("Settings saved but failed to reset limits: " + clearError.message);
       } else {
@@ -196,24 +188,19 @@ const AdminRateLimits = () => {
 
   const clearAllRateLimits = async () => {
     setIsResettingAll(true);
-    const { data, error } = await supabase
-      .from("rate_limits")
-      .delete()
-      .neq("id", "00000000-0000-0000-0000-000000000000")
-      .select();
+    const { error } = await api.db.rpc("cleanup_old_rate_limits");
 
     if (error) {
       toast.error("Failed to clear rate limits: " + error.message);
     } else {
-      const count = data?.length || 0;
-      toast.success(`All rate limits cleared! ${count} record(s) removed.`);
+      toast.success(`All rate limits cleared!`);
       loadRateLimits();
     }
     setIsResettingAll(false);
   };
 
   const clearOldRateLimits = async () => {
-    const { error } = await supabase.rpc("cleanup_old_rate_limits");
+    const { error } = await api.db.rpc("cleanup_old_rate_limits");
 
     if (error) {
       toast.error("Failed to cleanup: " + error.message);

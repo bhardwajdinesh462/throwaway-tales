@@ -29,7 +29,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useSubscription } from "@/hooks/useSubscription";
 import { useConfetti } from "@/hooks/useConfetti";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 interface Feature {
   id: string;

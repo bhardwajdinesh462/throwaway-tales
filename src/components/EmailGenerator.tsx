@@ -32,7 +32,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { EmailQRCode } from "@/components/EmailQRCode";
 import EmailExpiryTimer from "@/components/EmailExpiryTimer";
 import { useRecaptcha } from "@/hooks/useRecaptcha";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { tooltips } from "@/lib/tooltips";
 import EmailLimitBanner from "@/components/EmailLimitBanner";
 import EmailLimitModal from "@/components/EmailLimitModal";
@@ -96,22 +96,23 @@ const EmailGenerator = () => {
   const loadRateLimitSettings = useCallback(async () => {
     try {
       // First fetch the subscription tiers to get limits for registered users
-      const { data: tiers } = await supabase
-        .from("subscription_tiers")
-        .select("name, max_temp_emails")
-        .order("price_monthly", { ascending: true });
+      const { data: tiers } = await api.db.query<{ name: string; max_temp_emails: number }[]>("subscription_tiers", {
+        select: "name, max_temp_emails",
+        order: { column: "price_monthly", ascending: true }
+      });
 
       // Get user's current tier if logged in
       let userTierLimit = 5; // Default for free tier
       if (user) {
-        const { data: subscription } = await supabase
-          .from("user_subscriptions")
-          .select("tier_id, subscription_tiers(max_temp_emails)")
-          .eq("user_id", user.id)
-          .maybeSingle();
+        const { data: subscription } = await api.db.query<{ tier_id: string; subscription_tiers: { max_temp_emails: number } }[]>("user_subscriptions", {
+          select: "tier_id, subscription_tiers(max_temp_emails)",
+          filter: { user_id: user.id },
+          limit: 1
+        });
         
-        if (subscription?.subscription_tiers) {
-          const tierData = subscription.subscription_tiers as { max_temp_emails: number };
+        const sub = subscription?.[0];
+        if (sub?.subscription_tiers) {
+          const tierData = sub.subscription_tiers as { max_temp_emails: number };
           userTierLimit = tierData.max_temp_emails === -1 ? 9999 : tierData.max_temp_emails;
         } else if (tiers && tiers.length > 0) {
           // Use free tier limit
@@ -131,16 +132,17 @@ const EmailGenerator = () => {
       }
 
       // Fetch guest limits from app_settings (for window minutes)
-      const { data: appSettings } = await supabase
-        .from("app_settings")
-        .select("value")
-        .eq("key", "rate_limit_temp_email_create")
-        .single();
+      const { data: appSettings } = await api.db.query<{ value: Record<string, unknown> }[]>("app_settings", {
+        select: "value",
+        filter: { key: "rate_limit_temp_email_create" },
+        limit: 1
+      });
 
       let guestWindow = 60;
       
-      if (appSettings?.value && typeof appSettings.value === 'object' && !Array.isArray(appSettings.value)) {
-        const value = appSettings.value as Record<string, unknown>;
+      const appSettingsValue = appSettings?.[0]?.value;
+      if (appSettingsValue && typeof appSettingsValue === 'object' && !Array.isArray(appSettingsValue)) {
+        const value = appSettingsValue as Record<string, unknown>;
         guestWindow = typeof value.guest_window_minutes === 'number' ? value.guest_window_minutes : 60;
       }
 
@@ -172,39 +174,35 @@ const EmailGenerator = () => {
       
       if (user) {
         // For logged-in users, check rate_limits table
-        const { data } = await supabase
-          .from("rate_limits")
-          .select("request_count, window_start")
-          .eq("identifier", user.id)
-          .eq("action_type", "generate_email")
-          .order("window_start", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { data } = await api.db.query<{ request_count: number; window_start: string }[]>("rate_limits", {
+          filter: { identifier: user.id, action_type: "generate_email" },
+          order: { column: "window_start", ascending: false },
+          limit: 1
+        });
         
-        if (data) {
-          const recordWindow = new Date(data.window_start);
+        const record = data?.[0];
+        if (record) {
+          const recordWindow = new Date(record.window_start);
           // Check if record is within current window
           if (recordWindow >= windowStart) {
-            used = data.request_count || 0;
+            used = record.request_count || 0;
           }
         }
       } else {
         // For guests, check rate_limits table
         const deviceId = localStorage.getItem('nullsto_device_id') || '';
         if (deviceId) {
-          const { data } = await supabase
-            .from("rate_limits")
-            .select("request_count, window_start")
-            .eq("identifier", deviceId)
-            .eq("action_type", "generate_email")
-            .order("window_start", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+          const { data } = await api.db.query<{ request_count: number; window_start: string }[]>("rate_limits", {
+            filter: { identifier: deviceId, action_type: "generate_email" },
+            order: { column: "window_start", ascending: false },
+            limit: 1
+          });
           
-          if (data) {
-            const recordWindow = new Date(data.window_start);
+          const record = data?.[0];
+          if (record) {
+            const recordWindow = new Date(record.window_start);
             if (recordWindow >= windowStart) {
-              used = data.request_count || 0;
+              used = record.request_count || 0;
             }
           }
         }
@@ -257,8 +255,7 @@ const EmailGenerator = () => {
       return;
     }
 
-    const channel = supabase
-      .channel(`rate_limits_${identifier}`)
+    const channel = api.realtime.channel(`rate_limits_${identifier}`)
       .on(
         'postgres_changes',
         {
@@ -273,8 +270,9 @@ const EmailGenerator = () => {
           const windowMinutes = user ? rateLimitSettings.window_minutes : rateLimitSettings.guest_window_minutes;
           await updateEmailUsage(limit || 5, windowMinutes || 1440);
         }
-      )
-      .subscribe();
+      );
+    
+    channel.subscribe();
 
     return () => {
       cancelled = true;
@@ -315,7 +313,7 @@ const EmailGenerator = () => {
         return false;
       }
 
-      const { data, error } = await supabase.functions.invoke('verify-recaptcha', {
+      const { data, error } = await api.functions.invoke('verify-recaptcha', {
         body: { token, action }
       });
 
@@ -325,8 +323,9 @@ const EmailGenerator = () => {
         return false;
       }
       
-      if (!data?.success) {
-        toast.error(data?.error || "Captcha verification failed");
+      const result = data as { success?: boolean; error?: string } | null;
+      if (!result?.success) {
+        toast.error(result?.error || "Captcha verification failed");
         return false;
       }
       return true;
@@ -419,7 +418,7 @@ const EmailGenerator = () => {
       ? rateLimitSettings.window_minutes
       : (rateLimitSettings.guest_window_minutes || rateLimitSettings.window_minutes);
 
-    const { data: rateLimitOk, error: rateLimitError } = await supabase.rpc('check_rate_limit', {
+    const { data: rateLimitOk, error: rateLimitError } = await api.db.rpc('check_rate_limit', {
       p_identifier: identifier,
       p_action_type: 'generate_email',
       p_max_requests: maxRequests,

@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { Shield, Ban, Plus, Trash2, Clock, AlertTriangle, RefreshCw, Upload } from "lucide-react";
 import {
@@ -74,8 +74,7 @@ const AdminIPBlocking = () => {
     loadBlockedIPs();
     
     // Setup realtime subscription
-    const channel = supabase
-      .channel('blocked-ips-realtime')
+    const channel = api.realtime.channel('blocked-ips-realtime')
       .on(
         'postgres_changes',
         {
@@ -86,20 +85,20 @@ const AdminIPBlocking = () => {
         () => {
           loadBlockedIPs();
         }
-      )
-      .subscribe();
+      );
+    
+    channel.subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      api.realtime.removeChannel(channel);
     };
   }, []);
 
   const loadBlockedIPs = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from("blocked_ips")
-      .select("*")
-      .order("blocked_at", { ascending: false });
+    const { data, error } = await api.db.query<BlockedIP[]>("blocked_ips", {
+      order: { column: "blocked_at", ascending: false }
+    });
 
     if (error) {
       console.error("Error loading blocked IPs:", error);
@@ -133,14 +132,12 @@ const AdminIPBlocking = () => {
       expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
     }
 
-    const { error } = await supabase
-      .from("blocked_ips")
-      .insert([{
-        ip_address: ipAddress.trim(),
-        reason: reason.trim() || null,
-        blocked_by: user.id,
-        expires_at: expiresAt,
-      }]);
+    const { error } = await api.db.insert("blocked_ips", {
+      ip_address: ipAddress.trim(),
+      reason: reason.trim() || null,
+      blocked_by: user.id,
+      expires_at: expiresAt,
+    });
 
     if (error) {
       if (error.code === "23505") {
@@ -160,10 +157,7 @@ const AdminIPBlocking = () => {
   };
 
   const handleUnblockIP = async (id: string, ip: string) => {
-    const { error } = await supabase
-      .from("blocked_ips")
-      .update({ is_active: false })
-      .eq("id", id);
+    const { error } = await api.db.update("blocked_ips", { is_active: false }, { id });
 
     if (error) {
       toast.error("Failed to unblock IP");
@@ -174,10 +168,7 @@ const AdminIPBlocking = () => {
   };
 
   const handleDeleteIP = async (id: string) => {
-    const { error } = await supabase
-      .from("blocked_ips")
-      .delete()
-      .eq("id", id);
+    const { error } = await api.db.delete("blocked_ips", { id });
 
     if (error) {
       toast.error("Failed to delete record");
@@ -258,9 +249,7 @@ const AdminIPBlocking = () => {
       expires_at: expiresAt,
     }));
 
-    const { error } = await supabase
-      .from("blocked_ips")
-      .upsert(insertData, { onConflict: 'ip_address' });
+    const { error } = await api.db.upsert("blocked_ips", insertData, { onConflict: 'ip_address' });
 
     if (error) {
       toast.error("Failed to block IPs: " + error.message);

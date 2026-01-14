@@ -242,9 +242,11 @@ if ($earlyPath === 'health/diag') {
         'email_attachments', 'app_settings', 'blogs', 'subscription_tiers', 'user_subscriptions',
         'email_stats', 'email_logs', 'mailboxes', 'user_suspensions', 'admin_audit_logs',
         'friendly_websites', 'homepage_sections', 'email_verifications', 'backup_history',
-        'rate_limits', 'user_2fa', 'blocked_ips', 'alert_logs', 'status_incidents',
-        'scheduled_maintenance', 'uptime_records', 'cron_logs', 'email_restrictions',
-        'banners', 'saved_emails', 'user_invoices'
+        'rate_limits', 'user_2fa', 'blocked_ips', 'blocked_emails', 'blocked_countries',
+        'alert_logs', 'status_incidents', 'scheduled_maintenance', 'uptime_records', 
+        'cron_logs', 'email_restrictions', 'banners', 'saved_emails', 'user_invoices',
+        'email_templates', 'email_forwarding', 'push_subscriptions', 'user_usage',
+        'admin_role_requests', 'blog_subscribers'
     ];
     
     if ($configExists && !empty($config['db']['host'])) {

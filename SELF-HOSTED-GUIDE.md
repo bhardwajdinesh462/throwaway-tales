@@ -7,7 +7,8 @@ Complete guide for deploying TempMail on your own server using the PHP backend.
 ## 📋 Requirements
 
 ### Server Requirements
-- **PHP 8.0+** with extensions: `pdo_mysql`, `mbstring`, `json`, `openssl`, `imap`, `curl`
+- **PHP 8.0+** with extensions: `pdo_mysql`, `mbstring`, `json`, `openssl`, `curl`
+- **Optional extensions**: `imap` (email receiving), `gd` (images), `zip` (backups)
 - **MySQL 8.0+** or MariaDB 10.4+
 - **Apache** with `mod_rewrite` enabled, or **Nginx**
 - **SSL Certificate** (required for production)
@@ -33,7 +34,7 @@ cd tempmail
 npm install
 
 # Build for self-hosted (cPanel) deployment
-npm run build:cpanel
+npm run build && node scripts/cpanel-package.mjs
 ```
 
 This creates a `cpanel-package/` directory with:
@@ -57,6 +58,8 @@ public_html/
 └── api/
     ├── index.php
     ├── install.php
+    ├── requirements-check.php
+    ├── verify-installation.php
     ├── schema.sql
     ├── config.example.php
     ├── routes/
@@ -65,19 +68,58 @@ public_html/
     └── ...
 ```
 
-### Step 3: Run the Setup Wizard
+### Step 3: Check System Requirements
+
+**Before installation**, verify your server meets all requirements:
+
+```
+https://yourdomain.com/api/requirements-check.php
+```
+
+This checks:
+- ✅ PHP version and configuration
+- ✅ Required and optional extensions
+- ✅ Filesystem permissions
+- ✅ Server configuration
+- ✅ Required PHP functions
+
+**Fix any critical issues before proceeding!**
+
+### Step 4: Run the Setup Wizard
 
 1. Navigate to `https://yourdomain.com/api/install.php`
 2. Follow the wizard to:
-   - Test database connection
-   - Create database tables
-   - Create admin account
-   - Configure SMTP (optional)
-   - Configure IMAP (optional)
+   - **Step 1**: Test database connection and create tables
+   - **Step 2**: Create admin account with password strength indicator
+   - **Step 3**: View success and next steps
 
-3. **⚠️ CRITICAL: Delete `install.php` after setup!**
+3. **⚠️ CRITICAL: Delete installation files after setup!**
 
-### Step 4: Set Up Cron Jobs
+### Step 5: Verify Installation
+
+After setup, run the verification script:
+
+```
+https://yourdomain.com/api/verify-installation.php?format=html
+```
+
+This checks:
+- ✅ All 35+ database tables created
+- ✅ Admin account exists
+- ✅ File permissions correct
+- ✅ Security configuration
+- ✅ API endpoints working
+
+### Step 6: Post-Installation Security
+
+```bash
+# Delete installation files immediately!
+rm public_html/api/install.php
+rm public_html/api/requirements-check.php
+rm public_html/api/verify-installation.php
+```
+
+### Step 7: Set Up Cron Jobs
 
 Add these cron jobs in cPanel → Cron Jobs:
 
@@ -94,7 +136,7 @@ Add these cron jobs in cPanel → Cron Jobs:
 
 Replace `username` with your cPanel username.
 
-### Step 5: Login and Configure
+### Step 8: Login and Configure
 
 1. Go to `https://yourdomain.com/auth` and login with your admin account
 2. Navigate to Admin Panel
@@ -113,86 +155,59 @@ Copy `api/config.example.php` to `api/config.php` and update:
 
 ```php
 <?php
-// Database constants (REQUIRED)
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'your_database');
-define('DB_USER', 'your_username');
-define('DB_PASS', 'your_password');
-
-// Security
-define('JWT_SECRET', 'generate-a-64-character-random-string-here');
-define('JWT_EXPIRY', 604800); // 7 days
-
-// SMTP (optional - can configure via Admin Panel)
-define('SMTP_HOST', 'smtp.yourdomain.com');
-define('SMTP_PORT', 587);
-define('SMTP_USER', 'noreply@yourdomain.com');
-define('SMTP_PASS', 'your-smtp-password');
-define('SMTP_FROM', 'noreply@yourdomain.com');
-
-// IMAP (optional - can configure via Admin Panel → Mailboxes)
-define('IMAP_HOST', 'imap.yourdomain.com');
-define('IMAP_PORT', 993);
-define('IMAP_USER', 'catchall@yourdomain.com');
-define('IMAP_PASS', 'your-imap-password');
-
-define('STORAGE_PATH', __DIR__ . '/storage');
-define('ENCRYPTION_KEY', JWT_SECRET);
-
-// Google Search Console (optional)
-define('GOOGLE_CLIENT_ID', '');
-define('GOOGLE_CLIENT_SECRET', '');
-
-// Stripe (optional)
-define('STRIPE_SECRET_KEY', '');
-define('STRIPE_WEBHOOK_SECRET', '');
-
-// PayPal (optional)
-define('PAYPAL_CLIENT_ID', '');
-define('PAYPAL_CLIENT_SECRET', '');
-
-// Array format for main application
 return [
     'db' => [
-        'host' => DB_HOST,
-        'name' => DB_NAME,
-        'user' => DB_USER,
-        'pass' => DB_PASS,
+        'host' => 'localhost',
+        'name' => 'your_database',
+        'user' => 'your_username',
+        'pass' => 'your_password',
         'charset' => 'utf8mb4'
     ],
     'jwt' => [
-        'secret' => JWT_SECRET,
-        'expiry' => JWT_EXPIRY
-    ],
-    'smtp' => [
-        'host' => SMTP_HOST,
-        'port' => SMTP_PORT,
-        'user' => SMTP_USER,
-        'pass' => SMTP_PASS,
-        'from' => SMTP_FROM
-    ],
-    'imap' => [
-        'host' => IMAP_HOST,
-        'port' => IMAP_PORT,
-        'user' => IMAP_USER,
-        'pass' => IMAP_PASS
-    ],
-    'google' => [
-        'client_id' => GOOGLE_CLIENT_ID,
-        'client_secret' => GOOGLE_CLIENT_SECRET
+        'secret' => 'generate-a-64-character-random-string-here',
+        'expiry' => 604800  // 7 days
     ],
     'cors' => [
-        'origins' => ['https://yourdomain.com', 'https://www.yourdomain.com']
+        'origins' => ['https://yourdomain.com', 'https://www.yourdomain.com'],
+        'methods' => ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+        'headers' => ['Content-Type', 'Authorization']
     ],
-    'storage' => [
-        'path' => STORAGE_PATH,
-        'max_size' => 10485760 // 10MB
+    'smtp' => [
+        'host' => 'mail.yourdomain.com',
+        'port' => 587,
+        'user' => 'noreply@yourdomain.com',
+        'pass' => 'your-smtp-password',
+        'from' => 'noreply@yourdomain.com'
+    ],
+    'imap' => [
+        'host' => 'mail.yourdomain.com',
+        'port' => 993,
+        'user' => 'catchall@yourdomain.com',
+        'pass' => 'your-imap-password'
+    ],
+    'google' => [
+        'client_id' => '',      // For GSC integration
+        'client_secret' => ''
+    ],
+    'stripe' => [
+        'publishable_key' => '',
+        'secret_key' => '',
+        'webhook_secret' => ''
+    ],
+    'paypal' => [
+        'client_id' => '',
+        'client_secret' => '',
+        'mode' => 'sandbox'  // or 'live'
     ],
     'recaptcha' => [
         'site_key' => '',
         'secret_key' => ''
     ],
-    'diag_token' => '' // Generate with: bin2hex(random_bytes(16))
+    'storage' => [
+        'path' => __DIR__ . '/storage',
+        'max_size' => 10485760  // 10MB
+    ],
+    'diag_token' => ''  // Generate with: bin2hex(random_bytes(16))
 ];
 ```
 
@@ -263,8 +278,8 @@ VALUES (UUID(), @user_id, 'admin', NOW());
 |------|------|-------|----------|
 | MX | @ | mail.yourdomain.com | 10 |
 | A | mail | YOUR_SERVER_IP | - |
-| TXT | @ | v=spf1 mx ~all | - |
-| TXT | _dmarc | v=DMARC1; p=none | - |
+| TXT | @ | v=spf1 mx a ~all | - |
+| TXT | _dmarc | v=DMARC1; p=none; rua=mailto:admin@yourdomain.com | - |
 
 ### cPanel Catch-All Setup
 
@@ -293,18 +308,14 @@ VALUES (UUID(), @user_id, 'admin', NOW());
 
 ## 🔒 Security Checklist
 
-- [ ] SSL certificate installed and HTTPS forced
-- [ ] `install.php` deleted after setup
-- [ ] Strong JWT secret (64+ characters)
-- [ ] `config.php` not accessible via web (600 permissions)
-- [ ] `logs/` directory protected (.htaccess)
-- [ ] Database user has minimal permissions
-- [ ] Regular backups configured
-- [ ] Rate limiting enabled
-- [ ] Error display disabled (`display_errors = 0`)
+### Post-Installation
+- [ ] Delete `install.php`
+- [ ] Delete `requirements-check.php`
+- [ ] Delete `verify-installation.php`
+- [ ] Verify JWT secret is 64+ characters
+- [ ] Update CORS origins in config.php
 
 ### File Permissions
-
 ```bash
 chmod 755 api/
 chmod 600 api/config.php
@@ -312,40 +323,45 @@ chmod 755 api/storage/
 chmod 755 api/logs/
 ```
 
+### General Security
+- [ ] SSL certificate installed and HTTPS forced
+- [ ] Database user has minimal permissions
+- [ ] Regular backups configured
+- [ ] Rate limiting enabled
+- [ ] Error display disabled (`display_errors = 0`)
+
 ---
 
 ## 🐛 Troubleshooting
 
-### 500 Internal Server Error
-1. Check `api/logs/php-errors.log`
-2. Verify PHP version ≥ 8.0
-3. Check file permissions
-4. Verify all PHP extensions installed
+### Pre-Installation Tools
 
-### CORS Errors
-Update `config.php` cors origins:
-```php
-'cors' => [
-    'origins' => ['https://yourdomain.com', 'https://www.yourdomain.com']
-]
+| Tool | URL | Purpose |
+|------|-----|---------|
+| Requirements Check | `/api/requirements-check.php` | Verify server meets requirements |
+| Installation Wizard | `/api/install.php` | Setup database and admin |
+| Verify Installation | `/api/verify-installation.php?format=html` | Check everything works |
+
+### Health Endpoints
+
+```bash
+# Basic health check
+curl https://yourdomain.com/api/health
+
+# Detailed diagnostics (requires token)
+curl "https://yourdomain.com/api/health/diag?token=YOUR_DIAG_TOKEN"
 ```
 
-### Login Not Working
-1. Verify JWT secret in config
-2. Check database connection
-3. Clear browser localStorage
-4. Check browser console for errors
+### Common Issues
 
-### Emails Not Received
-1. Check mailbox config in Admin → Mailboxes
-2. Verify IMAP credentials (use test connection button)
-3. Check cron job is running: `tail -f api/logs/imap-poll.log`
-4. Verify MX records point to your server
-
-### API Returns 404
-1. Verify `.htaccess` is present in `/api`
-2. Enable `mod_rewrite` in Apache
-3. For Nginx, add proper rewrite rules
+| Issue | Solution |
+|-------|----------|
+| 500 Internal Server Error | Check `api/logs/php-errors.log`, verify PHP ≥ 8.0 |
+| CORS Errors | Update `cors.origins` in config.php |
+| Login Not Working | Verify JWT secret, check browser console, clear localStorage |
+| Emails Not Received | Check mailbox config, verify IMAP creds, check cron running |
+| API Returns 404 | Verify `.htaccess` exists, enable mod_rewrite |
+| Database Connection Failed | Check credentials, verify MySQL running |
 
 ---
 
@@ -353,25 +369,31 @@ Update `config.php` cors origins:
 
 ```
 api/
-├── index.php           # Main API router
-├── config.php          # Your configuration
-├── schema.sql          # Database schema
+├── index.php               # Main API router
+├── config.php              # Your configuration
+├── schema.sql              # Database schema (35+ tables)
+├── error-logger.php        # Error logging system
+├── sse.php                 # Server-sent events
 ├── routes/
-│   ├── auth.php        # Authentication
-│   ├── data.php        # CRUD operations
-│   ├── rpc.php         # RPC functions
-│   ├── functions.php   # Edge function equivalents
-│   ├── admin.php       # Admin operations
-│   ├── seo.php         # SEO routes (sitemap, ping)
-│   ├── google-search-console.php  # GSC API integration
-│   └── ...
+│   ├── auth.php            # Authentication
+│   ├── data.php            # CRUD operations
+│   ├── rpc.php             # RPC functions
+│   ├── functions.php       # Edge function equivalents
+│   ├── admin.php           # Admin operations
+│   ├── seo.php             # SEO routes (sitemap, ping)
+│   ├── storage.php         # File uploads
+│   ├── forwarding.php      # Email forwarding
+│   ├── attachments.php     # Email attachments
+│   ├── webhooks.php        # Payment webhooks
+│   ├── logs.php            # Log viewing
+│   └── google-search-console.php
 ├── includes/
-│   ├── db.php          # Database helper
-│   └── helpers.php     # Utility functions
+│   ├── db.php              # Database helper
+│   └── helpers.php         # Utility functions
 ├── cron/
-│   ├── imap-poll.php   # Email polling
-│   ├── maintenance.php # Cleanup tasks
-│   └── health-check.php
+│   ├── imap-poll.php       # Email polling (every 2 min)
+│   ├── maintenance.php     # Cleanup tasks (hourly)
+│   └── health-check.php    # System monitoring (6 hourly)
 ├── storage/
 │   ├── avatars/
 │   └── attachments/
@@ -406,3 +428,4 @@ sudo systemctl restart php8.1-fpm
 - Check logs at `api/logs/` for errors
 - Health endpoint: `https://yourdomain.com/api/health`
 - Diagnostics: `https://yourdomain.com/api/health/diag?token=YOUR_TOKEN`
+- Requirements: `https://yourdomain.com/api/requirements-check.php`

@@ -295,7 +295,7 @@ async function main() {
   }
 
   // Check for required files
-  const requiredFiles = ["index.php", "config.example.php", "schema.sql", "install.php"];
+  const requiredFiles = ["index.php", "config.example.php", "schema.sql", "install.php", "requirements-check.php", "verify-installation.php"];
   for (const file of requiredFiles) {
     if (!(await pathExists(path.join(PHP_BACKEND_DIR, file)))) {
       throw new Error(`Missing required file: php-backend/${file}`);

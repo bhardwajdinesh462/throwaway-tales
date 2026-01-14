@@ -15,7 +15,6 @@ import { useAuth } from '@/hooks/useSupabaseAuth';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useEmailVerification } from '@/hooks/useEmailVerification';
 import { usePricingContent } from '@/hooks/usePricingContent';
-import { supabase } from '@/integrations/supabase/client';
 import { api } from '@/lib/api';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';

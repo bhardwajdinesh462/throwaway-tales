@@ -3,7 +3,6 @@ import { useEffect } from "react";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/queryClient";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 
 // Extended query keys for admin
 const adminQueryKeys = {
@@ -85,19 +84,17 @@ export const useAdminMailboxes = () => {
 
   // Realtime subscription for mailboxes
   useEffect(() => {
-    const channel = supabase
-      .channel('admin-mailboxes-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'mailboxes' },
-        () => {
-          queryClient.invalidateQueries({ queryKey: adminQueryKeys.mailboxes() });
-        }
-      )
-      .subscribe();
+    const channel = api.realtime.channel('admin-mailboxes-realtime');
+    channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'mailboxes' },
+      () => {
+        queryClient.invalidateQueries({ queryKey: adminQueryKeys.mailboxes() });
+      }
+    ).subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      api.realtime.removeChannel(channel);
     };
   }, [queryClient]);
 
@@ -121,19 +118,17 @@ export const useAdminDomains = () => {
 
   // Realtime subscription for domains
   useEffect(() => {
-    const channel = supabase
-      .channel('admin-domains-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'domains' },
-        () => {
-          queryClient.invalidateQueries({ queryKey: adminQueryKeys.domains() });
-        }
-      )
-      .subscribe();
+    const channel = api.realtime.channel('admin-domains-realtime');
+    channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'domains' },
+      () => {
+        queryClient.invalidateQueries({ queryKey: adminQueryKeys.domains() });
+      }
+    ).subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      api.realtime.removeChannel(channel);
     };
   }, [queryClient]);
 
@@ -157,19 +152,17 @@ export const useAdminBlogs = () => {
 
   // Realtime subscription for blogs
   useEffect(() => {
-    const channel = supabase
-      .channel('admin-blogs-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'blogs' },
-        () => {
-          queryClient.invalidateQueries({ queryKey: adminQueryKeys.blogs() });
-        }
-      )
-      .subscribe();
+    const channel = api.realtime.channel('admin-blogs-realtime');
+    channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'blogs' },
+      () => {
+        queryClient.invalidateQueries({ queryKey: adminQueryKeys.blogs() });
+      }
+    ).subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      api.realtime.removeChannel(channel);
     };
   }, [queryClient]);
 

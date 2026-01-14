@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { storage } from '@/lib/storage';
 
 const USER_SETTINGS_KEY = 'trashmails_user_settings';
@@ -44,16 +44,14 @@ export const useUserSettings = () => {
 
   const loadSettings = async () => {
     try {
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'user_settings')
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data, error } = await api.db.query<{ value: UserSettings }[]>('app_settings', {
+        filter: { key: 'user_settings' },
+        order: { column: 'updated_at', ascending: false },
+        limit: 1
+      });
 
-      if (!error && data?.value) {
-        const dbSettings = data.value as unknown as UserSettings;
+      if (!error && data && data.length > 0) {
+        const dbSettings = data[0].value as unknown as UserSettings;
         const merged = { ...defaultSettings, ...dbSettings };
         setSettings(merged);
         storage.set(USER_SETTINGS_KEY, merged);

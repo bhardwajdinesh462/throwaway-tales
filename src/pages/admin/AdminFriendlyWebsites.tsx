@@ -25,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import {
   DndContext,
@@ -244,23 +244,21 @@ const AdminFriendlyWebsites = () => {
     setIsLoading(true);
     try {
       // Fetch websites
-      const { data: websitesData, error: websitesError } = await supabase
-        .from('friendly_websites')
-        .select('*')
-        .order('display_order', { ascending: true });
+      const { data: websitesData, error: websitesError } = await api.db.query<FriendlyWebsite[]>('friendly_websites', {
+        order: { column: 'display_order', ascending: true }
+      });
 
       if (websitesError) throw websitesError;
       setWebsites(websitesData || []);
 
       // Fetch settings
-      const { data: settingsData } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'friendly_sites_widget')
-        .maybeSingle();
+      const { data: settingsData } = await api.db.query<{ value: Partial<WidgetSettings> }[]>('app_settings', {
+        filter: { key: 'friendly_sites_widget' },
+        limit: 1
+      });
 
-      if (settingsData?.value) {
-        setSettings({ ...defaultSettings, ...(settingsData.value as Partial<WidgetSettings>) });
+      if (settingsData && settingsData.length > 0 && settingsData[0].value) {
+        setSettings({ ...defaultSettings, ...settingsData[0].value });
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -278,35 +276,30 @@ const AdminFriendlyWebsites = () => {
     setIsSaving(true);
     try {
       // Check if settings exist first
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', 'friendly_sites_widget')
-        .maybeSingle();
+      const { data: existingData } = await api.db.query<{ id: string }[]>('app_settings', {
+        filter: { key: 'friendly_sites_widget' },
+        limit: 1
+      });
+      const existing = existingData && existingData.length > 0 ? existingData[0] : null;
 
       // Convert settings to JSON-compatible format
       const settingsJson = JSON.parse(JSON.stringify(settings));
 
       if (existing) {
         // Update existing
-        const { error } = await supabase
-          .from('app_settings')
-          .update({
-            value: settingsJson,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('key', 'friendly_sites_widget');
+        const { error } = await api.db.update('app_settings', {
+          value: settingsJson,
+          updated_at: new Date().toISOString(),
+        }, { key: 'friendly_sites_widget' });
 
         if (error) throw error;
       } else {
         // Insert new
-        const { error } = await supabase
-          .from('app_settings')
-          .insert([{
-            key: 'friendly_sites_widget',
-            value: settingsJson,
-            updated_at: new Date().toISOString(),
-          }]);
+        const { error } = await api.db.insert('app_settings', {
+          key: 'friendly_sites_widget',
+          value: settingsJson,
+          updated_at: new Date().toISOString(),
+        });
 
         if (error) throw error;
       }
@@ -332,16 +325,14 @@ const AdminFriendlyWebsites = () => {
     try {
       const maxOrder = Math.max(...websites.map(w => w.display_order), -1);
       
-      const { error } = await supabase
-        .from('friendly_websites')
-        .insert({
-          name: formData.name,
-          url: formData.url,
-          icon_url: formData.icon_url || null,
-          description: formData.description || null,
-          open_in_new_tab: formData.open_in_new_tab,
-          display_order: maxOrder + 1,
-        });
+      const { error } = await api.db.insert('friendly_websites', {
+        name: formData.name,
+        url: formData.url,
+        icon_url: formData.icon_url || null,
+        description: formData.description || null,
+        open_in_new_tab: formData.open_in_new_tab,
+        display_order: maxOrder + 1,
+      });
 
       if (error) throw error;
 
@@ -359,16 +350,13 @@ const AdminFriendlyWebsites = () => {
     if (!editingWebsite) return;
 
     try {
-      const { error } = await supabase
-        .from('friendly_websites')
-        .update({
-          name: formData.name,
-          url: formData.url,
-          icon_url: formData.icon_url || null,
-          description: formData.description || null,
-          open_in_new_tab: formData.open_in_new_tab,
-        })
-        .eq('id', editingWebsite.id);
+      const { error } = await api.db.update('friendly_websites', {
+        name: formData.name,
+        url: formData.url,
+        icon_url: formData.icon_url || null,
+        description: formData.description || null,
+        open_in_new_tab: formData.open_in_new_tab,
+      }, { id: editingWebsite.id });
 
       if (error) throw error;
 
@@ -386,10 +374,7 @@ const AdminFriendlyWebsites = () => {
     if (!confirm('Are you sure you want to delete this website?')) return;
 
     try {
-      const { error } = await supabase
-        .from('friendly_websites')
-        .delete()
-        .eq('id', id);
+      const { error } = await api.db.delete('friendly_websites', { id });
 
       if (error) throw error;
 
@@ -403,10 +388,7 @@ const AdminFriendlyWebsites = () => {
 
   const handleToggleActive = async (id: string, isActive: boolean) => {
     try {
-      const { error } = await supabase
-        .from('friendly_websites')
-        .update({ is_active: isActive })
-        .eq('id', id);
+      const { error } = await api.db.update('friendly_websites', { is_active: isActive }, { id });
 
       if (error) throw error;
 
@@ -436,10 +418,7 @@ const AdminFriendlyWebsites = () => {
         }));
 
         for (const update of updates) {
-          await supabase
-            .from('friendly_websites')
-            .update({ display_order: update.display_order })
-            .eq('id', update.id);
+          await api.db.update('friendly_websites', { display_order: update.display_order }, { id: update.id });
         }
 
         toast.success('Order updated successfully');

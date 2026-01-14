@@ -39,7 +39,19 @@ A complete self-hosted temporary email solution with React frontend and PHP back
 
 ---
 
-## Quick Start
+## Quick Start (Local Development)
+
+```bash
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+```
+
+---
+
+## cPanel Deployment Guide
 
 ### Requirements
 
@@ -47,90 +59,199 @@ A complete self-hosted temporary email solution with React frontend and PHP back
 |-------------|---------|-------|
 | PHP | 8.0+ | Extensions: pdo_mysql, openssl, mbstring, imap, json, curl |
 | MySQL | 8.0+ | Or MariaDB 10.4+ |
-| Apache | 2.4+ | With mod_rewrite enabled |
+| cPanel | Latest | With File Manager, MySQL, Cron Jobs access |
 | SSL | Required | Let's Encrypt or commercial certificate |
+| Domain | Required | With email hosting capability |
 
-### Installation
+### Step 1: Build the Package
 
 ```bash
-# 1. Clone the repository
+# Clone or download the repository
 git clone https://github.com/your-repo/tempmail.git
 cd tempmail
 
-# 2. Install dependencies
+# Install dependencies
 npm install
 
-# 3. Build for self-hosting
-npm run build:cpanel
-
-# 4. Upload files to your server
-# Upload cpanel-package/public_html/* to your public_html/
-
-# 5. Run setup wizard
-# Visit: https://yourdomain.com/api/install.php
-
-# 6. Configure cron jobs
-*/2 * * * * /usr/bin/php /home/username/public_html/api/cron/imap-poll.php
-0 * * * * /usr/bin/php /home/username/public_html/api/cron/maintenance.php
-0 */6 * * * /usr/bin/php /home/username/public_html/api/cron/health-check.php
-
-# 7. IMPORTANT: Delete install.php after setup!
-rm public_html/api/install.php
+# Build the cPanel package
+npm run build && node scripts/cpanel-package.mjs
 ```
+
+This creates a `cpanel-package/` directory with everything ready for upload.
+
+### Step 2: Create MySQL Database
+
+1. Login to cPanel
+2. Go to **MySQL® Databases**
+3. Create a new database (e.g., `username_tempmail`)
+4. Create a new user with a strong password
+5. Add user to database with **ALL PRIVILEGES**
+6. Note down: database name, username, password
+
+### Step 3: Upload Files
+
+**Option A: Using File Manager**
+1. Go to **File Manager** in cPanel
+2. Navigate to `public_html` (or your domain's root)
+3. Upload `cpanel-package/public_html/*` contents
+4. Extract if you uploaded as ZIP
+
+**Option B: Using FTP**
+```bash
+# Connect via FTP/SFTP
+# Upload cpanel-package/public_html/* to public_html/
+```
+
+**Final structure:**
+```
+public_html/
+├── index.html          # React app
+├── assets/             # JS/CSS files
+├── .htaccess           # SPA routing
+└── api/
+    ├── index.php       # API router
+    ├── install.php     # Setup wizard
+    ├── config.example.php
+    ├── schema.sql
+    ├── routes/
+    ├── includes/
+    └── cron/
+```
+
+### Step 4: Run Installation Wizard
+
+1. Visit: `https://yourdomain.com/api/install.php`
+2. **Step 1**: Enter MySQL credentials
+   - Host: `localhost`
+   - Database: `username_tempmail`
+   - Username: Your MySQL username
+   - Password: Your MySQL password
+3. **Step 2**: Create admin account
+   - Enter email and password
+4. **Step 3**: Installation complete!
+
+### Step 5: Verify Installation
+
+Visit: `https://yourdomain.com/api/verify-installation.php?format=html`
+
+This checks:
+- ✅ PHP version and extensions
+- ✅ Database connection and tables
+- ✅ Admin account exists
+- ✅ File permissions
+- ✅ Security configuration
+
+### Step 6: Post-Installation Security
+
+**CRITICAL: Delete installation files!**
+```bash
+# Via File Manager or SSH:
+rm public_html/api/install.php
+rm public_html/api/verify-installation.php
+```
+
+**Update CORS in config.php:**
+```php
+'cors' => [
+    'origins' => ['https://yourdomain.com'],
+    // ...
+],
+```
+
+### Step 7: Configure Cron Jobs
+
+In cPanel → **Cron Jobs**, add:
+
+| Schedule | Command |
+|----------|---------|
+| `*/2 * * * *` | `/usr/bin/php /home/USERNAME/public_html/api/cron/imap-poll.php` |
+| `0 * * * *` | `/usr/bin/php /home/USERNAME/public_html/api/cron/maintenance.php` |
+| `0 */6 * * *` | `/usr/bin/php /home/USERNAME/public_html/api/cron/health-check.php` |
+
+Replace `USERNAME` with your cPanel username.
+
+### Step 8: Email Domain Setup
+
+#### Add Domain in Admin Panel
+1. Login to your app at `https://yourdomain.com`
+2. Go to **Admin → Domains**
+3. Add your domain (e.g., `tempmail.yourdomain.com`)
+
+#### Create Catch-All Email in cPanel
+1. Go to **Email Accounts** in cPanel
+2. Create: `catchall@yourdomain.com`
+3. Go to **Default Address** (Email Routing)
+4. Set "all unrouted mail" to forward to `catchall@yourdomain.com`
+
+#### Configure Mailbox in Admin Panel
+1. Go to **Admin → Mailboxes**
+2. Add new mailbox:
+   - **IMAP Host**: `mail.yourdomain.com`
+   - **IMAP Port**: `993`
+   - **IMAP User**: `catchall@yourdomain.com`
+   - **IMAP Password**: Your email password
+   - **SMTP Host**: `mail.yourdomain.com`
+   - **SMTP Port**: `587`
+
+#### DNS Records
+Add these DNS records for your domain:
+
+| Type | Name | Value | Priority |
+|------|------|-------|----------|
+| MX | @ | `mail.yourdomain.com` | 10 |
+| A | mail | `YOUR_SERVER_IP` | - |
+| TXT | @ | `v=spf1 mx a ~all` | - |
+| TXT | _dmarc | `v=DMARC1; p=none; rua=mailto:admin@yourdomain.com` | - |
+
+### Step 9: Test Everything
+
+1. **Create temp email**: Use the app to create a temporary email
+2. **Send test email**: Send an email to the temp address
+3. **Check inbox**: Wait 2 minutes (cron interval) for email to appear
+4. **Health check**: Visit `/api/health`
 
 ---
 
-## Configuration
+## Configuration Reference
 
 ### config.php
 
-Copy `api/config.example.php` to `api/config.php` and configure:
+The installer creates this automatically. Key sections:
 
 ```php
-<?php
-// Database
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'tempmail');
-define('DB_USER', 'your_user');
-define('DB_PASS', 'your_password');
-
-// Security
-define('JWT_SECRET', 'generate-64-char-random-string');
-define('JWT_EXPIRY', 604800); // 7 days
-
-// SMTP (for sending emails)
-define('SMTP_HOST', 'smtp.yourdomain.com');
-define('SMTP_PORT', 587);
-define('SMTP_USER', 'noreply@yourdomain.com');
-define('SMTP_PASS', 'your-smtp-password');
-
-// IMAP (for receiving emails)
-define('IMAP_HOST', 'imap.yourdomain.com');
-define('IMAP_PORT', 993);
-define('IMAP_USER', 'catchall@yourdomain.com');
-define('IMAP_PASS', 'your-imap-password');
-
-// Optional: Google Search Console integration
-define('GOOGLE_CLIENT_ID', '');
-define('GOOGLE_CLIENT_SECRET', '');
-
-// Optional: Payment gateways
-define('STRIPE_SECRET_KEY', '');
-define('STRIPE_WEBHOOK_SECRET', '');
-define('PAYPAL_CLIENT_ID', '');
-define('PAYPAL_CLIENT_SECRET', '');
-```
-
-### Environment Variables
-
-For the frontend build:
-
-```env
-# Required
-VITE_SELF_HOSTED=true
-
-# Optional: Custom API URL (defaults to /api)
-VITE_PHP_API_URL=https://yourdomain.com/api
+return [
+    // Database
+    'db' => [
+        'host' => 'localhost',
+        'name' => 'database_name',
+        'user' => 'database_user',
+        'pass' => 'database_password',
+        'charset' => 'utf8mb4',
+    ],
+    
+    // JWT (auto-generated during install)
+    'jwt' => [
+        'secret' => 'auto-generated-64-char-secret',
+        'expiry' => 604800, // 7 days
+    ],
+    
+    // CORS - UPDATE THIS!
+    'cors' => [
+        'origins' => ['https://yourdomain.com'],
+        'methods' => ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+        'headers' => ['Content-Type', 'Authorization'],
+    ],
+    
+    // Optional: Payment gateways (configure via Admin Panel)
+    'stripe' => [...],
+    'paypal' => [...],
+    
+    // Optional: reCAPTCHA
+    'recaptcha' => [
+        'site_key' => '',
+        'secret_key' => '',
+    ],
+];
 ```
 
 ---
@@ -168,31 +289,13 @@ VITE_PHP_API_URL=https://yourdomain.com/api
 | GET | `/api/admin/users` | List all users |
 | POST | `/api/admin/suspend` | Suspend user |
 
-### Functions
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/functions/fetch-imap-emails` | Fetch emails from IMAP |
-| POST | `/api/functions/send-test-email` | Send test email |
-| GET | `/api/functions/get-public-stats` | Get public statistics |
-| POST | `/api/functions/verify-recaptcha` | Verify reCAPTCHA |
-
-### SEO & Sitemap
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/seo/sitemap` | Generate sitemap XML |
-| POST | `/api/seo/ping` | Ping search engines |
-| POST | `/api/gsc/authorize` | Start GSC OAuth |
-| POST | `/api/gsc/submit-sitemap` | Submit sitemap to GSC |
-| GET | `/api/gsc/performance` | Get GSC performance data |
-
-### Health & Status
+### Health & Diagnostics
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/health` | Basic health check |
 | GET | `/api/health/diag?token=xxx` | Detailed diagnostics |
+| GET | `/api/verify-installation.php?format=html` | Installation verification |
 
 ---
 
@@ -221,9 +324,9 @@ public_html/
     │   ├── db.php          # Database helper
     │   └── helpers.php     # Utility functions
     ├── cron/
-    │   ├── imap-poll.php   # Email polling
-    │   ├── maintenance.php # Cleanup tasks
-    │   └── health-check.php
+    │   ├── imap-poll.php   # Email polling (every 2 min)
+    │   ├── maintenance.php # Cleanup (hourly)
+    │   └── health-check.php # Health (every 6 hours)
     ├── storage/
     │   ├── avatars/
     │   └── attachments/
@@ -232,46 +335,18 @@ public_html/
 
 ---
 
-## Email Domain Setup
-
-### DNS Records
-
-| Type | Name | Value | Priority |
-|------|------|-------|----------|
-| MX | @ | mail.yourdomain.com | 10 |
-| A | mail | YOUR_SERVER_IP | - |
-| TXT | @ | v=spf1 mx ~all | - |
-| TXT | _dmarc | v=DMARC1; p=none | - |
-
-### Catch-All Configuration
-
-1. Create email account: `catchall@yourdomain.com`
-2. Set as default/catch-all in your email server
-3. Configure in Admin → Mailboxes
-
----
-
 ## Security Checklist
 
 - [ ] Delete `install.php` after setup
+- [ ] Delete `verify-installation.php` after verification
 - [ ] Set file permissions: files 644, folders 755, config.php 600
-- [ ] Generate strong JWT secret (64+ characters)
-- [ ] Enable HTTPS only
+- [ ] Verify JWT secret is auto-generated (64+ characters)
+- [ ] Enable HTTPS only (redirect HTTP to HTTPS)
 - [ ] Configure CORS origins in config.php
-- [ ] Enable rate limiting
-- [ ] Set up admin alerts
-- [ ] Regular backups configured
-- [ ] Error display disabled in production
-
----
-
-## Cron Jobs
-
-| Job | Schedule | Purpose |
-|-----|----------|---------|
-| IMAP Poll | `*/2 * * * *` | Fetch new emails |
-| Maintenance | `0 * * * *` | Cleanup expired data |
-| Health Check | `0 */6 * * *` | Monitor system health |
+- [ ] Enable rate limiting in Admin Panel
+- [ ] Set up admin alerts in Admin Panel
+- [ ] Configure regular backups
+- [ ] Error display disabled in production (check php.ini)
 
 ---
 
@@ -281,38 +356,75 @@ public_html/
 
 **500 Internal Server Error**
 - Check `api/logs/php-errors.log`
-- Verify PHP version ≥ 8.0
-- Check file permissions
+- Verify PHP version ≥ 8.0: `php -v`
+- Check file permissions: folders 755, files 644
 
-**Emails Not Received**
+**Emails Not Being Received**
 - Verify IMAP credentials in Admin → Mailboxes
-- Check cron jobs are running
+- Check cron jobs are running: `crontab -l`
 - Verify MX records point to your server
+- Test IMAP connection in Admin → Mailboxes → Test
 
 **Login Not Working**
-- Verify JWT secret in config.php
+- Verify JWT secret exists in config.php
 - Check database connection
 - Clear browser localStorage
+- Check for JavaScript errors in browser console
 
-### Debug Endpoints
+**React App Shows Blank Page**
+- Check `.htaccess` exists in public_html
+- Verify mod_rewrite is enabled
+- Check browser console for errors
+
+### Debug Commands
 
 ```bash
 # Health check
 curl https://yourdomain.com/api/health
 
-# Detailed diagnostics (requires token)
+# Detailed diagnostics (requires token from config.php)
 curl "https://yourdomain.com/api/health/diag?token=YOUR_DIAG_TOKEN"
+
+# Installation verification
+curl "https://yourdomain.com/api/verify-installation.php?format=html"
+
+# Test IMAP manually
+php public_html/api/test-imap.php
+
+# Test SMTP manually  
+php public_html/api/test-smtp.php
 ```
 
 ---
 
 ## Upgrading
 
-1. Backup `api/config.php` and database
+1. **Backup first!**
+   ```bash
+   # Backup config
+   cp api/config.php api/config.php.backup
+   
+   # Backup database
+   mysqldump -u user -p database_name > backup.sql
+   ```
+
 2. Download latest release
-3. Upload new files (except config.php)
+
+3. Upload new files (except `config.php`)
+
 4. Check release notes for schema changes
+
 5. Run any required migrations
+
+---
+
+## Cron Jobs Reference
+
+| Job | Schedule | Command | Purpose |
+|-----|----------|---------|---------|
+| IMAP Poll | `*/2 * * * *` | `php api/cron/imap-poll.php` | Fetch new emails |
+| Maintenance | `0 * * * *` | `php api/cron/maintenance.php` | Cleanup expired data |
+| Health Check | `0 */6 * * *` | `php api/cron/health-check.php` | Monitor system health |
 
 ---
 

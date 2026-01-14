@@ -192,14 +192,15 @@ const AdminEmailTemplates = () => {
 
       if (error) throw error;
       
-      if (data?.success) {
+      const result = data as { success?: boolean; error?: string } | null;
+      if (result?.success) {
         toast.success(`Test email sent to ${testEmail}!`);
         setIsTestDialogOpen(false);
         setTestEmail('');
         setTestName('');
         setTestTemplate(null);
       } else {
-        throw new Error(data?.error || 'Failed to send test email');
+        throw new Error(result?.error || 'Failed to send test email');
       }
     } catch (error: any) {
       console.error('Error sending test email:', error);

@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 export interface Attachment {
@@ -46,9 +46,7 @@ const EmailAttachments = ({ attachments, emailId }: EmailAttachmentsProps) => {
   const handleDownload = async (attachment: Attachment) => {
     try {
       setLoadingId(attachment.id);
-      const { data, error } = await supabase.storage
-        .from("email-attachments")
-        .download(attachment.storage_path);
+      const { data, error } = await api.storage.download("email-attachments", attachment.storage_path);
 
       if (error) throw error;
 
@@ -83,9 +81,7 @@ const EmailAttachments = ({ attachments, emailId }: EmailAttachmentsProps) => {
   const handlePreview = async (attachment: Attachment) => {
     try {
       setLoadingId(attachment.id);
-      const { data, error } = await supabase.storage
-        .from("email-attachments")
-        .download(attachment.storage_path);
+      const { data, error } = await api.storage.download("email-attachments", attachment.storage_path);
 
       if (error) throw error;
 

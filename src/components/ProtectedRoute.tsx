@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useSupabaseAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useRegistrationSettings } from "@/hooks/useRegistrationSettings";
 
 interface ProtectedRouteProps {
@@ -55,11 +55,11 @@ const ProtectedRoute = ({
     (async () => {
       setEmailCheckLoading(true);
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('email_verified')
-          .eq('user_id', user.id)
-          .maybeSingle();
+        const { data, error } = await api.db.query<{ email_verified: boolean }>('profiles', {
+          select: 'email_verified',
+          filter: { user_id: user.id },
+          single: true
+        });
 
         if (cancelled) return;
 
@@ -67,12 +67,12 @@ const ProtectedRoute = ({
 
         // If profile row is missing OR not marked verified, fall back to auth provider confirmation.
         if (!verified) {
-          const { data: authData, error: authError } = await supabase.auth.getUser();
+          const { data: authData, error: authError } = await api.auth.getUser();
           const confirmed =
             !authError &&
             Boolean(
-              (authData.user as any)?.email_confirmed_at ||
-                (authData.user as any)?.confirmed_at
+              (authData?.user as any)?.email_confirmed_at ||
+                (authData?.user as any)?.confirmed_at
             );
 
           if (confirmed) {
@@ -80,19 +80,19 @@ const ProtectedRoute = ({
 
             // Persist so subsequent checks are fast and consistent.
             if (user.email) {
-              const { data: existingProfile } = await supabase
-                .from('profiles')
-                .select('id')
-                .eq('user_id', user.id)
-                .maybeSingle();
+              const { data: existingProfile } = await api.db.query<{ id: string }>('profiles', {
+                select: 'id',
+                filter: { user_id: user.id },
+                single: true
+              });
 
               if (existingProfile?.id) {
-                await supabase
-                  .from('profiles')
-                  .update({ email_verified: true, email: user.email })
-                  .eq('user_id', user.id);
+                await api.db.update('profiles', 
+                  { email_verified: true, email: user.email },
+                  { user_id: user.id }
+                );
               } else {
-                await supabase.from('profiles').insert({
+                await api.db.insert('profiles', {
                   user_id: user.id,
                   email: user.email,
                   email_verified: true,
@@ -107,7 +107,7 @@ const ProtectedRoute = ({
         // If email not verified and confirmation is required, redirect to verify page
         if (!verified && (registrationSettings.requireEmailConfirmation || requireEmailVerification)) {
           // Check if user is admin - admins bypass email verification
-          const { data: isAdmin } = await supabase.rpc("is_admin", { _user_id: user.id });
+          const { data: isAdmin } = await api.db.rpc<boolean>("is_admin", { _user_id: user.id });
           if (!isAdmin) {
             navigate("/verify-email", {
               replace: true,
@@ -145,7 +145,7 @@ const ProtectedRoute = ({
 
     (async () => {
       setAdminCheckLoading(true);
-      const { data, error } = await supabase.rpc("is_admin", { _user_id: user.id });
+      const { data, error } = await api.db.rpc<boolean>("is_admin", { _user_id: user.id });
       const ok = !error && data === true;
 
       if (cancelled) return;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Mail, Clock, TrendingUp, Calendar, Trash2, AlertTriangle, Loader2 } from "lucide-react";
+import { Mail, Clock, TrendingUp, Calendar, Trash2, AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -32,11 +32,16 @@ const AdminEmails = () => {
     duplicateCount: 0,
   });
   const [chartData, setChartData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const fetchStats = async () => {
-    setIsLoading(true);
+  const fetchStats = async (isRefresh = false) => {
+    if (isRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
     try {
       const [generatedRes, receivedRes, activeRes] = await Promise.all([
         api.db.query<any[]>("temp_emails"),
@@ -102,6 +107,7 @@ const AdminEmails = () => {
       console.error("Error fetching email stats:", error);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -145,6 +151,25 @@ const AdminEmails = () => {
 
   return (
     <div className="space-y-6">
+      {/* Header with Refresh */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-foreground">Email Statistics</h2>
+          <p className="text-sm text-muted-foreground">
+            Overview of temporary email usage and activity
+          </p>
+        </div>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => fetchStats(true)}
+          disabled={isRefreshing}
+        >
+          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+          {isRefreshing ? "Refreshing..." : "Refresh"}
+        </Button>
+      </div>
+
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((stat, index) => (

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Mail, Clock, TrendingUp, Calendar, Trash2, AlertTriangle, Loader2, RefreshCw } from "lucide-react";
+import { Mail, Clock, TrendingUp, Calendar, Trash2, AlertTriangle, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { AdminPageLoadingSkeleton } from "@/components/admin/AdminSkeletons";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { AdminErrorState } from "@/components/admin/AdminErrorState";
 import {
   AreaChart,
   Area,
@@ -35,6 +37,7 @@ const AdminEmails = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchStats = async (isRefresh = false) => {
     if (isRefresh) {
@@ -42,6 +45,7 @@ const AdminEmails = () => {
     } else {
       setIsLoading(true);
     }
+    setError(null);
     try {
       const [generatedRes, receivedRes, activeRes] = await Promise.all([
         api.db.query<any[]>("temp_emails"),
@@ -103,8 +107,9 @@ const AdminEmails = () => {
         duplicateCount,
       });
       setChartData(days);
-    } catch (error) {
-      console.error("Error fetching email stats:", error);
+    } catch (err: any) {
+      console.error("Error fetching email stats:", err);
+      setError(err.message || "Failed to load email statistics");
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -149,26 +154,31 @@ const AdminEmails = () => {
     return <AdminPageLoadingSkeleton statsCount={4} showChart title="Email Activity (Last 7 Days)" />;
   }
 
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <AdminPageHeader
+          title="Email Statistics"
+          description="Overview of temporary email usage and activity"
+        />
+        <AdminErrorState
+          title="Failed to load email statistics"
+          message={error}
+          onRetry={() => fetchStats()}
+          isRetrying={isLoading}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {/* Header with Refresh */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-foreground">Email Statistics</h2>
-          <p className="text-sm text-muted-foreground">
-            Overview of temporary email usage and activity
-          </p>
-        </div>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={() => fetchStats(true)}
-          disabled={isRefreshing}
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-          {isRefreshing ? "Refreshing..." : "Refresh"}
-        </Button>
-      </div>
+      <AdminPageHeader
+        title="Email Statistics"
+        description="Overview of temporary email usage and activity"
+        onRefresh={() => fetchStats(true)}
+        isRefreshing={isRefreshing}
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Mail, Clock, TrendingUp, Calendar, Trash2, AlertTriangle, Loader2 } from "lucide-react";
+import { Mail, Clock, TrendingUp, Calendar, Trash2, AlertTriangle, Loader2, Keyboard } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { AdminPageLoadingSkeleton } from "@/components/admin/AdminSkeletons";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { AdminErrorState } from "@/components/admin/AdminErrorState";
+import { useAdminKeyboardShortcuts } from "@/hooks/useAdminKeyboardShortcuts";
+import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
 import {
   AreaChart,
   Area,
@@ -25,6 +27,11 @@ interface EmailStats {
   duplicateCount: number;
 }
 
+const ADMIN_SHORTCUTS = [
+  { key: "r", description: "Refresh data" },
+  { key: "esc", description: "Close dialogs" },
+];
+
 const AdminEmails = () => {
   const [stats, setStats] = useState<EmailStats>({
     totalGenerated: 0,
@@ -38,6 +45,13 @@ const AdminEmails = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+
+  useAdminKeyboardShortcuts({
+    onRefresh: () => fetchStats(true),
+    onHelp: () => setShowShortcutsHelp(prev => !prev),
+    onEscape: () => setShowShortcutsHelp(false),
+  });
 
   const fetchStats = async (isRefresh = false) => {
     if (isRefresh) {
@@ -178,6 +192,22 @@ const AdminEmails = () => {
         description="Overview of temporary email usage and activity"
         onRefresh={() => fetchStats(true)}
         isRefreshing={isRefreshing}
+        actions={
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowShortcutsHelp(true)}
+            title="Keyboard shortcuts (?)"
+          >
+            <Keyboard className="w-4 h-4" />
+          </Button>
+        }
+      />
+
+      <KeyboardShortcutsHelp
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+        shortcuts={ADMIN_SHORTCUTS}
       />
 
       {/* Stats */}

@@ -5,6 +5,7 @@ interface AdminKeyboardShortcutsOptions {
   onNew?: () => void;
   onSearch?: () => void;
   onEscape?: () => void;
+  onHelp?: () => void;
   enabled?: boolean;
 }
 
@@ -13,6 +14,7 @@ export const useAdminKeyboardShortcuts = ({
   onNew,
   onSearch,
   onEscape,
+  onHelp,
   enabled = true,
 }: AdminKeyboardShortcutsOptions) => {
   const handleKeyDown = useCallback(
@@ -57,9 +59,13 @@ export const useAdminKeyboardShortcuts = ({
         case "escape":
           onEscape?.();
           break;
+        case "?":
+          event.preventDefault();
+          onHelp?.();
+          break;
       }
     },
-    [enabled, onRefresh, onNew, onSearch, onEscape]
+    [enabled, onRefresh, onNew, onSearch, onEscape, onHelp]
   );
 
   useEffect(() => {

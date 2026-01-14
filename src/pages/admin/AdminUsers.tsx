@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { motion } from "framer-motion";
-import { User, Trash2, Search, ChevronLeft, ChevronRight, Ban, CheckCircle, Loader2, MailCheck, Mail, RefreshCw } from "lucide-react";
+import { User, Trash2, Search, ChevronLeft, ChevronRight, Ban, CheckCircle, Loader2, MailCheck, Mail, RefreshCw, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import { AdminTableSkeleton } from "@/components/admin/AdminSkeletons";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
 import { useAdminKeyboardShortcuts } from "@/hooks/useAdminKeyboardShortcuts";
+import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
 import { queryKeys } from "@/lib/queryClient";
 import {
   Select,
@@ -84,11 +85,20 @@ const AdminUsers = () => {
   const users = data?.users || [];
   const totalCount = data?.totalCount || 0;
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+
+  const ADMIN_SHORTCUTS = [
+    { key: "r", description: "Refresh users" },
+    { key: "s", description: "Focus search" },
+    { key: "Escape", description: "Clear search" },
+  ];
 
   // Keyboard shortcuts
   useAdminKeyboardShortcuts({
     onRefresh: () => refetch(),
     onSearch: () => searchInputRef.current?.focus(),
+    onEscape: () => setSearchQuery(""),
+    onHelp: () => setShowShortcutsHelp(prev => !prev),
   });
 
   const invalidateUsers = () => {
@@ -291,6 +301,17 @@ const AdminUsers = () => {
         description="Manage users, roles, and permissions. Press R to refresh, S to search."
         onRefresh={() => refetch()}
         isRefreshing={isLoading}
+        actions={
+          <Button variant="ghost" size="icon" onClick={() => setShowShortcutsHelp(true)} title="Keyboard shortcuts (?)">
+            <Keyboard className="w-4 h-4" />
+          </Button>
+        }
+      />
+
+      <KeyboardShortcutsHelp
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+        shortcuts={ADMIN_SHORTCUTS}
       />
 
       {/* Search Bar and Bulk Actions */}

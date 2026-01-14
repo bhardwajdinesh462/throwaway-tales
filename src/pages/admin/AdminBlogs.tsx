@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { FileText, Plus, Trash2, Edit, Eye, EyeOff, Image, Loader2, Tag, RefreshCw } from "lucide-react";
+import { FileText, Plus, Trash2, Edit, Eye, EyeOff, Image, Loader2, Tag, RefreshCw, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,6 +13,7 @@ import { AdminBlogCardSkeleton } from "@/components/admin/AdminSkeletons";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
 import { useAdminKeyboardShortcuts } from "@/hooks/useAdminKeyboardShortcuts";
+import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
 import {
   Dialog,
   DialogContent,
@@ -72,6 +73,14 @@ const AdminBlogs = () => {
   const { data: blogs = [], isLoading, refetch } = useAdminBlogs();
   const { deleteBlog, togglePublished } = useBlogMutations();
 
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+
+  const ADMIN_SHORTCUTS = [
+    { key: "r", description: "Refresh posts" },
+    { key: "n", description: "Create new post" },
+    { key: "Escape", description: "Close dialog" },
+  ];
+
   const openNewPostDialog = () => {
     resetForm();
     setDialogOpen(true);
@@ -82,6 +91,7 @@ const AdminBlogs = () => {
     onRefresh: () => refetch(),
     onNew: openNewPostDialog,
     onEscape: () => setDialogOpen(false),
+    onHelp: () => setShowShortcutsHelp(prev => !prev),
   });
 
   const calculateReadingTime = (content: string): number => {
@@ -231,12 +241,23 @@ const AdminBlogs = () => {
         description="Create and manage blog posts with SEO and images. Press N for new post, R to refresh."
         onRefresh={() => refetch()}
         isRefreshing={isLoading}
+        actions={
+          <Button variant="ghost" size="icon" onClick={() => setShowShortcutsHelp(true)} title="Keyboard shortcuts (?)">
+            <Keyboard className="w-4 h-4" />
+          </Button>
+        }
       >
         <Button variant="neon" onClick={openNewPostDialog}>
           <Plus className="w-4 h-4 mr-2" />
           New Post
         </Button>
       </AdminPageHeader>
+
+      <KeyboardShortcutsHelp
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+        shortcuts={ADMIN_SHORTCUTS}
+      />
 
       <div className="grid gap-4">
         {isLoading ? (

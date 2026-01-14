@@ -4,6 +4,7 @@ import { Mail, Clock, TrendingUp, Calendar, Trash2, AlertTriangle, Loader2 } fro
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { AdminPageLoadingSkeleton } from "@/components/admin/AdminSkeletons";
 import {
   AreaChart,
   Area,
@@ -139,35 +140,7 @@ const AdminEmails = () => {
   ];
 
   if (isLoading) {
-    return (
-      <div className="space-y-6">
-        {/* Loading Skeleton for Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, index) => (
-            <div key={index} className="glass-card p-6 animate-pulse">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <div className="h-4 w-24 bg-muted rounded" />
-                  <div className="h-8 w-16 bg-muted rounded" />
-                </div>
-                <div className="p-3 rounded-xl bg-muted w-12 h-12" />
-              </div>
-            </div>
-          ))}
-        </div>
-        
-        {/* Loading Skeleton for Chart */}
-        <div className="glass-card p-6 animate-pulse">
-          <div className="h-6 w-48 bg-muted rounded mb-4" />
-          <div className="h-64 bg-muted rounded" />
-        </div>
-        
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          <span className="ml-2 text-muted-foreground">Loading email statistics...</span>
-        </div>
-      </div>
-    );
+    return <AdminPageLoadingSkeleton statsCount={4} showChart title="Email Activity (Last 7 Days)" />;
   }
 
   return (

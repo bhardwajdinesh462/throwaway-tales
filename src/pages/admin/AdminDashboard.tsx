@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { AdminDashboardStatsSkeleton, AdminChartSkeleton } from "@/components/admin/AdminSkeletons";
 import SubscriptionStatsWidget from "@/components/admin/SubscriptionStatsWidget";
 import PaymentStatsWidget from "@/components/admin/PaymentStatsWidget";
 import DatabaseMetricsWidget from "@/components/admin/DatabaseMetricsWidget";
@@ -65,7 +66,7 @@ const AdminDashboard = () => {
     emailsToday: 0,
     userGrowth: 0,
   });
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [healthCheck, setHealthCheck] = useState<HealthCheckResult | null>(null);
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
   const [encryptionHealth, setEncryptionHealth] = useState<EncryptionHealthResult | null>(null);
@@ -186,6 +187,16 @@ const AdminDashboard = () => {
     { title: "Emails Today", value: stats.emailsToday, icon: Clock, color: "text-yellow-400" },
     { title: "User Growth", value: `+${stats.userGrowth}%`, icon: TrendingUp, color: "text-primary" },
   ];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <AdminDashboardStatsSkeleton count={6} />
+        <AdminChartSkeleton title="Email System Health" />
+        <AdminChartSkeleton title="Subscription Statistics" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

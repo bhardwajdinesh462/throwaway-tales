@@ -53,15 +53,28 @@ npm run dev
 
 ## cPanel Deployment Guide
 
-### Requirements
+### System Requirements
 
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| PHP | 8.0+ | Extensions: pdo_mysql, openssl, mbstring, imap, json, curl |
-| MySQL | 8.0+ | Or MariaDB 10.4+ |
-| cPanel | Latest | With File Manager, MySQL, Cron Jobs access |
-| SSL | Required | Let's Encrypt or commercial certificate |
-| Domain | Required | With email hosting capability |
+| Requirement | Minimum | Recommended |
+|-------------|---------|-------------|
+| PHP | 8.0+ | 8.2+ |
+| MySQL | 8.0+ | 8.0+ |
+| Memory | 128MB | 256MB |
+| Storage | 500MB | 2GB+ |
+| SSL | Required | Required |
+
+**Required PHP Extensions:**
+- pdo, pdo_mysql (database)
+- openssl (encryption)
+- mbstring (string handling)
+- json (API responses)
+- curl (HTTP requests)
+
+**Optional PHP Extensions:**
+- imap (email receiving)
+- gd (image processing)
+- zip (backup exports)
+- fileinfo (file type detection)
 
 ### Step 1: Build the Package
 
@@ -111,6 +124,8 @@ public_html/
 └── api/
     ├── index.php       # API router
     ├── install.php     # Setup wizard
+    ├── requirements-check.php  # System checker
+    ├── verify-installation.php # Post-install verification
     ├── config.example.php
     ├── schema.sql
     ├── routes/
@@ -118,35 +133,60 @@ public_html/
     └── cron/
 ```
 
-### Step 4: Run Installation Wizard
+### Step 4: Check System Requirements
+
+**Before installation**, verify your server meets all requirements:
+
+```
+https://yourdomain.com/api/requirements-check.php
+```
+
+This checks:
+- ✅ PHP version and configuration
+- ✅ Required and optional extensions
+- ✅ Filesystem permissions
+- ✅ Server configuration
+- ✅ Required PHP functions
+
+**Fix any critical issues before proceeding!**
+
+### Step 5: Run Installation Wizard
 
 1. Visit: `https://yourdomain.com/api/install.php`
 2. **Step 1**: Enter MySQL credentials
+   - Click "Test Connection" to verify before submitting
    - Host: `localhost`
    - Database: `username_tempmail`
    - Username: Your MySQL username
    - Password: Your MySQL password
 3. **Step 2**: Create admin account
-   - Enter email and password
+   - Enter email and a strong password
+   - Password strength indicator shows requirements
 4. **Step 3**: Installation complete!
 
-### Step 5: Verify Installation
+### Step 6: Verify Installation
 
-Visit: `https://yourdomain.com/api/verify-installation.php?format=html`
+After installation, run the verification script:
+
+```
+https://yourdomain.com/api/verify-installation.php?format=html
+```
 
 This checks:
 - ✅ PHP version and extensions
-- ✅ Database connection and tables
+- ✅ Database connection and all tables
 - ✅ Admin account exists
 - ✅ File permissions
 - ✅ Security configuration
+- ✅ Email configuration
 
-### Step 6: Post-Installation Security
+### Step 7: Post-Installation Security
 
 **CRITICAL: Delete installation files!**
 ```bash
 # Via File Manager or SSH:
 rm public_html/api/install.php
+rm public_html/api/requirements-check.php
 rm public_html/api/verify-installation.php
 ```
 
@@ -158,7 +198,19 @@ rm public_html/api/verify-installation.php
 ],
 ```
 
-### Step 7: Configure Cron Jobs
+**Set file permissions:**
+```bash
+# Directories: 755
+find public_html -type d -exec chmod 755 {} \;
+
+# Files: 644
+find public_html -type f -exec chmod 644 {} \;
+
+# Config file: 600 (more restrictive)
+chmod 600 public_html/api/config.php
+```
+
+### Step 8: Configure Cron Jobs
 
 In cPanel → **Cron Jobs**, add:
 
@@ -170,7 +222,7 @@ In cPanel → **Cron Jobs**, add:
 
 Replace `USERNAME` with your cPanel username.
 
-### Step 8: Email Domain Setup
+### Step 9: Email Domain Setup
 
 #### Add Domain in Admin Panel
 1. Login to your app at `https://yourdomain.com`
@@ -203,7 +255,7 @@ Add these DNS records for your domain:
 | TXT | @ | `v=spf1 mx a ~all` | - |
 | TXT | _dmarc | `v=DMARC1; p=none; rua=mailto:admin@yourdomain.com` | - |
 
-### Step 9: Test Everything
+### Step 10: Test Everything
 
 1. **Create temp email**: Use the app to create a temporary email
 2. **Send test email**: Send an email to the temp address
@@ -251,8 +303,37 @@ return [
         'site_key' => '',
         'secret_key' => '',
     ],
+    
+    // Diagnostics token (for /api/health/diag)
+    'diag_token' => 'your-secret-token',
 ];
 ```
+
+---
+
+## Database Schema
+
+The installation creates 35+ tables including:
+
+| Table | Purpose |
+|-------|---------|
+| `users` | User accounts |
+| `profiles` | User profile data |
+| `user_roles` | Admin/moderator roles |
+| `domains` | Email domains |
+| `temp_emails` | Temporary email addresses |
+| `received_emails` | Received messages |
+| `email_attachments` | Email attachments |
+| `mailboxes` | IMAP/SMTP configurations |
+| `subscription_tiers` | Pricing plans |
+| `user_subscriptions` | User subscriptions |
+| `email_stats` | Usage statistics |
+| `email_logs` | Email sending logs |
+| `blocked_ips` | IP blocklist |
+| `blocked_emails` | Email pattern blocklist |
+| `blocked_countries` | Country blocklist |
+| `user_2fa` | Two-factor auth |
+| `admin_audit_logs` | Admin activity logs |
 
 ---
 
@@ -295,7 +376,14 @@ return [
 |--------|----------|-------------|
 | GET | `/api/health` | Basic health check |
 | GET | `/api/health/diag?token=xxx` | Detailed diagnostics |
-| GET | `/api/verify-installation.php?format=html` | Installation verification |
+
+### Pre-Installation Tools
+
+| File | Purpose |
+|------|---------|
+| `/api/requirements-check.php` | System requirements checker |
+| `/api/install.php` | Installation wizard |
+| `/api/verify-installation.php` | Post-installation verification |
 
 ---
 
@@ -311,7 +399,10 @@ public_html/
 └── api/
     ├── index.php           # Main API router
     ├── config.php          # Your configuration
+    ├── config.example.php  # Example configuration
     ├── schema.sql          # Database schema
+    ├── error-logger.php    # Error logging
+    ├── sse.php             # Server-sent events
     ├── routes/
     │   ├── auth.php        # Authentication
     │   ├── data.php        # CRUD operations
@@ -319,6 +410,11 @@ public_html/
     │   ├── functions.php   # Edge function equivalents
     │   ├── admin.php       # Admin operations
     │   ├── seo.php         # SEO & sitemap
+    │   ├── storage.php     # File storage
+    │   ├── forwarding.php  # Email forwarding
+    │   ├── attachments.php # Attachments handling
+    │   ├── webhooks.php    # Webhook handlers
+    │   ├── logs.php        # Log viewing
     │   └── google-search-console.php
     ├── includes/
     │   ├── db.php          # Database helper
@@ -337,16 +433,39 @@ public_html/
 
 ## Security Checklist
 
-- [ ] Delete `install.php` after setup
-- [ ] Delete `verify-installation.php` after verification
-- [ ] Set file permissions: files 644, folders 755, config.php 600
+### Post-Installation
+- [ ] Delete `install.php`
+- [ ] Delete `requirements-check.php`
+- [ ] Delete `verify-installation.php`
 - [ ] Verify JWT secret is auto-generated (64+ characters)
-- [ ] Enable HTTPS only (redirect HTTP to HTTPS)
-- [ ] Configure CORS origins in config.php
-- [ ] Enable rate limiting in Admin Panel
-- [ ] Set up admin alerts in Admin Panel
-- [ ] Configure regular backups
-- [ ] Error display disabled in production (check php.ini)
+- [ ] Update CORS origins in config.php
+
+### File Permissions
+- [ ] Directories: 755
+- [ ] Files: 644
+- [ ] config.php: 600
+
+### Server Configuration
+- [ ] HTTPS enabled (redirect HTTP to HTTPS)
+- [ ] Error display disabled in production
+- [ ] `.htaccess` working properly
+
+### Application Settings
+- [ ] Rate limiting enabled (Admin Panel)
+- [ ] Admin alerts configured (Admin Panel)
+- [ ] Regular backups configured
+- [ ] Email domains added
+- [ ] Mailboxes configured
+
+---
+
+## Cron Jobs Reference
+
+| Job | Schedule | Command | Purpose |
+|-----|----------|---------|---------|
+| IMAP Poll | `*/2 * * * *` | `php api/cron/imap-poll.php` | Fetch new emails |
+| Maintenance | `0 * * * *` | `php api/cron/maintenance.php` | Cleanup expired data |
+| Health Check | `0 */6 * * *` | `php api/cron/health-check.php` | Monitor system health |
 
 ---
 
@@ -376,6 +495,11 @@ public_html/
 - Verify mod_rewrite is enabled
 - Check browser console for errors
 
+**Database Connection Failed**
+- Verify MySQL credentials in config.php
+- Check MySQL server is running
+- Verify database exists
+
 ### Debug Commands
 
 ```bash
@@ -385,8 +509,11 @@ curl https://yourdomain.com/api/health
 # Detailed diagnostics (requires token from config.php)
 curl "https://yourdomain.com/api/health/diag?token=YOUR_DIAG_TOKEN"
 
+# System requirements
+curl "https://yourdomain.com/api/requirements-check.php?format=json"
+
 # Installation verification
-curl "https://yourdomain.com/api/verify-installation.php?format=html"
+curl "https://yourdomain.com/api/verify-installation.php"
 
 # Test IMAP manually
 php public_html/api/test-imap.php
@@ -418,13 +545,17 @@ php public_html/api/test-smtp.php
 
 ---
 
-## Cron Jobs Reference
+## Environment Variables
 
-| Job | Schedule | Command | Purpose |
-|-----|----------|---------|---------|
-| IMAP Poll | `*/2 * * * *` | `php api/cron/imap-poll.php` | Fetch new emails |
-| Maintenance | `0 * * * *` | `php api/cron/maintenance.php` | Cleanup expired data |
-| Health Check | `0 */6 * * *` | `php api/cron/health-check.php` | Monitor system health |
+For custom builds:
+
+```env
+# Required for self-hosted
+VITE_SELF_HOSTED=true
+
+# Optional: Custom API URL (defaults to /api)
+VITE_PHP_API_URL=https://yourdomain.com/api
+```
 
 ---
 

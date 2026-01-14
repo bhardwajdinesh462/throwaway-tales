@@ -23,6 +23,74 @@ if (file_exists(__DIR__ . '/config.php')) {
         }
     }
 }
+// Handle AJAX test connection request
+if (isset($_GET['action']) && $_GET['action'] === 'test_connection') {
+    header('Content-Type: application/json');
+    
+    $dbHost = trim($_POST['db_host'] ?? '');
+    $dbName = trim($_POST['db_name'] ?? '');
+    $dbUser = trim($_POST['db_user'] ?? '');
+    $dbPass = $_POST['db_pass'] ?? '';
+    
+    if (empty($dbHost) || empty($dbName) || empty($dbUser)) {
+        echo json_encode(['success' => false, 'message' => 'Please fill in all required fields']);
+        exit;
+    }
+    
+    try {
+        // Test connection to MySQL server
+        $dsn = "mysql:host={$dbHost};charset=utf8mb4";
+        $pdo = new PDO($dsn, $dbUser, $dbPass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_TIMEOUT => 5
+        ]);
+        
+        // Get MySQL version
+        $version = $pdo->query("SELECT VERSION()")->fetchColumn();
+        
+        // Check if database exists
+        $stmt = $pdo->query("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = " . $pdo->quote($dbName));
+        $dbExists = $stmt->fetchColumn() !== false;
+        
+        // Check privileges
+        $canCreate = false;
+        try {
+            $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+            $canCreate = true;
+        } catch (PDOException $e) {
+            // Can't create database
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'message' => 'Connection successful!',
+            'details' => [
+                'mysql_version' => $version,
+                'database_exists' => $dbExists,
+                'can_create_database' => $canCreate,
+                'host' => $dbHost
+            ]
+        ]);
+    } catch (PDOException $e) {
+        $errorMsg = $e->getMessage();
+        
+        // Provide helpful error messages
+        if (strpos($errorMsg, 'Access denied') !== false) {
+            $message = 'Access denied. Check username and password.';
+        } elseif (strpos($errorMsg, 'Unknown MySQL server host') !== false || strpos($errorMsg, 'getaddrinfo') !== false) {
+            $message = 'Cannot connect to host. Check the hostname.';
+        } elseif (strpos($errorMsg, 'Connection refused') !== false) {
+            $message = 'Connection refused. MySQL may not be running.';
+        } elseif (strpos($errorMsg, 'Connection timed out') !== false) {
+            $message = 'Connection timed out. Check firewall settings.';
+        } else {
+            $message = 'Connection failed: ' . $errorMsg;
+        }
+        
+        echo json_encode(['success' => false, 'message' => $message]);
+    }
+    exit;
+}
 
 $step = isset($_GET['step']) ? (int)$_GET['step'] : 1;
 $error = '';
@@ -578,7 +646,7 @@ return [
         
         <?php if ($step === 1): ?>
             <h2 style="margin-bottom: 20px;">Database Configuration</h2>
-            <form method="POST">
+            <form method="POST" id="dbForm">
                 <div class="form-group">
                     <label for="db_host">MySQL Host *</label>
                     <input type="text" id="db_host" name="db_host" value="localhost" required placeholder="localhost">
@@ -586,6 +654,7 @@ return [
                 <div class="form-group">
                     <label for="db_name">Database Name *</label>
                     <input type="text" id="db_name" name="db_name" required placeholder="tempmail_db">
+                    <div class="field-hint" style="font-size: 12px; color: #71717a; margin-top: 4px;">Will be created if it doesn't exist</div>
                 </div>
                 <div class="form-group">
                     <label for="db_user">Database User *</label>
@@ -595,8 +664,104 @@ return [
                     <label for="db_pass">Database Password</label>
                     <input type="password" id="db_pass" name="db_pass" placeholder="••••••••">
                 </div>
-                <button type="submit">Connect & Create Tables →</button>
+                
+                <div id="test_result" style="display: none; margin-bottom: 20px; padding: 12px 16px; border-radius: 8px;"></div>
+                
+                <div style="display: flex; gap: 12px;">
+                    <button type="button" id="test_btn" onclick="testConnection()" style="flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
+                        🔌 Test Connection
+                    </button>
+                    <button type="submit" id="submit_btn" style="flex: 2;">
+                        Connect & Create Tables →
+                    </button>
+                </div>
             </form>
+            
+            <script>
+            let connectionTested = false;
+            
+            function testConnection() {
+                const btn = document.getElementById('test_btn');
+                const result = document.getElementById('test_result');
+                const submitBtn = document.getElementById('submit_btn');
+                
+                const host = document.getElementById('db_host').value.trim();
+                const name = document.getElementById('db_name').value.trim();
+                const user = document.getElementById('db_user').value.trim();
+                const pass = document.getElementById('db_pass').value;
+                
+                if (!host || !name || !user) {
+                    result.style.display = 'block';
+                    result.style.background = 'rgba(239, 68, 68, 0.1)';
+                    result.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+                    result.style.color = '#fca5a5';
+                    result.innerHTML = '⚠️ Please fill in all required fields';
+                    return;
+                }
+                
+                btn.disabled = true;
+                btn.innerHTML = '⏳ Testing...';
+                result.style.display = 'none';
+                
+                const formData = new FormData();
+                formData.append('db_host', host);
+                formData.append('db_name', name);
+                formData.append('db_user', user);
+                formData.append('db_pass', pass);
+                
+                fetch('install.php?action=test_connection', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    result.style.display = 'block';
+                    
+                    if (data.success) {
+                        result.style.background = 'rgba(16, 185, 129, 0.1)';
+                        result.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+                        result.style.color = '#6ee7b7';
+                        
+                        let details = '<strong>✅ ' + data.message + '</strong><br><br>';
+                        details += '<div style="font-size: 13px; opacity: 0.9;">';
+                        details += '• MySQL Version: ' + data.details.mysql_version + '<br>';
+                        details += '• Database exists: ' + (data.details.database_exists ? 'Yes ✓' : 'No (will be created)') + '<br>';
+                        details += '• Create privileges: ' + (data.details.can_create_database ? 'Yes ✓' : 'Limited') + '<br>';
+                        details += '</div>';
+                        result.innerHTML = details;
+                        
+                        connectionTested = true;
+                        submitBtn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                    } else {
+                        result.style.background = 'rgba(239, 68, 68, 0.1)';
+                        result.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+                        result.style.color = '#fca5a5';
+                        result.innerHTML = '❌ ' + data.message;
+                        connectionTested = false;
+                    }
+                })
+                .catch(error => {
+                    result.style.display = 'block';
+                    result.style.background = 'rgba(239, 68, 68, 0.1)';
+                    result.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+                    result.style.color = '#fca5a5';
+                    result.innerHTML = '❌ Network error. Please try again.';
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '🔌 Test Connection';
+                });
+            }
+            
+            // Reset test status when inputs change
+            document.querySelectorAll('#dbForm input').forEach(input => {
+                input.addEventListener('input', () => {
+                    connectionTested = false;
+                    document.getElementById('submit_btn').style.background = '';
+                    document.getElementById('test_result').style.display = 'none';
+                });
+            });
+            </script>
             
         <?php elseif ($step === 2): ?>
             <h2 style="margin-bottom: 20px;">Create Admin Account</h2>

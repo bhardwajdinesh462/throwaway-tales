@@ -53,6 +53,7 @@ import { useAdminMailboxes, useMailboxMutations } from "@/hooks/useAdminQueries"
 import { AdminMailboxCardSkeleton } from "@/components/admin/AdminSkeletons";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
+import { useAdminKeyboardShortcuts } from "@/hooks/useAdminKeyboardShortcuts";
 
 interface Mailbox {
   id: string;
@@ -110,6 +111,13 @@ const AdminMailboxes = () => {
   const [editingMailbox, setEditingMailbox] = useState<Partial<Mailbox> | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState<string | null>(null);
+
+  // Keyboard shortcuts
+  useAdminKeyboardShortcuts({
+    onRefresh: () => refetch(),
+    onNew: () => openDialog(),
+    onEscape: () => closeDialog(),
+  });
 
   const openDialog = (mailbox?: Mailbox) => {
     if (mailbox) {

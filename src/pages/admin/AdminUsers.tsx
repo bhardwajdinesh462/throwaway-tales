@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { User, Trash2, Search, ChevronLeft, ChevronRight, Ban, CheckCircle, Loader2, MailCheck, Mail, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,9 @@ import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAdminUsers } from "@/hooks/useAdminQueries";
 import { AdminTableSkeleton } from "@/components/admin/AdminSkeletons";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
+import { useAdminKeyboardShortcuts } from "@/hooks/useAdminKeyboardShortcuts";
 import { queryKeys } from "@/lib/queryClient";
 import {
   Select,
@@ -80,6 +83,13 @@ const AdminUsers = () => {
   const { data, isLoading, refetch } = useAdminUsers(page, searchQuery, pageSize);
   const users = data?.users || [];
   const totalCount = data?.totalCount || 0;
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Keyboard shortcuts
+  useAdminKeyboardShortcuts({
+    onRefresh: () => refetch(),
+    onSearch: () => searchInputRef.current?.focus(),
+  });
 
   const invalidateUsers = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.admin.users(page, searchQuery) });
@@ -276,12 +286,20 @@ const AdminUsers = () => {
 
   return (
     <div className="space-y-6">
+      <AdminPageHeader
+        title="User Management"
+        description="Manage users, roles, and permissions. Press R to refresh, S to search."
+        onRefresh={() => refetch()}
+        isRefreshing={isLoading}
+      />
+
       {/* Search Bar and Bulk Actions */}
       <div className="flex items-center gap-4 flex-wrap">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search users..."
+            ref={searchInputRef}
+            placeholder="Search users... (press S)"
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -290,9 +308,6 @@ const AdminUsers = () => {
             className="pl-10 bg-secondary/50"
           />
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4" />
-        </Button>
         <Badge variant="secondary">{totalCount} users</Badge>
         
         {selectedUsers.size > 0 && (

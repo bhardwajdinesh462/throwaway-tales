@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { AdminDomainSkeleton } from "@/components/admin/AdminSkeletons";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
+import { useAdminKeyboardShortcuts } from "@/hooks/useAdminKeyboardShortcuts";
 import DomainSetupWizard from "@/components/admin/DomainSetupWizard";
 import {
   Dialog,
@@ -70,6 +71,16 @@ const AdminDomains = () => {
       if (error) throw new Error(error.message);
       return data || [];
     }
+  });
+
+  // Keyboard shortcuts
+  useAdminKeyboardShortcuts({
+    onRefresh: () => refetch(),
+    onNew: () => setWizardOpen(true),
+    onEscape: () => {
+      setWizardOpen(false);
+      setDnsDialogOpen(false);
+    },
   });
 
   const addDomainMutation = useMutation({

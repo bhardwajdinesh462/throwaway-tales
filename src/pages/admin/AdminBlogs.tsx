@@ -10,6 +10,9 @@ import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAdminBlogs, useBlogMutations, adminQueryKeys } from "@/hooks/useAdminQueries";
 import { AdminBlogCardSkeleton } from "@/components/admin/AdminSkeletons";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
+import { useAdminKeyboardShortcuts } from "@/hooks/useAdminKeyboardShortcuts";
 import {
   Dialog,
   DialogContent,
@@ -68,6 +71,18 @@ const AdminBlogs = () => {
   // Use React Query for caching
   const { data: blogs = [], isLoading, refetch } = useAdminBlogs();
   const { deleteBlog, togglePublished } = useBlogMutations();
+
+  const openNewPostDialog = () => {
+    resetForm();
+    setDialogOpen(true);
+  };
+
+  // Keyboard shortcuts
+  useAdminKeyboardShortcuts({
+    onRefresh: () => refetch(),
+    onNew: openNewPostDialog,
+    onEscape: () => setDialogOpen(false),
+  });
 
   const calculateReadingTime = (content: string): number => {
     const wordsPerMinute = 200;
@@ -211,32 +226,29 @@ const AdminBlogs = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-foreground">Blog Management</h2>
-          <p className="text-sm text-muted-foreground">
-            Create and manage blog posts with SEO and images
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4" />
-          </Button>
-          <Button variant="neon" onClick={() => { resetForm(); setDialogOpen(true); }}>
-            <Plus className="w-4 h-4 mr-2" />
-            New Post
-          </Button>
-        </div>
-      </div>
+      <AdminPageHeader
+        title="Blog Management"
+        description="Create and manage blog posts with SEO and images. Press N for new post, R to refresh."
+        onRefresh={() => refetch()}
+        isRefreshing={isLoading}
+      >
+        <Button variant="neon" onClick={openNewPostDialog}>
+          <Plus className="w-4 h-4 mr-2" />
+          New Post
+        </Button>
+      </AdminPageHeader>
 
       <div className="grid gap-4">
         {isLoading ? (
           Array.from({ length: 3 }).map((_, i) => <AdminBlogCardSkeleton key={i} />)
         ) : blogs.length === 0 ? (
-          <div className="glass-card p-8 text-center text-muted-foreground">
-            <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            No blog posts yet. Create your first post!
-          </div>
+          <AdminEmptyState
+            icon={FileText}
+            title="No Blog Posts Yet"
+            description="Create your first blog post to engage your audience."
+            actionLabel="Create First Post"
+            onAction={openNewPostDialog}
+          />
         ) : (
           blogs.map((blog, index) => (
             <motion.div

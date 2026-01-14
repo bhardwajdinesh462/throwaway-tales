@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import DonationWidget from "@/components/DonationWidget";
 
 interface DonationSettings {
@@ -46,14 +46,14 @@ const AdminDonationSettings = () => {
 
   const fetchSettings = async () => {
     try {
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'donation_settings')
-        .maybeSingle();
+      const { data, error } = await api.db.query<{ value: DonationSettings }[]>('app_settings', {
+        select: 'value',
+        filter: { key: 'donation_settings' },
+        limit: 1
+      });
 
-      if (!error && data?.value) {
-        const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+      if (!error && data?.[0]?.value) {
+        const parsed = typeof data[0].value === 'string' ? JSON.parse(data[0].value as any) : data[0].value;
         setSettings({ ...DEFAULT_SETTINGS, ...parsed });
       }
     } catch (err) {
@@ -67,30 +67,25 @@ const AdminDonationSettings = () => {
     setIsSaving(true);
     try {
       // Check if record exists
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', 'donation_settings')
-        .maybeSingle();
+      const { data: existing } = await api.db.query<{ id: string }[]>('app_settings', {
+        select: 'id',
+        filter: { key: 'donation_settings' },
+        limit: 1
+      });
 
-      if (existing) {
+      if (existing && existing.length > 0) {
         // Update
-        const { error } = await supabase
-          .from('app_settings')
-          .update({
-            value: settings as any,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('key', 'donation_settings');
+        const { error } = await api.db.update('app_settings', {
+          value: settings as any,
+          updated_at: new Date().toISOString(),
+        }, { key: 'donation_settings' });
         if (error) throw error;
       } else {
         // Insert
-        const { error } = await supabase
-          .from('app_settings')
-          .insert({
-            key: 'donation_settings',
-            value: settings as any,
-          });
+        const { error } = await api.db.insert('app_settings', {
+          key: 'donation_settings',
+          value: settings as any,
+        });
         if (error) throw error;
       }
       toast.success('Donation settings saved!');

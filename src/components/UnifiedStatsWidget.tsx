@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, useSpring, useTransform } from "framer-motion";
 import { Mail, Users, Globe, Zap, Lightbulb } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { tooltips } from "@/lib/tooltips";
 import { useNotificationSounds } from "@/hooks/useNotificationSounds";
@@ -159,16 +159,26 @@ const UnifiedStatsWidget = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const { data, error } = await supabase.functions.invoke('get-public-stats');
+        interface StatsResponse {
+          emailsToday: number;
+          inboxesToday: number;
+          totalEmails: number;
+          activeAddresses: number;
+          totalInboxesCreated: number;
+          activeDomains: number;
+          totalEmailsGenerated: number;
+        }
+        const { data, error } = await api.functions.invoke('get-public-stats');
         if (!error && data) {
+          const stats = data as StatsResponse;
           updateStats({
-            emailsToday: data.emailsToday,
-            inboxesToday: data.inboxesToday,
-            totalEmails: data.totalEmails,
-            activeAddresses: data.activeAddresses,
-            totalInboxesCreated: data.totalInboxesCreated,
-            activeDomains: data.activeDomains,
-            totalEmailsGenerated: data.totalEmailsGenerated,
+            emailsToday: stats.emailsToday,
+            inboxesToday: stats.inboxesToday,
+            totalEmails: stats.totalEmails,
+            activeAddresses: stats.activeAddresses,
+            totalInboxesCreated: stats.totalInboxesCreated,
+            activeDomains: stats.activeDomains,
+            totalEmailsGenerated: stats.totalEmailsGenerated,
           }, true);
         }
       } catch (err) {
@@ -193,12 +203,11 @@ const UnifiedStatsWidget = () => {
   // Realtime subscriptions for live updates
   useEffect(() => {
     // Subscribe to email_stats updates (lightweight - small table)
-    const statsChannel = supabase
-      .channel('email_stats_updates')
+    const statsChannel = api.realtime.channel('email_stats_updates')
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'email_stats' },
-        (payload) => {
+        (payload: any) => {
           const { stat_key, stat_value } = payload.new as { stat_key: string; stat_value: number };
           if (stat_key === 'total_temp_emails_created') {
             triggerPulse(1); // emailsGenerated index
@@ -214,11 +223,12 @@ const UnifiedStatsWidget = () => {
             updateStats({ inboxesToday: stat_value });
           }
         }
-      )
-      .subscribe();
+      );
+    
+    statsChannel.subscribe();
 
     return () => {
-      supabase.removeChannel(statsChannel);
+      api.realtime.removeChannel(statsChannel);
     };
   }, [updateStats, triggerPulse]);
 

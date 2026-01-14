@@ -6,7 +6,7 @@ import SEOHead from "@/components/SEOHead";
 import { motion } from "framer-motion";
 import { Calendar, User, ArrowLeft, Clock, Tag, Share2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useReadingProgress } from "@/hooks/useReadingProgress";
 import { ReadingProgressBar } from "@/components/ReadingProgressBar";
@@ -47,17 +47,15 @@ const BlogPost = () => {
       }
 
       try {
-        const { data, error } = await supabase
-          .from("blogs")
-          .select("*")
-          .eq("slug", slug)
-          .eq("published", true)
-          .single();
+        const { data, error } = await api.db.query<BlogPostData[]>("blogs", {
+          filter: { slug, published: true },
+          limit: 1
+        });
 
-        if (error || !data) {
+        if (error || !data || data.length === 0) {
           setNotFound(true);
         } else {
-          setPost(data);
+          setPost(data[0]);
         }
       } catch (error) {
         console.error("Error fetching blog post:", error);

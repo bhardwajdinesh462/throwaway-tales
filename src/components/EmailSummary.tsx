@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Copy, Check, Link, AlertCircle, Loader2, ChevronDown, ChevronUp, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { useUserSettings } from "@/hooks/useUserSettings";
@@ -90,14 +90,15 @@ const EmailSummary = ({ emailId, subject, body, htmlBody }: EmailSummaryProps) =
     setError(null);
     
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('summarize-email', {
+      const { data, error: fnError } = await api.functions.invoke('summarize-email', {
         body: { subject, body, htmlBody }
       });
 
       if (fnError) throw fnError;
-      if (data?.error) throw new Error(data.error);
+      const result = data as SummaryResult | { error?: string } | null;
+      if (result && 'error' in result && result.error) throw new Error(result.error);
       
-      setSummary(data);
+      setSummary(result as SummaryResult);
       incrementUsage();
       setUsageCount(prev => prev + 1);
       toast.success('Email analyzed successfully!');

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { Shield, Check, X, Clock, RefreshCw, UserPlus } from "lucide-react";
 import {
@@ -55,10 +55,10 @@ const AdminRoleApprovals = () => {
   const loadRequests = async () => {
     setIsLoading(true);
     
-    const { data, error } = await supabase
-      .from("admin_role_requests")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data, error } = await api.db.query<RoleRequest[]>("admin_role_requests", {
+      select: "*",
+      order: { column: "created_at", ascending: false }
+    });
 
     if (error) {
       toast.error("Failed to load requests: " + error.message);
@@ -66,11 +66,11 @@ const AdminRoleApprovals = () => {
       // Fetch user profiles for each request
       const requestsWithProfiles = await Promise.all(
         (data || []).map(async (request) => {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("email, display_name")
-            .eq("user_id", request.user_id)
-            .single();
+          const { data: profile } = await api.db.query<{ email: string; display_name: string }>("profiles", {
+            select: "email, display_name",
+            filter: { user_id: request.user_id },
+            single: true
+          });
           
           return {
             ...request,
@@ -90,15 +90,12 @@ const AdminRoleApprovals = () => {
     setIsProcessing(true);
 
     // Update the request status
-    const { error: updateError } = await supabase
-      .from("admin_role_requests")
-      .update({
-        status: "approved",
-        reviewed_by: user.id,
-        reviewed_at: new Date().toISOString(),
-        review_notes: reviewNotes,
-      })
-      .eq("id", selectedRequest.id);
+    const { error: updateError } = await api.db.update("admin_role_requests", {
+      status: "approved",
+      reviewed_by: user.id,
+      reviewed_at: new Date().toISOString(),
+      review_notes: reviewNotes,
+    }, { id: selectedRequest.id });
 
     if (updateError) {
       toast.error("Failed to approve request: " + updateError.message);
@@ -107,12 +104,10 @@ const AdminRoleApprovals = () => {
     }
 
     // Grant the role
-    const { error: roleError } = await supabase
-      .from("user_roles")
-      .upsert({
-        user_id: selectedRequest.user_id,
-        role: selectedRequest.requested_role as "admin" | "moderator" | "user",
-      }, { onConflict: "user_id" });
+    const { error: roleError } = await api.db.upsert("user_roles", {
+      user_id: selectedRequest.user_id,
+      role: selectedRequest.requested_role as "admin" | "moderator" | "user",
+    }, { onConflict: "user_id" });
 
     if (roleError) {
       toast.error("Failed to grant role: " + roleError.message);
@@ -120,7 +115,7 @@ const AdminRoleApprovals = () => {
       toast.success(`Role ${selectedRequest.requested_role} granted successfully!`);
       
       // Log the action
-      await supabase.rpc("log_admin_access", {
+      await api.db.rpc("log_admin_access", {
         p_action: "APPROVE_ROLE_REQUEST",
         p_table_name: "admin_role_requests",
         p_record_id: selectedRequest.id,
@@ -143,15 +138,12 @@ const AdminRoleApprovals = () => {
     
     setIsProcessing(true);
 
-    const { error } = await supabase
-      .from("admin_role_requests")
-      .update({
-        status: "rejected",
-        reviewed_by: user.id,
-        reviewed_at: new Date().toISOString(),
-        review_notes: reviewNotes,
-      })
-      .eq("id", selectedRequest.id);
+    const { error } = await api.db.update("admin_role_requests", {
+      status: "rejected",
+      reviewed_by: user.id,
+      reviewed_at: new Date().toISOString(),
+      review_notes: reviewNotes,
+    }, { id: selectedRequest.id });
 
     if (error) {
       toast.error("Failed to reject request: " + error.message);
@@ -159,7 +151,7 @@ const AdminRoleApprovals = () => {
       toast.success("Request rejected");
       
       // Log the action
-      await supabase.rpc("log_admin_access", {
+      await api.db.rpc("log_admin_access", {
         p_action: "REJECT_ROLE_REQUEST",
         p_table_name: "admin_role_requests",
         p_record_id: selectedRequest.id,

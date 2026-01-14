@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { storage, generateId } from "@/lib/storage";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Languages, Plus, Trash2, Save, Check } from "lucide-react";
 import {
   Table,
@@ -54,13 +54,13 @@ const AdminLanguages = () => {
   useEffect(() => {
     const loadLanguages = async () => {
       try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'languages')
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { data, error } = await api.db.query<{ value: Language[] }>('app_settings', {
+          select: 'value',
+          filter: { key: 'languages' },
+          order: { column: 'updated_at', ascending: false },
+          limit: 1,
+          single: true
+        });
 
         if (!error && data?.value) {
           const dbLanguages = data.value as unknown as Language[];
@@ -85,29 +85,24 @@ const AdminLanguages = () => {
     setLanguages(updated);
 
     try {
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', 'languages')
-        .maybeSingle();
+      const { data: existing } = await api.db.query<{ id: string }>('app_settings', {
+        select: 'id',
+        filter: { key: 'languages' },
+        single: true
+      });
 
       const languagesJson = JSON.parse(JSON.stringify(updated));
 
       if (existing) {
-        await supabase
-          .from('app_settings')
-          .update({
-            value: languagesJson,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('key', 'languages');
+        await api.db.update('app_settings', {
+          value: languagesJson,
+          updated_at: new Date().toISOString(),
+        }, { key: 'languages' });
       } else {
-        await supabase
-          .from('app_settings')
-          .insert([{
-            key: 'languages',
-            value: languagesJson,
-          }]);
+        await api.db.insert('app_settings', {
+          key: 'languages',
+          value: languagesJson,
+        });
       }
     } catch (e) {
       console.error('Error saving languages to database:', e);

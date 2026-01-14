@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Plus, X, Mail, Shield, Info, Save } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 // Default trusted domains that come with the app
@@ -54,18 +54,18 @@ const AdminEmailWhitelist = () => {
 
   const fetchSettings = async () => {
     try {
-      const { data, error } = await supabase
-        .from("app_settings")
-        .select("value")
-        .eq("key", "trusted_email_domains")
-        .single();
+      const { data, error } = await api.db.query<{ value: { enabled: boolean; customDomains: string[] } }>("app_settings", {
+        select: "value",
+        filter: { key: "trusted_email_domains" },
+        single: true
+      });
 
-      if (error && error.code !== "PGRST116") {
+      if (error && (error as any).code !== "PGRST116") {
         throw error;
       }
 
       if (data?.value) {
-        const settings = data.value as { enabled: boolean; customDomains: string[] };
+        const settings = data.value;
         setEnableWhitelist(settings.enabled ?? true);
         setCustomDomains(settings.customDomains || []);
       }
@@ -79,18 +79,16 @@ const AdminEmailWhitelist = () => {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from("app_settings")
-        .upsert({
-          key: "trusted_email_domains",
-          value: {
-            enabled: enableWhitelist,
-            customDomains: customDomains,
-          },
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: "key",
-        });
+      const { error } = await api.db.upsert("app_settings", {
+        key: "trusted_email_domains",
+        value: {
+          enabled: enableWhitelist,
+          customDomains: customDomains,
+        },
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: "key",
+      });
 
       if (error) throw error;
       toast.success("Email whitelist settings saved!");

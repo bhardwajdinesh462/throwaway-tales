@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useGeneralSettings } from "@/hooks/useGeneralSettings";
 import { Mail, Plus, Trash2, Edit, Save, Loader2, Info, Send, Eye } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -82,10 +82,10 @@ const AdminEmailTemplates = () => {
   const loadTemplates = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await (supabase
-        .from('email_templates' as any)
-        .select('*')
-        .order('created_at', { ascending: true }) as any);
+      const { data, error } = await api.db.query<any[]>('email_templates', {
+        select: '*',
+        order: { column: 'created_at', ascending: true }
+      });
 
       if (error) throw error;
       
@@ -115,27 +115,22 @@ const AdminEmailTemplates = () => {
     setIsSaving(true);
     try {
       if (editingTemplate) {
-        const { error } = await (supabase
-          .from('email_templates' as any)
-          .update({
-            name: formData.name,
-            subject: formData.subject,
-            body: formData.body,
-            type: formData.type,
-          })
-          .eq('id', editingTemplate.id) as any);
+        const { error } = await api.db.update('email_templates', {
+          name: formData.name,
+          subject: formData.subject,
+          body: formData.body,
+          type: formData.type,
+        }, { id: editingTemplate.id });
 
         if (error) throw error;
         toast.success("Template updated!");
       } else {
-        const { error } = await (supabase
-          .from('email_templates' as any)
-          .insert({
-            name: formData.name,
-            subject: formData.subject,
-            body: formData.body,
-            type: formData.type,
-          }) as any);
+        const { error } = await api.db.insert('email_templates', {
+          name: formData.name,
+          subject: formData.subject,
+          body: formData.body,
+          type: formData.type,
+        });
 
         if (error) throw error;
         toast.success("Template created!");
@@ -167,10 +162,7 @@ const AdminEmailTemplates = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      const { error } = await (supabase
-        .from('email_templates' as any)
-        .delete()
-        .eq('id', id) as any);
+      const { error } = await api.db.delete('email_templates', { id });
 
       if (error) throw error;
       
@@ -190,7 +182,7 @@ const AdminEmailTemplates = () => {
 
     setIsSendingTest(true);
     try {
-      const { data, error } = await supabase.functions.invoke('send-template-email', {
+      const { data, error } = await api.functions.invoke('send-template-email', {
         body: {
           templateId: testTemplate.id,
           recipientEmail: testEmail,

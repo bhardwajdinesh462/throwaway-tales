@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { useRegistrationSettings } from "@/hooks/useRegistrationSettings";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { UserPlus, Save, Shield, AlertTriangle, Lock, MailCheck, Loader2 } from "lucide-react";
 
 const AdminRegistration = () => {
@@ -30,7 +30,7 @@ const AdminRegistration = () => {
       // Sync email confirmation setting with backend
       setIsSyncingAuth(true);
       try {
-        const { data, error } = await supabase.functions.invoke('configure-auth', {
+        const { data, error } = await api.functions.invoke<{ error?: string }>('configure-auth', {
           body: {
             autoConfirmEmail: !localSettings.requireEmailConfirmation
           }

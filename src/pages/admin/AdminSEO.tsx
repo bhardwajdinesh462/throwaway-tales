@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Search, Save, Code, FileCode, FileText, TrendingUp, AlertTriangle, CheckCircle, XCircle, Lightbulb, Globe, RefreshCw, Send, Loader2, Link, ExternalLink, BarChart3, Unlink } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -155,13 +155,13 @@ const AdminSEO = () => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'seo')
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { data, error } = await api.db.query<{ value: SEOSettings }>('app_settings', {
+          select: 'value',
+          filter: { key: 'seo' },
+          order: { column: 'updated_at', ascending: false },
+          limit: 1,
+          single: true
+        });
 
         if (!error && data?.value) {
           const dbSettings = data.value as unknown as SEOSettings;
@@ -294,29 +294,24 @@ const AdminSEO = () => {
     try {
       const settingsJson = JSON.parse(JSON.stringify(settings));
 
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', 'seo')
-        .maybeSingle();
+      const { data: existing } = await api.db.query<{ id: string }>('app_settings', {
+        select: 'id',
+        filter: { key: 'seo' },
+        single: true
+      });
 
       let error;
       if (existing) {
-        const result = await supabase
-          .from('app_settings')
-          .update({
-            value: settingsJson,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('key', 'seo');
+        const result = await api.db.update('app_settings', {
+          value: settingsJson,
+          updated_at: new Date().toISOString(),
+        }, { key: 'seo' });
         error = result.error;
       } else {
-        const result = await supabase
-          .from('app_settings')
-          .insert([{
-            key: 'seo',
-            value: settingsJson,
-          }]);
+        const result = await api.db.insert('app_settings', {
+          key: 'seo',
+          value: settingsJson,
+        });
         error = result.error;
       }
 
@@ -324,13 +319,9 @@ const AdminSEO = () => {
         console.error('Error saving to database:', error);
         toast.error('Settings saved locally but failed to sync to database');
       } else {
-        // Clear ALL SEO-related caches from localStorage
         localStorage.removeItem('trashmails_seo_settings');
         localStorage.removeItem(SEO_SETTINGS_KEY);
-        
-        // Dispatch a global event to notify all components to refetch
         window.dispatchEvent(new CustomEvent('seo-settings-updated', { detail: settings }));
-        
         toast.success("SEO settings saved successfully!");
       }
     } catch (e) {
@@ -348,7 +339,7 @@ const AdminSEO = () => {
   const regenerateSitemap = async () => {
     setIsRegeneratingSitemap(true);
     try {
-      const response = await supabase.functions.invoke('generate-sitemap', {
+      const response = await api.functions.invoke('generate-sitemap', {
         body: { siteUrl: window.location.origin }
       });
       
@@ -356,12 +347,11 @@ const AdminSEO = () => {
       
       toast.success("Sitemap regenerated successfully!");
       
-      // Refresh settings to get updated timestamp
-      const { data } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'seo')
-        .maybeSingle();
+      const { data } = await api.db.query<{ value: SEOSettings }>('app_settings', {
+        select: 'value',
+        filter: { key: 'seo' },
+        single: true
+      });
       
       if (data?.value) {
         const updatedSettings = data.value as unknown as SEOSettings;
@@ -378,7 +368,7 @@ const AdminSEO = () => {
   const pingSearchEngines = async () => {
     setIsPinging(true);
     try {
-      const response = await supabase.functions.invoke('ping-search-engines', {
+      const response = await api.functions.invoke('ping-search-engines', {
         body: { 
           siteUrl: window.location.origin,
           indexNowKey: settings.indexNowApiKey || '',

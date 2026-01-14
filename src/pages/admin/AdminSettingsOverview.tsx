@@ -16,7 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { storage } from "@/lib/storage";
 import { useNavigate } from "react-router-dom";
 
@@ -69,10 +69,10 @@ const AdminSettingsOverview = () => {
     setIsLoading(true);
     try {
       // Load all settings from database
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('key, value')
-        .in('key', ['general', 'seo', 'appearance', 'user_settings', 'languages']);
+      const { data, error } = await api.db.query<{ key: string; value: any }[]>('app_settings', {
+        select: 'key, value',
+        in: { key: ['general', 'seo', 'appearance', 'user_settings', 'languages'] }
+      });
 
       if (error) throw error;
 

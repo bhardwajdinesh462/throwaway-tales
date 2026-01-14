@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { Globe, Download, RefreshCw, Search, Ban, Filter } from "lucide-react";
 import {
@@ -49,51 +49,56 @@ const AdminRegistrationIPs = () => {
 
   useEffect(() => {
     // Setup realtime subscription
-    const channel = supabase
-      .channel('profiles-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'profiles'
-        },
-        () => {
-          loadProfiles();
-        }
-      )
-      .subscribe();
+    let channelRef: any = null;
+    (async () => {
+      channelRef = api.realtime.channel('profiles-realtime')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'profiles'
+          },
+          () => {
+            loadProfiles();
+          }
+        )
+        .subscribe();
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channelRef) {
+        channelRef.unsubscribe();
+      }
     };
   }, []);
 
   const loadProfiles = async () => {
     setIsLoading(true);
     
-    let query = supabase
-      .from("profiles")
-      .select("id, user_id, email, display_name, registration_ip, created_at", { count: 'exact' })
-      .order("created_at", { ascending: false })
-      .range((page - 1) * pageSize, page * pageSize - 1);
+    const options: any = {
+      select: "id, user_id, email, display_name, registration_ip, created_at",
+      order: { column: "created_at", ascending: false },
+      limit: pageSize,
+      offset: (page - 1) * pageSize
+    };
 
     if (searchQuery) {
-      query = query.or(`email.ilike.%${searchQuery}%,display_name.ilike.%${searchQuery}%`);
+      options.ilike = { email: `%${searchQuery}%` };
     }
 
     if (ipFilter) {
-      query = query.ilike('registration_ip', `%${ipFilter}%`);
+      options.ilike = { ...options.ilike, registration_ip: `%${ipFilter}%` };
     }
 
-    const { data, error, count } = await query;
+    const { data, error } = await api.db.query<ProfileWithIP[]>("profiles", options);
 
     if (error) {
       console.error("Error loading profiles:", error);
       toast.error("Failed to load profiles");
     } else {
       setProfiles(data || []);
-      setTotalCount(count || 0);
+      setTotalCount(data?.length || 0);
     }
     setIsLoading(false);
   };
@@ -106,13 +111,11 @@ const AdminRegistrationIPs = () => {
   const handleBlockIP = async (ip: string) => {
     if (!ip || !user) return;
 
-    const { error } = await supabase
-      .from("blocked_ips")
-      .insert([{
-        ip_address: ip,
-        reason: "Blocked from registration IPs page",
-        blocked_by: user.id,
-      }]);
+    const { error } = await api.db.insert("blocked_ips", {
+      ip_address: ip,
+      reason: "Blocked from registration IPs page",
+      blocked_by: user.id,
+    });
 
     if (error) {
       if (error.code === "23505") {

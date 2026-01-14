@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Settings, Save, AlertTriangle, Eye } from "lucide-react";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useLimitModalSettings, defaultLimitModalConfig, LimitModalConfig } from "@/hooks/useLimitModalSettings";
@@ -63,13 +63,13 @@ const AdminGeneralSettings = () => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'general')
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { data, error } = await api.db.query<{ value: GeneralSettings }>('app_settings', {
+          select: 'value',
+          filter: { key: 'general' },
+          order: { column: 'updated_at', ascending: false },
+          limit: 1,
+          single: true
+        });
 
         if (!error && data?.value) {
           const dbSettings = data.value as unknown as GeneralSettings;
@@ -95,32 +95,27 @@ const AdminGeneralSettings = () => {
       // Save to localStorage for immediate access
       storage.set(GENERAL_SETTINGS_KEY, settings);
       
-      // Also save to Supabase app_settings for persistence
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', 'general')
-        .maybeSingle();
+      // Also save to database for persistence
+      const { data: existing } = await api.db.query<{ id: string }>('app_settings', {
+        select: 'id',
+        filter: { key: 'general' },
+        single: true
+      });
 
       const settingsJson = JSON.parse(JSON.stringify(settings));
 
       let error;
       if (existing) {
-        const result = await supabase
-          .from('app_settings')
-          .update({
-            value: settingsJson,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('key', 'general');
+        const result = await api.db.update('app_settings', {
+          value: settingsJson,
+          updated_at: new Date().toISOString(),
+        }, { key: 'general' });
         error = result.error;
       } else {
-        const result = await supabase
-          .from('app_settings')
-          .insert([{
-            key: 'general',
-            value: settingsJson,
-          }]);
+        const result = await api.db.insert('app_settings', {
+          key: 'general',
+          value: settingsJson,
+        });
         error = result.error;
       }
 

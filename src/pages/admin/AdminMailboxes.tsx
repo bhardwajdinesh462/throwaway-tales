@@ -13,6 +13,7 @@ import {
   Server,
   Send,
   Inbox,
+  Keyboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +55,7 @@ import { AdminMailboxCardSkeleton } from "@/components/admin/AdminSkeletons";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
 import { useAdminKeyboardShortcuts } from "@/hooks/useAdminKeyboardShortcuts";
+import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
 
 interface Mailbox {
   id: string;
@@ -111,12 +113,20 @@ const AdminMailboxes = () => {
   const [editingMailbox, setEditingMailbox] = useState<Partial<Mailbox> | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState<string | null>(null);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+
+  const ADMIN_SHORTCUTS = [
+    { key: "r", description: "Refresh mailboxes" },
+    { key: "n", description: "Add new mailbox" },
+    { key: "Escape", description: "Close dialog" },
+  ];
 
   // Keyboard shortcuts
   useAdminKeyboardShortcuts({
     onRefresh: () => refetch(),
     onNew: () => openDialog(),
     onEscape: () => closeDialog(),
+    onHelp: () => setShowShortcutsHelp(prev => !prev),
   });
 
   const openDialog = (mailbox?: Mailbox) => {
@@ -278,15 +288,26 @@ const AdminMailboxes = () => {
     <div className="space-y-6">
       <AdminPageHeader
         title="Mailboxes"
-        description="Manage multiple mailboxes for load balancing email sending and receiving"
+        description="Manage multiple mailboxes for load balancing email sending and receiving. Press N for new, R to refresh."
         onRefresh={() => refetch()}
         isRefreshing={isLoading}
+        actions={
+          <Button variant="ghost" size="icon" onClick={() => setShowShortcutsHelp(true)} title="Keyboard shortcuts (?)">
+            <Keyboard className="w-4 h-4" />
+          </Button>
+        }
       >
         <Button onClick={() => openDialog()}>
           <Plus className="w-4 h-4 mr-2" />
           Add Mailbox
         </Button>
       </AdminPageHeader>
+
+      <KeyboardShortcutsHelp
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+        shortcuts={ADMIN_SHORTCUTS}
+      />
 
       {isLoading ? (
         <div className="grid gap-4">

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Globe, Plus, Trash2, Star, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Shield, Loader2, Wand2 } from "lucide-react";
+import { Globe, Plus, Trash2, Star, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Shield, Loader2, Wand2, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { AdminDomainSkeleton } from "@/components/admin/AdminSkeletons";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { AdminEmptyState } from "@/components/admin/AdminEmptyState";
 import { useAdminKeyboardShortcuts } from "@/hooks/useAdminKeyboardShortcuts";
+import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
 import DomainSetupWizard from "@/components/admin/DomainSetupWizard";
 import {
   Dialog,
@@ -62,6 +63,13 @@ const AdminDomains = () => {
   const [dnsResults, setDnsResults] = useState<DNSVerificationResult | null>(null);
   const [verifyingDns, setVerifyingDns] = useState(false);
   const [skipDnsCheck, setSkipDnsCheck] = useState(false);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+
+  const ADMIN_SHORTCUTS = [
+    { key: "r", description: "Refresh domains" },
+    { key: "n", description: "Setup new domain" },
+    { key: "Escape", description: "Close dialogs" },
+  ];
 
   // Use React Query with api.ts compatibility layer
   const { data: domains = [], isLoading, refetch } = useQuery({
@@ -81,6 +89,7 @@ const AdminDomains = () => {
       setWizardOpen(false);
       setDnsDialogOpen(false);
     },
+    onHelp: () => setShowShortcutsHelp(prev => !prev),
   });
 
   const addDomainMutation = useMutation({
@@ -235,15 +244,26 @@ const AdminDomains = () => {
     <div className="space-y-6">
       <AdminPageHeader
         title="Email Domains"
-        description="Manage domains available for temporary emails"
+        description="Manage domains available for temporary emails. Press N for new, R to refresh."
         onRefresh={() => refetch()}
         isRefreshing={isLoading}
+        actions={
+          <Button variant="ghost" size="icon" onClick={() => setShowShortcutsHelp(true)} title="Keyboard shortcuts (?)">
+            <Keyboard className="w-4 h-4" />
+          </Button>
+        }
       >
         <Button variant="neon" onClick={() => setWizardOpen(true)}>
           <Wand2 className="w-4 h-4 mr-2" />
           Setup Domain
         </Button>
       </AdminPageHeader>
+
+      <KeyboardShortcutsHelp
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+        shortcuts={ADMIN_SHORTCUTS}
+      />
 
       {/* Domain Setup Wizard */}
       <DomainSetupWizard

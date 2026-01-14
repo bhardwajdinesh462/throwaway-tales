@@ -48,6 +48,36 @@ function handleFunction($functionName, $body, $pdo, $config) {
         case 'fetch-imap-emails':
             fetchImapEmails($body, $pdo, $config);
             break;
+        case 'blog-subscribe':
+            blogSubscribe($body, $pdo);
+            break;
+        case 'blog-unsubscribe':
+            blogUnsubscribe($body, $pdo);
+            break;
+        case 'notify-blog-subscribers':
+            notifyBlogSubscribers($body, $pdo, $config, $isAdmin);
+            break;
+        case 'get-database-metrics':
+            getDatabaseMetrics($pdo, $isAdmin);
+            break;
+        case 'select-mailbox':
+            selectMailbox($body, $pdo, $config);
+            break;
+        case 'smtp-failover-test':
+            smtpFailoverTest($body, $pdo, $config, $isAdmin);
+            break;
+        case 'cleanup-old-backups':
+            cleanupOldBackups($pdo, $isAdmin);
+            break;
+        case 'delete-duplicate-emails':
+            deleteDuplicateEmails($pdo, $isAdmin);
+            break;
+        case 'send-template-email':
+            sendTemplateEmail($body, $pdo, $config, $userId);
+            break;
+        case 'reset-daily-stats':
+            resetDailyStats($pdo, $isAdmin);
+            break;
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Unknown function: ' . $functionName]);
@@ -1355,4 +1385,250 @@ function decodeImapPart($data, $encoding) {
         default:
             return $data;
     }
+}
+
+/**
+ * Blog subscription handler
+ */
+function blogSubscribe($body, $pdo) {
+    $email = strtolower(trim($body['email'] ?? ''));
+    
+    if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Valid email required']);
+        return;
+    }
+    
+    // Check if already subscribed
+    $stmt = $pdo->prepare('SELECT id, status FROM blog_subscribers WHERE email = ?');
+    $stmt->execute([$email]);
+    $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($existing) {
+        if ($existing['status'] === 'active') {
+            echo json_encode(['success' => true, 'message' => 'Already subscribed']);
+            return;
+        }
+        // Reactivate
+        $stmt = $pdo->prepare("UPDATE blog_subscribers SET status = 'active', unsubscribed_at = NULL WHERE id = ?");
+        $stmt->execute([$existing['id']]);
+    } else {
+        $stmt = $pdo->prepare("INSERT INTO blog_subscribers (id, email, status, created_at) VALUES (?, ?, 'active', NOW())");
+        $stmt->execute([generateUUID(), $email]);
+    }
+    
+    echo json_encode(['success' => true]);
+}
+
+/**
+ * Blog unsubscribe handler
+ */
+function blogUnsubscribe($body, $pdo) {
+    $email = strtolower(trim($body['email'] ?? ''));
+    
+    if (empty($email)) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Email required']);
+        return;
+    }
+    
+    $stmt = $pdo->prepare("UPDATE blog_subscribers SET status = 'unsubscribed', unsubscribed_at = NOW() WHERE email = ?");
+    $stmt->execute([$email]);
+    
+    echo json_encode(['success' => true]);
+}
+
+/**
+ * Notify blog subscribers (admin only)
+ */
+function notifyBlogSubscribers($body, $pdo, $config, $isAdmin) {
+    if (!$isAdmin) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Admin access required']);
+        return;
+    }
+    
+    $subject = $body['subject'] ?? '';
+    $content = $body['content'] ?? '';
+    
+    $stmt = $pdo->prepare("SELECT email FROM blog_subscribers WHERE status = 'active'");
+    $stmt->execute();
+    $subscribers = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    
+    $sent = 0;
+    foreach ($subscribers as $email) {
+        if (sendEmail($email, $subject, $content, $config)) {
+            $sent++;
+        }
+    }
+    
+    echo json_encode(['success' => true, 'sent' => $sent, 'total' => count($subscribers)]);
+}
+
+/**
+ * Get database metrics (admin only)
+ */
+function getDatabaseMetrics($pdo, $isAdmin) {
+    if (!$isAdmin) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Admin access required']);
+        return;
+    }
+    
+    $metrics = [];
+    $tables = ['users', 'temp_emails', 'received_emails', 'domains', 'mailboxes'];
+    
+    foreach ($tables as $table) {
+        try {
+            $stmt = $pdo->query("SELECT COUNT(*) FROM $table");
+            $metrics[$table] = intval($stmt->fetchColumn());
+        } catch (Exception $e) {
+            $metrics[$table] = 0;
+        }
+    }
+    
+    echo json_encode($metrics);
+}
+
+/**
+ * Select available mailbox for sending
+ */
+function selectMailbox($body, $pdo, $config) {
+    $stmt = $pdo->query("
+        SELECT id, name, smtp_host, smtp_port, smtp_user, smtp_password, smtp_from 
+        FROM mailboxes 
+        WHERE is_active = 1 AND smtp_host IS NOT NULL
+        ORDER BY priority ASC, emails_sent_today ASC
+        LIMIT 1
+    ");
+    $mailbox = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($mailbox) {
+        echo json_encode($mailbox);
+    } else {
+        echo json_encode([
+            'smtp_host' => $config['smtp']['host'] ?? '',
+            'smtp_port' => $config['smtp']['port'] ?? 587,
+            'smtp_user' => $config['smtp']['user'] ?? '',
+            'smtp_from' => $config['smtp']['from'] ?? ''
+        ]);
+    }
+}
+
+/**
+ * SMTP failover test (admin only)
+ */
+function smtpFailoverTest($body, $pdo, $config, $isAdmin) {
+    if (!$isAdmin) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Admin access required']);
+        return;
+    }
+    
+    $results = [];
+    $stmt = $pdo->query("SELECT * FROM mailboxes WHERE is_active = 1 AND smtp_host IS NOT NULL ORDER BY priority");
+    
+    while ($mb = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $testResult = sendSmtpEmail(
+            $mb['smtp_host'], $mb['smtp_port'] ?? 587,
+            $mb['smtp_user'], $mb['smtp_password'],
+            $mb['smtp_from'] ?? $mb['smtp_user'],
+            $body['testEmail'] ?? 'test@example.com',
+            'SMTP Failover Test', 'This is a test email.'
+        );
+        $results[] = ['mailbox' => $mb['name'], 'result' => $testResult];
+    }
+    
+    echo json_encode(['results' => $results]);
+}
+
+/**
+ * Cleanup old backups (admin only)
+ */
+function cleanupOldBackups($pdo, $isAdmin) {
+    if (!$isAdmin) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Admin access required']);
+        return;
+    }
+    
+    $stmt = $pdo->prepare("DELETE FROM backup_history WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 DAY)");
+    $stmt->execute();
+    
+    echo json_encode(['success' => true, 'deleted' => $stmt->rowCount()]);
+}
+
+/**
+ * Delete duplicate emails (admin only)
+ */
+function deleteDuplicateEmails($pdo, $isAdmin) {
+    if (!$isAdmin) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Admin access required']);
+        return;
+    }
+    
+    $stmt = $pdo->query("
+        DELETE re1 FROM received_emails re1
+        INNER JOIN received_emails re2
+        WHERE re1.id > re2.id 
+        AND re1.temp_email_id = re2.temp_email_id 
+        AND re1.from_address = re2.from_address 
+        AND re1.subject = re2.subject
+        AND re1.received_at = re2.received_at
+    ");
+    
+    echo json_encode(['success' => true, 'deleted' => $stmt->rowCount()]);
+}
+
+/**
+ * Send template email
+ */
+function sendTemplateEmail($body, $pdo, $config, $userId) {
+    $templateId = $body['templateId'] ?? '';
+    $to = $body['to'] ?? '';
+    $variables = $body['variables'] ?? [];
+    
+    if (empty($templateId) || empty($to)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Template ID and recipient required']);
+        return;
+    }
+    
+    $stmt = $pdo->prepare('SELECT * FROM email_templates WHERE id = ?');
+    $stmt->execute([$templateId]);
+    $template = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$template) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Template not found']);
+        return;
+    }
+    
+    $subject = $template['subject'];
+    $body = $template['body'];
+    
+    foreach ($variables as $key => $value) {
+        $subject = str_replace('{{' . $key . '}}', $value, $subject);
+        $body = str_replace('{{' . $key . '}}', $value, $body);
+    }
+    
+    $result = sendEmail($to, $subject, $body, $config);
+    echo json_encode(['success' => $result]);
+}
+
+/**
+ * Reset daily stats (admin/cron)
+ */
+function resetDailyStats($pdo, $isAdmin) {
+    if (!$isAdmin) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Admin access required']);
+        return;
+    }
+    
+    $pdo->query("UPDATE mailboxes SET emails_sent_today = 0, last_day_reset = NOW()");
+    $pdo->query("DELETE FROM rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL 1 DAY)");
+    
+    echo json_encode(['success' => true]);
 }

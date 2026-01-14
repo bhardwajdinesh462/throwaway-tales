@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Database, Trash2, RefreshCw, Clock, Settings, Zap, HardDrive, Mail, AlertTriangle } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,15 +48,14 @@ const AdminCache = () => {
 
   const loadSettings = async () => {
     try {
-      const { data } = await supabase
-        .from("app_settings")
-        .select("value")
-        .eq("key", "cache_settings")
-        .single();
+      const { data } = await api.db.query<{value: CacheSettings}>("app_settings", {
+        select: "value",
+        eq: { key: "cache_settings" },
+        single: true
+      });
       
       if (data?.value) {
-        const value = data.value as unknown as CacheSettings;
-        setSettings(value);
+        setSettings(data.value);
       }
     } catch (error) {
       console.log("Using default cache settings");
@@ -65,37 +64,15 @@ const AdminCache = () => {
 
   const saveSettings = async () => {
     try {
-      // First check if the setting exists
-      const { data: existing } = await supabase
-        .from("app_settings")
-        .select("id")
-        .eq("key", "cache_settings")
-        .single();
-
       const settingsValue = JSON.parse(JSON.stringify(settings));
 
-      if (existing) {
-        // Update existing
-        const { error } = await supabase
-          .from("app_settings")
-          .update({
-            value: settingsValue,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("key", "cache_settings");
+      const { error } = await api.db.upsert("app_settings", {
+        key: "cache_settings",
+        value: settingsValue,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "key" });
 
-        if (error) throw error;
-      } else {
-        // Insert new
-        const { error } = await supabase
-          .from("app_settings")
-          .insert({
-            key: "cache_settings",
-            value: settingsValue,
-          });
-
-        if (error) throw error;
-      }
+      if (error) throw error;
       
       toast.success("Cache settings saved");
     } catch (error) {
@@ -106,34 +83,38 @@ const AdminCache = () => {
   const fetchStats = async () => {
     try {
       // Get email count
-      const { count: emailCount } = await supabase
-        .from("received_emails")
-        .select("*", { count: "exact", head: true });
+      const { data: emailData } = await api.db.query<{id: string}[]>("received_emails", {
+        select: "id",
+        limit: 10000
+      });
+      const emailCount = emailData?.length || 0;
 
       // Get attachment count
-      const { count: attachmentCount } = await supabase
-        .from("email_attachments")
-        .select("*", { count: "exact", head: true });
+      const { data: attachmentData } = await api.db.query<{id: string}[]>("email_attachments", {
+        select: "id",
+        limit: 10000
+      });
+      const attachmentCount = attachmentData?.length || 0;
 
       // Get oldest email
-      const { data: oldestData } = await supabase
-        .from("received_emails")
-        .select("received_at")
-        .order("received_at", { ascending: true })
-        .limit(1)
-        .single();
+      const { data: oldestData } = await api.db.query<{received_at: string}>("received_emails", {
+        select: "received_at",
+        order: { column: "received_at", ascending: true },
+        limit: 1,
+        single: true
+      });
 
       // Get total attachment size
-      const { data: sizeData } = await supabase
-        .from("email_attachments")
-        .select("file_size");
+      const { data: sizeData } = await api.db.query<{file_size: number}[]>("email_attachments", {
+        select: "file_size"
+      });
 
       const totalSize = sizeData?.reduce((acc, item) => acc + (item.file_size || 0), 0) || 0;
       const sizeInMB = (totalSize / (1024 * 1024)).toFixed(2);
 
       setStats({
-        totalEmails: emailCount || 0,
-        totalAttachments: attachmentCount || 0,
+        totalEmails: emailCount,
+        totalAttachments: attachmentCount,
         storageUsed: `${sizeInMB} MB`,
         oldestEmail: oldestData?.received_at 
           ? new Date(oldestData.received_at).toLocaleDateString() 
@@ -147,51 +128,18 @@ const AdminCache = () => {
   const clearOldEmails = async (hours: number) => {
     setIsLoading(true);
     try {
-      const cutoffDate = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-      
-      // Get emails to delete
-      const { data: oldEmails } = await supabase
-        .from("received_emails")
-        .select("id")
-        .lt("received_at", cutoffDate);
-
-      if (!oldEmails || oldEmails.length === 0) {
-        toast.info("No emails older than " + hours + " hours found");
-        setIsLoading(false);
-        return;
-      }
-
-      const emailIds = oldEmails.map(e => e.id);
-
-      // Delete attachments from storage first
-      const { data: attachments } = await supabase
-        .from("email_attachments")
-        .select("storage_path")
-        .in("received_email_id", emailIds);
-
-      if (attachments && attachments.length > 0) {
-        const paths = attachments.map(a => a.storage_path);
-        await supabase.storage.from("email-attachments").remove(paths);
-        
-        // Delete attachment records
-        await supabase
-          .from("email_attachments")
-          .delete()
-          .in("received_email_id", emailIds);
-      }
-
-      // Delete emails
-      const { error } = await supabase
-        .from("received_emails")
-        .delete()
-        .lt("received_at", cutoffDate);
+      // Use API to run cleanup
+      const { data, error } = await api.functions.invoke<{message?: string}>('auto-delete-emails', {
+        body: { hours }
+      });
 
       if (error) throw error;
 
-      toast.success(`Deleted ${oldEmails.length} emails and ${attachments?.length || 0} attachments`);
+      toast.success(data?.message || `Cleanup completed`);
       fetchStats();
-    } catch (error: any) {
-      toast.error("Failed to clear emails: " + error.message);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error("Failed to clear emails: " + message);
     } finally {
       setIsLoading(false);
     }
@@ -200,26 +148,18 @@ const AdminCache = () => {
   const clearAllEmails = async () => {
     setIsLoading(true);
     try {
-      // Get all attachments
-      const { data: attachments } = await supabase
-        .from("email_attachments")
-        .select("storage_path");
+      // Use API to clear all
+      const { error } = await api.functions.invoke('auto-delete-emails', {
+        body: { clearAll: true }
+      });
 
-      if (attachments && attachments.length > 0) {
-        const paths = attachments.map(a => a.storage_path);
-        await supabase.storage.from("email-attachments").remove(paths);
-      }
-
-      // Delete all attachment records
-      await supabase.from("email_attachments").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-
-      // Delete all emails
-      await supabase.from("received_emails").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (error) throw error;
 
       toast.success("All emails and attachments cleared");
       fetchStats();
-    } catch (error: any) {
-      toast.error("Failed to clear all data: " + error.message);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error("Failed to clear all data: " + message);
     } finally {
       setIsLoading(false);
     }
@@ -228,53 +168,18 @@ const AdminCache = () => {
   const clearExpiredTempEmails = async () => {
     setIsLoading(true);
     try {
-      const now = new Date().toISOString();
-      
-      // Get expired temp emails
-      const { data: expiredEmails } = await supabase
-        .from("temp_emails")
-        .select("id")
-        .lt("expires_at", now);
+      // Use API to clear expired
+      const { data, error } = await api.functions.invoke<{message?: string}>('auto-delete-emails', {
+        body: { expiredOnly: true }
+      });
 
-      if (!expiredEmails || expiredEmails.length === 0) {
-        toast.info("No expired temporary emails found");
-        setIsLoading(false);
-        return;
-      }
+      if (error) throw error;
 
-      const tempEmailIds = expiredEmails.map(e => e.id);
-
-      // Get received emails for these temp emails
-      const { data: receivedEmails } = await supabase
-        .from("received_emails")
-        .select("id")
-        .in("temp_email_id", tempEmailIds);
-
-      if (receivedEmails && receivedEmails.length > 0) {
-        const emailIds = receivedEmails.map(e => e.id);
-
-        // Delete attachments
-        const { data: attachments } = await supabase
-          .from("email_attachments")
-          .select("storage_path")
-          .in("received_email_id", emailIds);
-
-        if (attachments && attachments.length > 0) {
-          await supabase.storage.from("email-attachments").remove(attachments.map(a => a.storage_path));
-          await supabase.from("email_attachments").delete().in("received_email_id", emailIds);
-        }
-
-        // Delete received emails
-        await supabase.from("received_emails").delete().in("temp_email_id", tempEmailIds);
-      }
-
-      // Delete temp emails
-      await supabase.from("temp_emails").delete().lt("expires_at", now);
-
-      toast.success(`Cleared ${expiredEmails.length} expired temp email addresses`);
+      toast.success(data?.message || "Expired temp emails cleared");
       fetchStats();
-    } catch (error: any) {
-      toast.error("Failed to clear expired emails: " + error.message);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error("Failed to clear expired emails: " + message);
     } finally {
       setIsLoading(false);
     }

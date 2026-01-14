@@ -19,7 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 interface ServiceOverride {
   enabled: boolean;
@@ -69,15 +69,14 @@ const AdminStatusSettings = () => {
 
   const loadSettings = async () => {
     try {
-      const { data, error } = await supabase
-        .from("app_settings")
-        .select("value")
-        .eq("key", "status_overrides")
-        .single();
+      const { data, error } = await api.db.query<{value: StatusOverrides}>("app_settings", {
+        select: "value",
+        eq: { key: "status_overrides" },
+        single: true
+      });
 
       if (data && !error) {
-        const parsed = data.value as unknown as StatusOverrides;
-        setOverrides({ ...defaultOverrides, ...parsed });
+        setOverrides({ ...defaultOverrides, ...data.value });
       }
     } catch (error) {
       console.error("Error loading status settings:", error);
@@ -89,36 +88,15 @@ const AdminStatusSettings = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Check if setting exists
-      const { data: existing } = await supabase
-        .from("app_settings")
-        .select("id")
-        .eq("key", "status_overrides")
-        .single();
+      const settingsJson = JSON.parse(JSON.stringify(overrides));
+      
+      const { error } = await api.db.upsert("app_settings", {
+        key: "status_overrides",
+        value: settingsJson,
+        updated_at: new Date().toISOString()
+      }, { onConflict: "key" });
 
-      if (existing) {
-        // Update
-        const { error } = await supabase
-          .from("app_settings")
-          .update({
-            value: JSON.parse(JSON.stringify(overrides)),
-            updated_at: new Date().toISOString()
-          })
-          .eq("key", "status_overrides");
-
-        if (error) throw error;
-      } else {
-        // Insert
-        const { error } = await supabase
-          .from("app_settings")
-          .insert([{
-            key: "status_overrides",
-            value: JSON.parse(JSON.stringify(overrides)),
-            updated_at: new Date().toISOString()
-          }]);
-
-        if (error) throw error;
-      }
+      if (error) throw error;
 
       toast({
         title: "Settings Saved",

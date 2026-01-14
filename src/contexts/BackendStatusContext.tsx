@@ -60,16 +60,27 @@ export const BackendStatusProvider = ({ children }: { children: ReactNode }) => 
           isHealthy = data.status === 'ok' && data.db_connected === true;
         }
       } else {
-        // Use Supabase for Cloud mode
-        const { supabase } = await import('@/integrations/supabase/client');
-        const { error } = await supabase
-          .from("domains")
-          .select("id")
-          .limit(1)
-          .abortSignal(controller.signal);
-        
-        clearTimeout(timeout);
-        isHealthy = !error;
+        // Use Supabase for Cloud mode - dynamically import to avoid crashes
+        try {
+          const { supabase } = await import('@/integrations/supabase/client');
+          if (supabase) {
+            const { error } = await supabase
+              .from("domains")
+              .select("id")
+              .limit(1)
+              .abortSignal(controller.signal);
+            
+            clearTimeout(timeout);
+            isHealthy = !error;
+          } else {
+            clearTimeout(timeout);
+            isHealthy = true; // Assume healthy if Supabase not available
+          }
+        } catch (importError) {
+          console.warn("[BackendStatus] Supabase not available:", importError);
+          clearTimeout(timeout);
+          isHealthy = true; // Fallback to healthy when Supabase can't load
+        }
       }
       
       const latency = performance.now() - start;

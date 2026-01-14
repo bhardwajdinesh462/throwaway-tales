@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useSupabaseAuth";
 import { Globe, Ban, Plus, Trash2, Clock, AlertTriangle, RefreshCw, Search } from "lucide-react";
 import {
@@ -143,32 +143,41 @@ const AdminGeoBlocking = () => {
     loadBlockedCountries();
     
     // Setup realtime subscription
-    const channel = supabase
-      .channel('blocked-countries-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'blocked_countries'
-        },
-        () => {
-          loadBlockedCountries();
-        }
-      )
-      .subscribe();
+    const setupRealtime = async () => {
+      const channel = await api.realtime
+        .channel('blocked-countries-realtime')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'blocked_countries'
+          },
+          () => {
+            loadBlockedCountries();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        channel.unsubscribe();
+      };
+    };
+
+    let cleanup: (() => void) | undefined;
+    setupRealtime().then(fn => { cleanup = fn; });
 
     return () => {
-      supabase.removeChannel(channel);
+      cleanup?.();
     };
   }, []);
 
   const loadBlockedCountries = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from("blocked_countries")
-      .select("*")
-      .order("blocked_at", { ascending: false });
+    const { data, error } = await api.db.query<BlockedCountry[]>("blocked_countries", {
+      select: "*",
+      order: { column: "blocked_at", ascending: false }
+    });
 
     if (error) {
       console.error("Error loading blocked countries:", error);
@@ -199,15 +208,13 @@ const AdminGeoBlocking = () => {
       expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
     }
 
-    const { error } = await supabase
-      .from("blocked_countries")
-      .insert([{
-        country_code: selectedCountry.code,
-        country_name: selectedCountry.name,
-        reason: reason.trim() || null,
-        blocked_by: user.id,
-        expires_at: expiresAt,
-      }]);
+    const { error } = await api.db.insert("blocked_countries", {
+      country_code: selectedCountry.code,
+      country_name: selectedCountry.name,
+      reason: reason.trim() || null,
+      blocked_by: user.id,
+      expires_at: expiresAt,
+    });
 
     if (error) {
       if (error.code === "23505") {
@@ -227,10 +234,10 @@ const AdminGeoBlocking = () => {
   };
 
   const handleUnblockCountry = async (id: string, name: string) => {
-    const { error } = await supabase
-      .from("blocked_countries")
-      .update({ is_active: false })
-      .eq("id", id);
+    const { error } = await api.db.update("blocked_countries", 
+      { is_active: false },
+      { id }
+    );
 
     if (error) {
       toast.error("Failed to unblock country");
@@ -241,10 +248,7 @@ const AdminGeoBlocking = () => {
   };
 
   const handleDeleteCountry = async (id: string) => {
-    const { error } = await supabase
-      .from("blocked_countries")
-      .delete()
-      .eq("id", id);
+    const { error } = await api.db.delete("blocked_countries", { id });
 
     if (error) {
       toast.error("Failed to delete record");

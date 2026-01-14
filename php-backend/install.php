@@ -379,8 +379,11 @@ return [
             outline: none;
             border-color: #8b5cf6;
         }
-        input::placeholder {
-            color: #71717a;
+        input.error {
+            border-color: #ef4444;
+        }
+        input.success {
+            border-color: #10b981;
         }
         button {
             width: 100%;
@@ -392,11 +395,16 @@ return [
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
         }
-        button:hover {
+        button:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 10px 20px -10px rgba(139, 92, 246, 0.5);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
         }
         .error {
             background: rgba(239, 68, 68, 0.1);
@@ -413,6 +421,79 @@ return [
             padding: 12px 16px;
             border-radius: 8px;
             margin-bottom: 20px;
+        }
+        .field-error {
+            color: #fca5a5;
+            font-size: 13px;
+            margin-top: 6px;
+            display: none;
+        }
+        .field-error.visible {
+            display: block;
+        }
+        .password-strength {
+            margin-top: 10px;
+        }
+        .strength-bar {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 6px;
+        }
+        .strength-fill {
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s, background 0.3s;
+            border-radius: 3px;
+        }
+        .strength-fill.weak { width: 25%; background: #ef4444; }
+        .strength-fill.fair { width: 50%; background: #f59e0b; }
+        .strength-fill.good { width: 75%; background: #3b82f6; }
+        .strength-fill.strong { width: 100%; background: #10b981; }
+        .strength-text {
+            font-size: 12px;
+            color: #71717a;
+        }
+        .strength-text.weak { color: #fca5a5; }
+        .strength-text.fair { color: #fcd34d; }
+        .strength-text.good { color: #93c5fd; }
+        .strength-text.strong { color: #6ee7b7; }
+        .requirements {
+            margin-top: 12px;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+        .requirements h4 {
+            font-size: 12px;
+            color: #a1a1aa;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        .requirement {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #71717a;
+            margin-bottom: 4px;
+        }
+        .requirement.met {
+            color: #6ee7b7;
+        }
+        .requirement-icon {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .requirement.met .requirement-icon {
+            background: #10b981;
         }
         .warning {
             background: rgba(245, 158, 11, 0.1);
@@ -468,6 +549,16 @@ return [
             color: white;
             font-size: 14px;
         }
+        .match-indicator {
+            font-size: 12px;
+            margin-top: 6px;
+        }
+        .match-indicator.match {
+            color: #6ee7b7;
+        }
+        .match-indicator.no-match {
+            color: #fca5a5;
+        }
     </style>
 </head>
 <body>
@@ -509,25 +600,183 @@ return [
             
         <?php elseif ($step === 2): ?>
             <h2 style="margin-bottom: 20px;">Create Admin Account</h2>
-            <form method="POST">
+            <form method="POST" id="adminForm">
                 <div class="form-group">
                     <label for="display_name">Display Name</label>
-                    <input type="text" id="display_name" name="display_name" value="Admin" placeholder="Admin">
+                    <input type="text" id="display_name" name="display_name" value="Admin" placeholder="Admin" maxlength="100">
                 </div>
                 <div class="form-group">
                     <label for="admin_email">Email Address *</label>
-                    <input type="email" id="admin_email" name="admin_email" required placeholder="admin@yourdomain.com">
+                    <input type="email" id="admin_email" name="admin_email" required placeholder="admin@yourdomain.com" maxlength="255">
+                    <div class="field-error" id="email_error">Please enter a valid email address</div>
                 </div>
                 <div class="form-group">
-                    <label for="admin_password">Password * (min 8 characters)</label>
-                    <input type="password" id="admin_password" name="admin_password" required placeholder="••••••••" minlength="8">
+                    <label for="admin_password">Password *</label>
+                    <input type="password" id="admin_password" name="admin_password" required placeholder="••••••••" maxlength="128">
+                    <div class="password-strength">
+                        <div class="strength-bar">
+                            <div class="strength-fill" id="strength_fill"></div>
+                        </div>
+                        <div class="strength-text" id="strength_text">Enter a password</div>
+                    </div>
+                    <div class="requirements">
+                        <h4>Password Requirements</h4>
+                        <div class="requirement" id="req_length">
+                            <span class="requirement-icon">✓</span>
+                            <span>At least 8 characters</span>
+                        </div>
+                        <div class="requirement" id="req_upper">
+                            <span class="requirement-icon">✓</span>
+                            <span>One uppercase letter</span>
+                        </div>
+                        <div class="requirement" id="req_lower">
+                            <span class="requirement-icon">✓</span>
+                            <span>One lowercase letter</span>
+                        </div>
+                        <div class="requirement" id="req_number">
+                            <span class="requirement-icon">✓</span>
+                            <span>One number</span>
+                        </div>
+                        <div class="requirement" id="req_special">
+                            <span class="requirement-icon">✓</span>
+                            <span>One special character (!@#$%^&*)</span>
+                        </div>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="admin_password_confirm">Confirm Password *</label>
-                    <input type="password" id="admin_password_confirm" name="admin_password_confirm" required placeholder="••••••••">
+                    <input type="password" id="admin_password_confirm" name="admin_password_confirm" required placeholder="••••••••" maxlength="128">
+                    <div class="match-indicator" id="match_indicator"></div>
                 </div>
-                <button type="submit">Create Admin Account →</button>
+                <button type="submit" id="submit_btn" disabled>Create Admin Account →</button>
             </form>
+            
+            <script>
+            (function() {
+                const password = document.getElementById('admin_password');
+                const confirm = document.getElementById('admin_password_confirm');
+                const email = document.getElementById('admin_email');
+                const submitBtn = document.getElementById('submit_btn');
+                const strengthFill = document.getElementById('strength_fill');
+                const strengthText = document.getElementById('strength_text');
+                const matchIndicator = document.getElementById('match_indicator');
+                const emailError = document.getElementById('email_error');
+                
+                const requirements = {
+                    length: { el: document.getElementById('req_length'), test: p => p.length >= 8 },
+                    upper: { el: document.getElementById('req_upper'), test: p => /[A-Z]/.test(p) },
+                    lower: { el: document.getElementById('req_lower'), test: p => /[a-z]/.test(p) },
+                    number: { el: document.getElementById('req_number'), test: p => /[0-9]/.test(p) },
+                    special: { el: document.getElementById('req_special'), test: p => /[!@#$%^&*(),.?":{}|<>]/.test(p) }
+                };
+                
+                function validateEmail(emailValue) {
+                    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    return re.test(emailValue);
+                }
+                
+                function checkPasswordStrength(pwd) {
+                    let score = 0;
+                    let metCount = 0;
+                    
+                    for (const key in requirements) {
+                        const met = requirements[key].test(pwd);
+                        requirements[key].el.classList.toggle('met', met);
+                        if (met) metCount++;
+                    }
+                    
+                    // Calculate score
+                    score = metCount;
+                    if (pwd.length >= 12) score++;
+                    if (pwd.length >= 16) score++;
+                    
+                    // Update UI
+                    strengthFill.className = 'strength-fill';
+                    strengthText.className = 'strength-text';
+                    
+                    if (pwd.length === 0) {
+                        strengthText.textContent = 'Enter a password';
+                    } else if (score <= 2) {
+                        strengthFill.classList.add('weak');
+                        strengthText.classList.add('weak');
+                        strengthText.textContent = 'Weak - Add more character types';
+                    } else if (score <= 4) {
+                        strengthFill.classList.add('fair');
+                        strengthText.classList.add('fair');
+                        strengthText.textContent = 'Fair - Consider adding more';
+                    } else if (score <= 5) {
+                        strengthFill.classList.add('good');
+                        strengthText.classList.add('good');
+                        strengthText.textContent = 'Good - Almost there!';
+                    } else {
+                        strengthFill.classList.add('strong');
+                        strengthText.classList.add('strong');
+                        strengthText.textContent = 'Strong - Excellent password!';
+                    }
+                    
+                    return metCount >= 3 && pwd.length >= 8;
+                }
+                
+                function checkMatch() {
+                    const pwd = password.value;
+                    const conf = confirm.value;
+                    
+                    if (conf.length === 0) {
+                        matchIndicator.textContent = '';
+                        matchIndicator.className = 'match-indicator';
+                        confirm.classList.remove('success', 'error');
+                        return false;
+                    }
+                    
+                    if (pwd === conf) {
+                        matchIndicator.textContent = '✓ Passwords match';
+                        matchIndicator.className = 'match-indicator match';
+                        confirm.classList.add('success');
+                        confirm.classList.remove('error');
+                        return true;
+                    } else {
+                        matchIndicator.textContent = '✗ Passwords do not match';
+                        matchIndicator.className = 'match-indicator no-match';
+                        confirm.classList.add('error');
+                        confirm.classList.remove('success');
+                        return false;
+                    }
+                }
+                
+                function validateForm() {
+                    const emailValid = validateEmail(email.value);
+                    const passwordStrong = checkPasswordStrength(password.value);
+                    const passwordsMatch = checkMatch();
+                    
+                    // Update email field state
+                    if (email.value.length > 0) {
+                        email.classList.toggle('success', emailValid);
+                        email.classList.toggle('error', !emailValid);
+                        emailError.classList.toggle('visible', !emailValid);
+                    } else {
+                        email.classList.remove('success', 'error');
+                        emailError.classList.remove('visible');
+                    }
+                    
+                    // Enable/disable submit
+                    submitBtn.disabled = !(emailValid && passwordStrong && passwordsMatch);
+                }
+                
+                // Event listeners
+                password.addEventListener('input', validateForm);
+                confirm.addEventListener('input', validateForm);
+                email.addEventListener('input', validateForm);
+                email.addEventListener('blur', validateForm);
+                
+                // Form submit validation
+                document.getElementById('adminForm').addEventListener('submit', function(e) {
+                    if (submitBtn.disabled) {
+                        e.preventDefault();
+                        return false;
+                    }
+                });
+            })();
+            </script>
             
         <?php elseif ($step === 3): ?>
             <div class="success">✅ Installation completed successfully!</div>
@@ -545,6 +794,7 @@ return [
                 <h3>⚠️ Important Security Steps</h3>
                 <ul>
                     <li><strong>Delete this file:</strong> <code>install.php</code></li>
+                    <li>Delete <code>verify-installation.php</code> after verification</li>
                     <li>Update <code>config.php</code> with your domain in CORS origins</li>
                     <li>Configure SMTP/IMAP in the Admin Panel</li>
                     <li>Set up cron jobs for email polling</li>
@@ -552,6 +802,9 @@ return [
             </div>
             
             <div style="margin-top: 30px;">
+                <a href="verify-installation.php?format=html" style="display: block; text-align: center; padding: 12px; background: rgba(139, 92, 246, 0.2); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; color: #c4b5fd; text-decoration: none; margin-bottom: 15px;">
+                    🔍 Verify Installation
+                </a>
                 <a href="../" style="display: block; text-align: center; color: #8b5cf6; text-decoration: none; margin-bottom: 15px;">
                     → Go to TempMail Homepage
                 </a>

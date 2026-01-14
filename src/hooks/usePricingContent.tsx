@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { api } from '@/lib/api';
 
 export interface PricingContent {
   headline: string;
@@ -18,17 +18,18 @@ const defaultPricingContent: PricingContent = {
 export function usePricingContent() {
   const [content, setContent] = useState<PricingContent>(defaultPricingContent);
   const [isLoading, setIsLoading] = useState(true);
+  const channelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
 
   const fetchContent = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'pricing_content')
-        .maybeSingle();
+      const { data, error } = await api.db.query<{ value: Partial<PricingContent> }[]>('app_settings', {
+        select: 'value',
+        filter: { key: 'pricing_content' },
+        limit: 1,
+      });
 
-      if (!error && data?.value) {
-        setContent({ ...defaultPricingContent, ...(data.value as Partial<PricingContent>) });
+      if (!error && data && data.length > 0 && data[0].value) {
+        setContent({ ...defaultPricingContent, ...data[0].value });
       }
     } catch (err) {
       console.error('Error fetching pricing content:', err);
@@ -41,7 +42,7 @@ export function usePricingContent() {
     fetchContent();
 
     // Subscribe to realtime changes
-    const channel = supabase
+    const channel = api.realtime
       .channel('pricing_content_changes')
       .on(
         'postgres_changes',
@@ -64,8 +65,10 @@ export function usePricingContent() {
             setContent(newContent);
           }
         }
-      )
-      .subscribe();
+      );
+
+    channelRef.current = channel;
+    channel.subscribe();
 
     // Refetch on window focus as a fallback
     const handleFocus = () => {
@@ -74,7 +77,9 @@ export function usePricingContent() {
     window.addEventListener('focus', handleFocus);
 
     return () => {
-      channel.unsubscribe();
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+      }
       window.removeEventListener('focus', handleFocus);
     };
   }, [fetchContent]);

@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useSupabaseAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 export interface SubscriptionTier {
@@ -35,6 +35,21 @@ export interface UserUsage {
   emails_forwarded: number;
 }
 
+interface SubscriptionTierRow {
+  id: string;
+  name: string;
+  price_monthly: number;
+  price_yearly: number;
+  max_temp_emails: number;
+  email_expiry_hours: number;
+  can_forward_emails: boolean;
+  can_use_custom_domains: boolean;
+  can_use_api: boolean;
+  priority_support: boolean;
+  ai_summaries_per_day: number;
+  features: string[] | string;
+}
+
 export const useSubscription = () => {
   const { user } = useAuth();
   const [tiers, setTiers] = useState<SubscriptionTier[]>([]);
@@ -47,23 +62,27 @@ export const useSubscription = () => {
     emails_forwarded: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
+  
+  const tiersChannelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
+  const subChannelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
 
   // Fetch all available tiers
   const fetchTiers = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('subscription_tiers')
-      .select('*')
-      .order('price_monthly', { ascending: true });
+    const { data, error } = await api.db.query<SubscriptionTierRow[]>('subscription_tiers', {
+      order: { column: 'price_monthly', ascending: true },
+    });
     
     if (error) {
       console.error('Error fetching tiers:', error);
       return;
     }
     
-    setTiers(data.map(tier => ({
-      ...tier,
-      features: Array.isArray(tier.features) ? tier.features : JSON.parse(tier.features as string || '[]'),
-    })));
+    if (data) {
+      setTiers(data.map(tier => ({
+        ...tier,
+        features: Array.isArray(tier.features) ? tier.features : JSON.parse(tier.features as string || '[]'),
+      })));
+    }
   }, []);
 
   // Fetch user's subscription
@@ -74,18 +93,19 @@ export const useSubscription = () => {
       return;
     }
 
-    const { data, error } = await supabase
-      .from('user_subscriptions')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle();
+    const { data: dataArr, error } = await api.db.query<UserSubscription[]>('user_subscriptions', {
+      filter: { user_id: user.id },
+      limit: 1,
+    });
+    
+    const data = dataArr && dataArr.length > 0 ? dataArr[0] : null;
     
     if (error && error.code !== 'PGRST116') {
       console.error('Error fetching subscription:', error);
       return;
     }
     
-    setSubscription(data as UserSubscription | null);
+    setSubscription(data);
     
     // Set current tier
     if (data && tiers.length > 0) {
@@ -101,12 +121,12 @@ export const useSubscription = () => {
     if (!user) return;
 
     const today = new Date().toISOString().split('T')[0];
-    const { data, error } = await supabase
-      .from('user_usage')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('date', today)
-      .maybeSingle();
+    const { data: dataArr, error } = await api.db.query<UserUsage[]>('user_usage', {
+      filter: { user_id: user.id, date: today },
+      limit: 1,
+    });
+    
+    const data = dataArr && dataArr.length > 0 ? dataArr[0] : null;
     
     if (error && error.code !== 'PGRST116') {
       console.error('Error fetching usage:', error);
@@ -130,15 +150,11 @@ export const useSubscription = () => {
     const today = new Date().toISOString().split('T')[0];
     
     // Try to upsert
-    const { error } = await supabase
-      .from('user_usage')
-      .upsert({
-        user_id: user.id,
-        date: today,
-        [field]: usage[field] + 1,
-      }, {
-        onConflict: 'user_id,date',
-      });
+    const { error } = await api.db.upsert('user_usage', {
+      user_id: user.id,
+      date: today,
+      [field]: usage[field] + 1,
+    }, { onConflict: 'user_id,date' });
     
     if (error) {
       console.error('Error updating usage:', error);
@@ -166,17 +182,13 @@ export const useSubscription = () => {
 
     // For free tier, just create/update subscription directly
     if (tier.name === 'free') {
-      const { error } = await supabase
-        .from('user_subscriptions')
-        .upsert({
-          user_id: user.id,
-          tier_id: tierId,
-          status: 'active',
-          current_period_start: new Date().toISOString(),
-          current_period_end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-        }, {
-          onConflict: 'user_id',
-        });
+      const { error } = await api.db.upsert('user_subscriptions', {
+        user_id: user.id,
+        tier_id: tierId,
+        status: 'active',
+        current_period_start: new Date().toISOString(),
+        current_period_end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      }, { onConflict: 'user_id' });
       
       if (error) {
         toast.error('Failed to update subscription');
@@ -205,16 +217,16 @@ export const useSubscription = () => {
       { duration: 15000 }
     );
     return false;
-  }, [user, tiers]);
+  }, [user, tiers, fetchSubscription]);
 
   // Cancel subscription
   const cancelSubscription = useCallback(async () => {
     if (!user || !subscription) return false;
 
-    const { error } = await supabase
-      .from('user_subscriptions')
-      .update({ cancel_at_period_end: true })
-      .eq('user_id', user.id);
+    const { error } = await api.db.update('user_subscriptions', 
+      { cancel_at_period_end: true },
+      { user_id: user.id }
+    );
     
     if (error) {
       toast.error('Failed to cancel subscription');
@@ -270,7 +282,7 @@ export const useSubscription = () => {
 
   // Subscribe to realtime tier changes
   useEffect(() => {
-    const channel = supabase
+    const channel = api.realtime
       .channel('subscription_tiers_changes')
       .on(
         'postgres_changes',
@@ -289,13 +301,17 @@ export const useSubscription = () => {
           // Refetch all tiers when any change occurs
           fetchTiers();
         }
-      )
-      .subscribe((status) => {
-        console.log('[useSubscription] Realtime subscription status:', status);
-      });
+      );
+
+    tiersChannelRef.current = channel;
+    channel.subscribe((status) => {
+      console.log('[useSubscription] Realtime subscription status:', status);
+    });
 
     return () => {
-      channel.unsubscribe();
+      if (tiersChannelRef.current) {
+        tiersChannelRef.current.unsubscribe();
+      }
     };
   }, [fetchTiers]);
 
@@ -303,7 +319,7 @@ export const useSubscription = () => {
   useEffect(() => {
     if (!user) return;
 
-    const channel = supabase
+    const channel = api.realtime
       .channel('user_subscription_changes')
       .on(
         'postgres_changes',
@@ -322,13 +338,17 @@ export const useSubscription = () => {
           // Refetch subscription when it changes (e.g., after payment)
           fetchSubscription();
         }
-      )
-      .subscribe((status) => {
-        console.log('[useSubscription] User subscription realtime status:', status);
-      });
+      );
+
+    subChannelRef.current = channel;
+    channel.subscribe((status) => {
+      console.log('[useSubscription] User subscription realtime status:', status);
+    });
 
     return () => {
-      channel.unsubscribe();
+      if (subChannelRef.current) {
+        subChannelRef.current.unsubscribe();
+      }
     };
   }, [user, fetchSubscription]);
 

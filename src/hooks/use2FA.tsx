@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useSupabaseAuth';
 
 interface TwoFactorSettings {
@@ -22,16 +22,16 @@ export const use2FA = () => {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('user_2fa')
-        .select('id, user_id, is_enabled, backup_codes')
-        .eq('user_id', user.id)
-        .maybeSingle();
+      const { data, error } = await api.db.query<TwoFactorSettings[]>('user_2fa', {
+        select: 'id, user_id, is_enabled, backup_codes',
+        filter: { user_id: user.id },
+        limit: 1,
+      });
 
       if (error) {
         console.error('Error fetching 2FA settings:', error);
       }
-      setSettings(data as TwoFactorSettings | null);
+      setSettings(data && data.length > 0 ? data[0] : null);
     } catch (e) {
       console.error('Error fetching 2FA settings:', e);
     } finally {
@@ -49,7 +49,7 @@ export const use2FA = () => {
     }
 
     try {
-      const { data, error } = await supabase.functions.invoke('secure-2fa', {
+      const { data, error } = await api.functions.invoke<{ success: boolean; error?: string; secret?: string; backupCodes?: string[]; qrCode?: string }>('secure-2fa', {
         body: { action, ...params },
       });
 
@@ -58,7 +58,7 @@ export const use2FA = () => {
         return { success: false, error: error.message };
       }
 
-      return data;
+      return data || { success: false, error: 'No response' };
     } catch (e: unknown) {
       console.error('Error calling secure-2fa:', e);
       return { success: false, error: e instanceof Error ? e.message : 'Failed to call secure 2FA' };

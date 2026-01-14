@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 
 interface SidebarIconsMap {
   [key: string]: string; // url path -> icon class
@@ -15,19 +15,19 @@ export const useSidebarIcons = () => {
   // Load icons from app_settings
   const loadIcons = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', STORAGE_KEY)
-        .maybeSingle();
+      const { data, error } = await api.db.query<{ value: SidebarIconsMap }[]>('app_settings', {
+        select: 'value',
+        filter: { key: STORAGE_KEY },
+        limit: 1,
+      });
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error loading sidebar icons:', error);
         return;
       }
 
-      if (data?.value && typeof data.value === 'object') {
-        setIcons(data.value as SidebarIconsMap);
+      if (data && data.length > 0 && data[0].value && typeof data[0].value === 'object') {
+        setIcons(data[0].value);
       }
     } catch (err) {
       console.error('Error loading sidebar icons:', err);
@@ -47,21 +47,19 @@ export const useSidebarIcons = () => {
     
     try {
       // Check if setting exists
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('id')
-        .eq('key', STORAGE_KEY)
-        .maybeSingle();
+      const { data: existing } = await api.db.query<{ id: string }[]>('app_settings', {
+        select: 'id',
+        filter: { key: STORAGE_KEY },
+        limit: 1,
+      });
 
-      if (existing) {
-        await supabase
-          .from('app_settings')
-          .update({ value: newIcons, updated_at: new Date().toISOString() })
-          .eq('key', STORAGE_KEY);
+      if (existing && existing.length > 0) {
+        await api.db.update('app_settings', 
+          { value: newIcons, updated_at: new Date().toISOString() },
+          { key: STORAGE_KEY }
+        );
       } else {
-        await supabase
-          .from('app_settings')
-          .insert({ key: STORAGE_KEY, value: newIcons });
+        await api.db.insert('app_settings', { key: STORAGE_KEY, value: newIcons });
       }
 
       setIcons(newIcons);
@@ -85,10 +83,10 @@ export const useSidebarIcons = () => {
     delete newIcons[menuUrl];
     
     try {
-      await supabase
-        .from('app_settings')
-        .update({ value: newIcons, updated_at: new Date().toISOString() })
-        .eq('key', STORAGE_KEY);
+      await api.db.update('app_settings', 
+        { value: newIcons, updated_at: new Date().toISOString() },
+        { key: STORAGE_KEY }
+      );
       
       setIcons(newIcons);
       return true;

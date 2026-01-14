@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useLayoutEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import React, { createContext, useContext, useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { api } from '@/lib/api';
 import { storage } from '@/lib/storage';
 
 // Types
@@ -71,6 +71,8 @@ const APPEARANCE_KEY = 'trashmails_appearance_settings';
 const GENERAL_KEY = 'trashmails_general_settings';
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const channelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
+  
   // Initialize from localStorage synchronously to prevent flash
   const [appearance, setAppearance] = useState<AppearanceSettings>(() => {
     try {
@@ -120,33 +122,31 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       // Fetch both settings in parallel
       const [appearanceRes, generalRes] = await Promise.all([
-        supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'appearance')
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'general')
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
+        api.db.query<{ value: AppearanceSettings }[]>('app_settings', {
+          select: 'value',
+          filter: { key: 'appearance' },
+          order: { column: 'updated_at', ascending: false },
+          limit: 1,
+        }),
+        api.db.query<{ value: GeneralSettings }[]>('app_settings', {
+          select: 'value',
+          filter: { key: 'general' },
+          order: { column: 'updated_at', ascending: false },
+          limit: 1,
+        }),
       ]);
 
       // Update appearance
-      if (!appearanceRes.error && appearanceRes.data?.value) {
-        const dbAppearance = appearanceRes.data.value as unknown as AppearanceSettings;
+      if (!appearanceRes.error && appearanceRes.data && appearanceRes.data.length > 0 && appearanceRes.data[0].value) {
+        const dbAppearance = appearanceRes.data[0].value;
         const merged = { ...defaultAppearance, ...dbAppearance };
         setAppearance(merged);
         storage.set(APPEARANCE_KEY, merged);
       }
 
       // Update general
-      if (!generalRes.error && generalRes.data?.value) {
-        const dbGeneral = generalRes.data.value as unknown as GeneralSettings;
+      if (!generalRes.error && generalRes.data && generalRes.data.length > 0 && generalRes.data[0].value) {
+        const dbGeneral = generalRes.data[0].value;
         const merged = { ...defaultGeneral, ...dbGeneral };
         setGeneral(merged);
         storage.set(GENERAL_KEY, merged);
@@ -162,7 +162,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     fetchSettings();
 
     // Subscribe to real-time updates on app_settings for instant admin sync
-    const channel = supabase
+    const channel = api.realtime
       .channel('settings-realtime')
       .on(
         'postgres_changes',
@@ -175,11 +175,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           console.log('[SettingsContext] Settings changed, refetching...');
           fetchSettings();
         }
-      )
-      .subscribe();
+      );
+
+    channelRef.current = channel;
+    channel.subscribe();
 
     return () => {
-      channel.unsubscribe();
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+      }
     };
   }, []);
 

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useEffect, useRef } from 'react';
+import { api } from '@/lib/api';
 import { storage } from '@/lib/storage';
 
 const GENERAL_SETTINGS_KEY = 'trashmails_general_settings';
@@ -31,20 +31,20 @@ const defaultSettings: GeneralSettings = {
 export const useGeneralSettings = () => {
   const [settings, setSettings] = useState<GeneralSettings>(defaultSettings);
   const [isLoading, setIsLoading] = useState(true);
+  const channelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
 
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value, updated_at')
-          .eq('key', 'general')
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { data, error } = await api.db.query<{ value: GeneralSettings; updated_at: string }[]>('app_settings', {
+          select: 'value, updated_at',
+          filter: { key: 'general' },
+          order: { column: 'updated_at', ascending: false },
+          limit: 1,
+        });
 
-        if (!error && data?.value) {
-          const dbSettings = data.value as unknown as GeneralSettings;
+        if (!error && data && data.length > 0 && data[0].value) {
+          const dbSettings = data[0].value;
           const merged = { ...defaultSettings, ...dbSettings };
           setSettings(merged);
           storage.set(GENERAL_SETTINGS_KEY, merged);
@@ -64,7 +64,7 @@ export const useGeneralSettings = () => {
     loadSettings();
 
     // Real-time subscription for instant updates across all tabs
-    const channel = supabase
+    const channel = api.realtime
       .channel('general-settings-changes')
       .on(
         'postgres_changes',
@@ -83,11 +83,15 @@ export const useGeneralSettings = () => {
             storage.set(GENERAL_SETTINGS_KEY, merged);
           }
         }
-      )
-      .subscribe();
+      );
+
+    channelRef.current = channel;
+    channel.subscribe();
 
     return () => {
-      channel.unsubscribe();
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+      }
     };
   }, []);
 

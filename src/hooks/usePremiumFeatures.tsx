@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useSupabaseAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 export type SubscriptionTier = 'free' | 'pro' | 'business';
 
@@ -51,6 +51,28 @@ const TIER_PRICES: Record<SubscriptionTier, number> = {
   business: 15,
 };
 
+interface SubscriptionTierData {
+  id: string;
+  name: string;
+  max_temp_emails: number;
+  email_expiry_hours: number;
+  can_forward_emails: boolean;
+  can_use_custom_domains: boolean;
+  can_use_api: boolean;
+  priority_support: boolean;
+  ai_summaries_per_day: number;
+  price_monthly: number;
+  is_active: boolean;
+}
+
+interface UserSubscriptionData {
+  id: string;
+  status: string;
+  current_period_end: string;
+  tier_id: string;
+  subscription_tiers: SubscriptionTierData;
+}
+
 export const usePremiumFeatures = () => {
   const { user } = useAuth();
   const [tier, setTier] = useState<SubscriptionTier>('free');
@@ -62,6 +84,8 @@ export const usePremiumFeatures = () => {
   // Use refs for values that shouldn't trigger re-renders/effect loops
   const lastFetchTimeRef = useRef<number>(0);
   const lastUserIdRef = useRef<string | null>(null);
+  const channelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
+  const tiersChannelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
 
   const fetchSubscription = useCallback(async (forceRefresh = false) => {
     // Prevent rapid refetching unless forced - reduced debounce to 500ms for responsiveness
@@ -76,12 +100,13 @@ export const usePremiumFeatures = () => {
       console.log('[PremiumFeatures] No user, fetching free tier from database');
       // Fetch free tier from database to respect admin-configured limits
       try {
-        const { data: freeTier } = await supabase
-          .from('subscription_tiers')
-          .select('*')
-          .ilike('name', 'free')
-          .eq('is_active', true)
-          .maybeSingle();
+        const { data: freeTierData } = await api.db.query<SubscriptionTierData[]>('subscription_tiers', {
+          ilike: { name: 'free' },
+          filter: { is_active: true },
+          limit: 1,
+        });
+        
+        const freeTier = freeTierData && freeTierData.length > 0 ? freeTierData[0] : null;
         
         if (freeTier) {
           const dbLimits: TierLimits = {
@@ -114,9 +139,8 @@ export const usePremiumFeatures = () => {
 
     try {
       // Fetch user subscription from database
-      const { data: subscriptionData, error: subError } = await supabase
-        .from('user_subscriptions')
-        .select(`
+      const { data: subscriptionDataArr, error: subError } = await api.db.query<UserSubscriptionData[]>('user_subscriptions', {
+        select: `
           id,
           status,
           current_period_end,
@@ -133,10 +157,12 @@ export const usePremiumFeatures = () => {
             ai_summaries_per_day,
             price_monthly
           )
-        `)
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .maybeSingle();
+        `,
+        filter: { user_id: user.id, status: 'active' },
+        limit: 1,
+      });
+
+      const subscriptionData = subscriptionDataArr && subscriptionDataArr.length > 0 ? subscriptionDataArr[0] : null;
 
       if (subError) {
         console.error('[PremiumFeatures] Error fetching subscription:', subError);
@@ -150,7 +176,7 @@ export const usePremiumFeatures = () => {
       console.log('[PremiumFeatures] Subscription data:', subscriptionData);
 
       if (subscriptionData && subscriptionData.subscription_tiers) {
-        const tierData = subscriptionData.subscription_tiers as any;
+        const tierData = subscriptionData.subscription_tiers;
         const rawTierName = tierData.name || 'free';
         const tierName = rawTierName.toLowerCase() as SubscriptionTier;
         
@@ -209,7 +235,7 @@ export const usePremiumFeatures = () => {
   useEffect(() => {
     if (!user) return;
 
-    const channel = supabase
+    const channel = api.realtime
       .channel(`user_subscription_${user.id}`)
       .on(
         'postgres_changes',
@@ -225,11 +251,15 @@ export const usePremiumFeatures = () => {
           lastFetchTimeRef.current = 0; // Reset debounce to allow immediate fetch
           fetchSubscription(true);
         }
-      )
-      .subscribe();
+      );
+
+    channelRef.current = channel;
+    channel.subscribe();
 
     return () => {
-      channel.unsubscribe();
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+      }
     };
   }, [user, fetchSubscription]);
 
@@ -238,7 +268,7 @@ export const usePremiumFeatures = () => {
     // Only subscribe for logged-in users - skip for guests
     if (!user) return;
 
-    const tiersChannel = supabase
+    const tiersChannel = api.realtime
       .channel('subscription_tiers_changes')
       .on(
         'postgres_changes',
@@ -248,11 +278,15 @@ export const usePremiumFeatures = () => {
           lastFetchTimeRef.current = 0;
           fetchSubscription(true);
         }
-      )
-      .subscribe();
+      );
+
+    tiersChannelRef.current = tiersChannel;
+    tiersChannel.subscribe();
 
     return () => {
-      supabase.removeChannel(tiersChannel);
+      if (tiersChannelRef.current) {
+        tiersChannelRef.current.unsubscribe();
+      }
     };
   }, [user, fetchSubscription]);
 

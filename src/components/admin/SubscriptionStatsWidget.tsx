@@ -4,7 +4,7 @@ import { Crown, Users, TrendingUp, Clock, CreditCard, ArrowUpRight, BarChart3 } 
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { format, subDays, startOfDay } from "date-fns";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
+import { Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface SubscriptionStats {

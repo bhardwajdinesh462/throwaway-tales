@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Save, Clock, Mail, Shield, Bell } from "lucide-react";
+import { Save, Clock, Mail, Shield, Bell, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -13,6 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
+import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
+import useAdminKeyboardShortcuts from "@/hooks/useAdminKeyboardShortcuts";
+
+const ADMIN_SHORTCUTS = [
+  { key: "r", description: "Refresh page" },
+  { key: "?", description: "Show keyboard shortcuts" },
+];
 
 const AdminSettings = () => {
   const [settings, setSettings] = useState({
@@ -27,6 +35,7 @@ const AdminSettings = () => {
   });
 
   const [isSaving, setIsSaving] = useState(false);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -36,8 +45,29 @@ const AdminSettings = () => {
     setIsSaving(false);
   };
 
+  useAdminKeyboardShortcuts({
+    onRefresh: () => window.location.reload(),
+    onHelp: () => setShowShortcutsHelp((prev) => !prev),
+  });
+
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6">
+      <AdminPageHeader
+        title="Settings"
+        description="Configure email behavior, security, and notifications"
+        actions={
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowShortcutsHelp(true)}
+            title="Keyboard shortcuts (?)"
+          >
+            <Keyboard className="w-4 h-4" />
+          </Button>
+        }
+      />
+
+      <div className="max-w-3xl space-y-6">
       {/* Email Settings */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -207,17 +237,24 @@ const AdminSettings = () => {
         </div>
       </motion.div>
 
-      {/* Save Button */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.4 }}
-      >
-        <Button variant="neon" size="lg" onClick={handleSave} disabled={isSaving}>
-          <Save className="w-4 h-4 mr-2" />
-          {isSaving ? "Saving..." : "Save Settings"}
-        </Button>
-      </motion.div>
+        {/* Save Button */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.4 }}
+        >
+          <Button variant="neon" size="lg" onClick={handleSave} disabled={isSaving}>
+            <Save className="w-4 h-4 mr-2" />
+            {isSaving ? "Saving..." : "Save Settings"}
+          </Button>
+        </motion.div>
+      </div>
+
+      <KeyboardShortcutsHelp
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+        shortcuts={ADMIN_SHORTCUTS}
+      />
     </div>
   );
 };

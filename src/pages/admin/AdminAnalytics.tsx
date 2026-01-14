@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { 
   BarChart3, 
@@ -12,9 +12,14 @@ import {
   Activity,
   Clock,
   Inbox,
-  Send
+  Send,
+  Keyboard
 } from "lucide-react";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
+import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
+import useAdminKeyboardShortcuts from "@/hooks/useAdminKeyboardShortcuts";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api";
@@ -47,8 +52,14 @@ interface AnalyticsData {
   retentionRate: number;
 }
 
+const ADMIN_SHORTCUTS = [
+  { key: "r", description: "Refresh analytics data" },
+  { key: "?", description: "Show keyboard shortcuts" },
+];
+
 const AdminAnalytics = () => {
   const [timeRange, setTimeRange] = useState("7d");
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [analytics, setAnalytics] = useState<AnalyticsData>({
     totalEmails: 0,
     totalReceived: 0,
@@ -64,11 +75,7 @@ const AdminAnalytics = () => {
   const [hourlyActivity, setHourlyActivity] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    fetchAnalytics();
-  }, [timeRange]);
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setIsLoading(true);
     try {
       const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
@@ -174,7 +181,16 @@ const AdminAnalytics = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [timeRange]);
+
+  useEffect(() => {
+    fetchAnalytics();
+  }, [fetchAnalytics]);
+
+  useAdminKeyboardShortcuts({
+    onRefresh: fetchAnalytics,
+    onHelp: () => setShowShortcutsHelp((prev) => !prev),
+  });
 
   const statCards = [
     {
@@ -242,15 +258,22 @@ const AdminAnalytics = () => {
     <div className="space-y-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <BarChart3 className="w-7 h-7 text-primary" />
-            Analytics Dashboard
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Monitor email statistics and usage trends
-          </p>
-        </div>
+        <AdminPageHeader
+          title="Analytics Dashboard"
+          description="Monitor email statistics and usage trends"
+          onRefresh={fetchAnalytics}
+          isRefreshing={isLoading}
+          actions={
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowShortcutsHelp(true)}
+              title="Keyboard shortcuts (?)"
+            >
+              <Keyboard className="w-4 h-4" />
+            </Button>
+          }
+        />
         <Select value={timeRange} onValueChange={setTimeRange}>
           <SelectTrigger className="w-[140px] bg-card border-border">
             <SelectValue />
@@ -461,6 +484,12 @@ const AdminAnalytics = () => {
           </div>
         </CardContent>
       </Card>
+
+      <KeyboardShortcutsHelp
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+        shortcuts={ADMIN_SHORTCUTS}
+      />
     </div>
   );
 };

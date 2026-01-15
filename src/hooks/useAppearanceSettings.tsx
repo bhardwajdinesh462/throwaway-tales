@@ -34,6 +34,9 @@ export const useAppearanceSettings = () => {
   const [isLoading, setIsLoading] = useState(true);
   const cacheBusterRef = useRef(globalCacheBuster);
   const channelRef = useRef<ReturnType<typeof api.realtime.channel> | null>(null);
+  const lastFetchRef = useRef<number>(0);
+  const fetchPromiseRef = useRef<Promise<void> | null>(null);
+  const FETCH_COOLDOWN_MS = 30000; // 30 seconds between fetches
 
   // Helper to add cache buster to URLs
   const addCacheBuster = (url: string): string => {
@@ -43,48 +46,74 @@ export const useAppearanceSettings = () => {
   };
 
   useEffect(() => {
-    const loadSettings = async (attempt = 0) => {
-      const maxRetries = 3;
-      const backoffMs = Math.min(1000 * Math.pow(2, attempt), 5000);
+    const loadSettings = async (force = false) => {
+      const now = Date.now();
       
-      try {
-        const { data: queryData, error } = await api.db.query<{ value: AppearanceSettings; updated_at: string }[]>('app_settings', {
-          select: 'value, updated_at',
-          filter: { key: 'appearance' },
-          order: { column: 'updated_at', ascending: false },
-          limit: 1,
-        });
-        const data = queryData && queryData.length > 0 ? queryData[0] : null;
-
-        if (!error && data?.value) {
-          const dbSettings = data.value as unknown as AppearanceSettings;
-          const merged = { ...defaultSettings, ...dbSettings };
-          setSettings(merged);
-          storage.set(APPEARANCE_SETTINGS_KEY, merged);
-        } else if (error) {
-          const isRetryable = error.message?.includes('Failed to fetch') || 
-                              error.message?.includes('fetch');
-          if (isRetryable && attempt < maxRetries) {
-            setTimeout(() => loadSettings(attempt + 1), backoffMs);
-            return;
-          }
-          const localSettings = storage.get<AppearanceSettings>(APPEARANCE_SETTINGS_KEY, defaultSettings);
-          setSettings(localSettings);
-        } else {
-          const localSettings = storage.get<AppearanceSettings>(APPEARANCE_SETTINGS_KEY, defaultSettings);
-          setSettings(localSettings);
-        }
-      } catch (e) {
-        console.error('Error loading appearance settings:', e);
-        if (attempt < maxRetries) {
-          setTimeout(() => loadSettings(attempt + 1), backoffMs);
-          return;
-        }
-        const localSettings = storage.get<AppearanceSettings>(APPEARANCE_SETTINGS_KEY, defaultSettings);
-        setSettings(localSettings);
-      } finally {
-        setIsLoading(false);
+      // Return existing promise if already fetching
+      if (fetchPromiseRef.current) {
+        return fetchPromiseRef.current;
       }
+      
+      // Skip if fetched recently (unless forced)
+      if (!force && now - lastFetchRef.current < FETCH_COOLDOWN_MS) {
+        setIsLoading(false);
+        return;
+      }
+      
+      lastFetchRef.current = now;
+      
+      fetchPromiseRef.current = (async () => {
+        try {
+          // Try batch endpoint first for efficiency
+          const response = await fetch(
+            `${api.baseUrl}/data/settings/batch?keys=appearance`,
+            { 
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include'
+            }
+          );
+          
+          if (response.ok) {
+            const result = await response.json();
+            const appearanceRow = result.data?.find((r: any) => r.key === 'appearance');
+            if (appearanceRow?.value) {
+              const value = typeof appearanceRow.value === 'string' 
+                ? JSON.parse(appearanceRow.value) 
+                : appearanceRow.value;
+              const merged = { ...defaultSettings, ...value };
+              setSettings(merged);
+              storage.set(APPEARANCE_SETTINGS_KEY, merged);
+            }
+          } else {
+            // Fallback to individual query
+            const { data, error } = await api.db.query<{ value: AppearanceSettings }[]>('app_settings', {
+              select: 'value',
+              filter: { key: 'appearance' },
+              order: { column: 'updated_at', ascending: false },
+              limit: 1,
+            });
+
+            if (!error && data?.[0]?.value) {
+              const merged = { ...defaultSettings, ...data[0].value };
+              setSettings(merged);
+              storage.set(APPEARANCE_SETTINGS_KEY, merged);
+            } else {
+              // Use local cache on error
+              const localSettings = storage.get<AppearanceSettings>(APPEARANCE_SETTINGS_KEY, defaultSettings);
+              setSettings(localSettings);
+            }
+          }
+        } catch (e) {
+          console.error('Error loading appearance settings:', e);
+          const localSettings = storage.get<AppearanceSettings>(APPEARANCE_SETTINGS_KEY, defaultSettings);
+          setSettings(localSettings);
+        } finally {
+          setIsLoading(false);
+          fetchPromiseRef.current = null;
+        }
+      })();
+      
+      return fetchPromiseRef.current;
     };
 
     loadSettings();

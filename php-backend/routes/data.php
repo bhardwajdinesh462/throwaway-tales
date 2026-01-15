@@ -8,10 +8,63 @@
  * Converts path segments to a path string and calls handleData
  */
 function handleDataRoute($segments, $method, $body, $pdo, $config) {
-    // segments = ['data', 'tablename'] or ['data', 'tablename', 'upsert']
+    // segments = ['data', 'tablename'] or ['data', 'tablename', 'upsert'] or ['data', 'settings', 'batch']
     array_shift($segments); // Remove 'data' prefix
     $path = implode('/', $segments);
+    
+    // Handle batch settings endpoint for optimized loading
+    if ($path === 'settings/batch' && $method === 'GET') {
+        handleBatchSettings($pdo);
+        return;
+    }
+    
     return handleData($path, $method, $body, $pdo, $config);
+}
+
+/**
+ * Batch settings endpoint - fetch multiple settings in one request
+ * GET /api/data/settings/batch?keys=appearance,general,announcement_settings
+ */
+function handleBatchSettings($pdo) {
+    $keysParam = $_GET['keys'] ?? 'appearance,general,announcement_settings,limit_modal_config,seo_settings,payment_settings';
+    $keys = array_filter(array_map('trim', explode(',', $keysParam)));
+    
+    if (empty($keys)) {
+        echo json_encode(['data' => []]);
+        return;
+    }
+    
+    // Use session cache for batch settings (60 second TTL)
+    $cacheKey = 'batch_settings_' . md5(implode(',', $keys));
+    if (isset($_SESSION[$cacheKey]) && $_SESSION[$cacheKey]['expires'] > time()) {
+        echo json_encode(['data' => $_SESSION[$cacheKey]['data'], 'cached' => true]);
+        return;
+    }
+    
+    try {
+        $placeholders = implode(',', array_fill(0, count($keys), '?'));
+        $stmt = $pdo->prepare("SELECT `key`, value, updated_at FROM app_settings WHERE `key` IN ($placeholders)");
+        $stmt->execute($keys);
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Parse JSON values
+        foreach ($results as &$row) {
+            if (is_string($row['value'])) {
+                $decoded = json_decode($row['value'], true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $row['value'] = $decoded;
+                }
+            }
+        }
+        
+        // Cache for 60 seconds
+        $_SESSION[$cacheKey] = ['data' => $results, 'expires' => time() + 60];
+        
+        echo json_encode(['data' => $results]);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to fetch settings: ' . $e->getMessage()]);
+    }
 }
 
 function handleData($path, $method, $body, $pdo, $config) {

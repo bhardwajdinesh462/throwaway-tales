@@ -87,7 +87,7 @@ foreach ($blockedAgents as $blocked) {
 
 // Rate limiting check (basic) - exemptions for public endpoints
 session_start();
-$rateLimit = 500; // requests per minute (increased for frontend parallel requests)
+$rateLimit = 1000; // requests per minute (generous for frontend parallel requests)
 $ratePeriod = 60; // seconds
 $clientIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 $rateKey = 'rate_' . md5($clientIp);
@@ -400,17 +400,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Database connection
-try {
-    $dsn = "mysql:host={$config['db']['host']};dbname={$config['db']['name']};charset={$config['db']['charset']}";
-    $pdo = new PDO($dsn, $config['db']['user'], $config['db']['pass'], [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
+// Database connection with retry logic
+$pdo = null;
+$dbError = null;
+$maxRetries = 3;
+
+for ($attempt = 0; $attempt < $maxRetries; $attempt++) {
+    try {
+        $dsn = "mysql:host={$config['db']['host']};dbname={$config['db']['name']};charset={$config['db']['charset']}";
+        $pdo = new PDO($dsn, $config['db']['user'], $config['db']['pass'], [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+            PDO::ATTR_TIMEOUT => 5,
+        ]);
+        break; // Success, exit retry loop
+    } catch (PDOException $e) {
+        $dbError = $e->getMessage();
+        if ($attempt < $maxRetries - 1) {
+            usleep(100000 * pow(2, $attempt)); // 100ms, 200ms, 400ms backoff
+        }
+    }
+}
+
+if (!$pdo) {
+    // Log the error
+    earlyLog("Database connection failed after $maxRetries attempts: $dbError", 'CRITICAL');
+    
+    // Return 503 Service Unavailable (not 429)
+    http_response_code(503);
+    echo json_encode([
+        'error' => 'Database connection failed',
+        'message' => 'Unable to connect to MySQL database. Please check config.php credentials.',
+        'hint' => 'Verify db.host, db.name, db.user, and db.pass in config.php',
+        'debug' => ($config['debug'] ?? false) ? $dbError : null,
+        'retry_after' => 30
     ]);
-} catch (PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Database connection failed']);
     exit;
 }
 

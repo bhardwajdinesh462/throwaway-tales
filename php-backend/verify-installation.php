@@ -4,33 +4,70 @@
  * 
  * Checks all components are working correctly after installation.
  * DELETE THIS FILE AFTER VERIFICATION!
+ * 
+ * Access Methods:
+ * - From localhost
+ * - With ?token=YOUR_DIAG_TOKEN (from config.php)
+ * - During first-time setup (before admin is created)
  */
 
 header('Content-Type: application/json');
 header('Cache-Control: no-cache');
 
-// Security: Only allow if accessed with token or from localhost
+// Security: Check access permissions
 $allowedIPs = ['127.0.0.1', '::1'];
 $clientIP = $_SERVER['REMOTE_ADDR'] ?? '';
 $token = $_GET['token'] ?? '';
 $configToken = '';
+$isFirstTimeSetup = false;
 
-// Try to load config for token verification
+// Try to load config for token verification and check if first-time setup
 if (file_exists(__DIR__ . '/config.php')) {
-    $config = require __DIR__ . '/config.php';
-    $configToken = $config['diag_token'] ?? '';
+    try {
+        $config = require __DIR__ . '/config.php';
+        $configToken = $config['diag_token'] ?? '';
+        
+        // Try to connect to database and check for admin
+        if (!empty($config['db']['host']) && !empty($config['db']['name'])) {
+            try {
+                $dsn = "mysql:host={$config['db']['host']};dbname={$config['db']['name']};charset=utf8mb4";
+                $pdo = new PDO($dsn, $config['db']['user'], $config['db']['pass'], [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
+                ]);
+                
+                // Check if user_roles table exists and has admins
+                $stmt = $pdo->query("SHOW TABLES LIKE 'user_roles'");
+                if ($stmt->fetch()) {
+                    $stmt = $pdo->query("SELECT COUNT(*) FROM user_roles WHERE role = 'admin'");
+                    $adminCount = $stmt->fetchColumn();
+                    $isFirstTimeSetup = ($adminCount == 0);
+                } else {
+                    $isFirstTimeSetup = true; // Tables not created yet
+                }
+            } catch (PDOException $e) {
+                // Database not ready - allow access for debugging
+                $isFirstTimeSetup = true;
+            }
+        }
+    } catch (Exception $e) {
+        // Config error - allow access for debugging
+        $isFirstTimeSetup = true;
+    }
+} else {
+    // No config file - definitely first time setup
+    $isFirstTimeSetup = true;
 }
 
-// Allow access if localhost or valid token
+// Allow access if: localhost OR valid token OR first-time setup
 $isLocalhost = in_array($clientIP, $allowedIPs);
 $hasValidToken = !empty($configToken) && hash_equals($configToken, $token);
 
-if (!$isLocalhost && !$hasValidToken) {
+if (!$isLocalhost && !$hasValidToken && !$isFirstTimeSetup) {
     http_response_code(403);
     echo json_encode([
         'success' => false,
         'error' => 'Access denied. Use ?token=YOUR_DIAG_TOKEN or access from localhost.',
-        'hint' => 'Find your diag_token in config.php'
+        'hint' => 'Find your diag_token in config.php (or access is allowed during first-time setup before admin is created)'
     ]);
     exit;
 }

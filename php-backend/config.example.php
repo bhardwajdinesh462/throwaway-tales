@@ -98,7 +98,11 @@ return [
         'lockout_time' => 900, // lockout duration in seconds (15 min)
     ],
     
-    // Diagnostics Token (optional - for /api/health/diag endpoint)
+    // Diagnostics Token (for /api/health/diag and /api/verify-installation.php endpoints)
     // Generate with: bin2hex(random_bytes(16))
+    // Example: 'diag_token' => 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6',
     'diag_token' => '',
+    
+    // Debug mode (set to true for development, false for production)
+    'debug' => false,
 ];

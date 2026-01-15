@@ -85,27 +85,63 @@ foreach ($blockedAgents as $blocked) {
     }
 }
 
-// Rate limiting check (basic)
+// Rate limiting check (basic) - exemptions for public endpoints
 session_start();
-$rateLimit = 100; // requests per minute
+$rateLimit = 500; // requests per minute (increased for frontend parallel requests)
 $ratePeriod = 60; // seconds
 $clientIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 $rateKey = 'rate_' . md5($clientIp);
 
-if (!isset($_SESSION[$rateKey])) {
-    $_SESSION[$rateKey] = ['count' => 0, 'start' => time()];
+// Get early path for rate limit exemptions
+$earlyReqUri = $_SERVER['REQUEST_URI'];
+$earlyReqPath = parse_url($earlyReqUri, PHP_URL_PATH);
+$earlyReqPath = str_replace('/api', '', $earlyReqPath);
+$earlyReqPath = trim($earlyReqPath, '/');
+
+// Public endpoints exempt from rate limiting (read-only, frequently accessed)
+$rateLimitExempt = [
+    'health',
+    'health/diag',
+    'data/app_settings',
+    'data/domains',
+    'data/homepage_sections',
+    'data/banners',
+    'data/email_stats',
+    'data/subscription_tiers',
+    'public-status',
+    'badge',
+];
+
+$isExempt = false;
+foreach ($rateLimitExempt as $exemptPath) {
+    if (strpos($earlyReqPath, $exemptPath) === 0) {
+        $isExempt = true;
+        break;
+    }
 }
 
-if (time() - $_SESSION[$rateKey]['start'] > $ratePeriod) {
-    $_SESSION[$rateKey] = ['count' => 1, 'start' => time()];
-} else {
-    $_SESSION[$rateKey]['count']++;
-    if ($_SESSION[$rateKey]['count'] > $rateLimit) {
-        http_response_code(429);
-        header('Content-Type: application/json');
-        header('Retry-After: ' . ($ratePeriod - (time() - $_SESSION[$rateKey]['start'])));
-        echo json_encode(['error' => 'Too many requests']);
-        exit;
+// Only apply rate limiting to non-exempt endpoints
+if (!$isExempt) {
+    if (!isset($_SESSION[$rateKey])) {
+        $_SESSION[$rateKey] = ['count' => 0, 'start' => time()];
+    }
+
+    if (time() - $_SESSION[$rateKey]['start'] > $ratePeriod) {
+        $_SESSION[$rateKey] = ['count' => 1, 'start' => time()];
+    } else {
+        $_SESSION[$rateKey]['count']++;
+        if ($_SESSION[$rateKey]['count'] > $rateLimit) {
+            http_response_code(429);
+            header('Content-Type: application/json');
+            header('Retry-After: ' . ($ratePeriod - (time() - $_SESSION[$rateKey]['start'])));
+            echo json_encode([
+                'error' => 'Too many requests',
+                'limit' => $rateLimit,
+                'period' => $ratePeriod,
+                'retry_after' => $ratePeriod - (time() - $_SESSION[$rateKey]['start'])
+            ]);
+            exit;
+        }
     }
 }
 

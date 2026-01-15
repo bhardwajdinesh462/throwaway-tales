@@ -8,28 +8,29 @@
  */
 
 // Explicit self-hosted flag (set during cPanel build or via env var)
+// PRIORITY: VITE_SELF_HOSTED takes precedence over everything else
 const FORCE_SELF_HOSTED = import.meta.env.VITE_SELF_HOSTED === 'true' || 
                           Boolean(import.meta.env.VITE_PHP_API_URL);
 
-// Detect which backend to use:
-// - Use Cloud backend when env vars are set AND not explicitly forcing self-hosted
-// - The hostname check was removed to ensure custom domains still use Cloud backend
+// IMPORTANT: When FORCE_SELF_HOSTED is true, NEVER use Supabase
+// This ensures self-hosted deployments are completely independent
 const USE_SUPABASE = !FORCE_SELF_HOSTED && Boolean(
   import.meta.env.VITE_SUPABASE_URL && 
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 );
 
 // PHP API URL - only used when self-hosted mode is active
-const PHP_API_URL = import.meta.env.VITE_PHP_API_URL || 
-  (FORCE_SELF_HOSTED && typeof window !== 'undefined' 
-    ? `${window.location.origin}/api` 
-    : '');
+const PHP_API_URL = FORCE_SELF_HOSTED 
+  ? (import.meta.env.VITE_PHP_API_URL || 
+     (typeof window !== 'undefined' ? `${window.location.origin}/api` : ''))
+  : '';
 
 // Log backend mode on startup for debugging
 if (typeof window !== 'undefined') {
   console.info(`[API] Backend mode: ${USE_SUPABASE ? 'Cloud (Supabase)' : 'Self-hosted (PHP)'}`);
-  if (!USE_SUPABASE && FORCE_SELF_HOSTED) {
-    console.info(`[API] PHP API URL: ${PHP_API_URL}`);
+  console.info(`[API] FORCE_SELF_HOSTED: ${FORCE_SELF_HOSTED}`);
+  if (!USE_SUPABASE) {
+    console.info(`[API] PHP API URL: ${PHP_API_URL || 'auto-detect from origin'}`);
   }
 }
 

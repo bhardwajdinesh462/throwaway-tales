@@ -6,29 +6,51 @@
  */
 
 // ============================================
-// EARLY ERROR HANDLING & LOGGING
+// EARLY ERROR HANDLING & LOGGING - GUARANTEED LOG CREATION
 // ============================================
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 error_reporting(E_ALL);
 
-// Create logs directory early
+// Create logs directory FIRST - before anything else
 $logsDir = __DIR__ . '/logs';
 if (!is_dir($logsDir)) {
-    @mkdir($logsDir, 0755, true);
+    // Try multiple methods to create directory
+    if (!@mkdir($logsDir, 0777, true)) {
+        // Try with shell command as fallback
+        @shell_exec("mkdir -p " . escapeshellarg($logsDir));
+    }
+    @chmod($logsDir, 0755);
 }
 
 // Set PHP error log location
-ini_set('error_log', $logsDir . '/php-errors.log');
+$phpErrorLog = $logsDir . '/php-errors.log';
+ini_set('error_log', $phpErrorLog);
 
-// Early error logging function (before ErrorLogger class loads)
+// Create initial log file if it doesn't exist
+if (!file_exists($phpErrorLog)) {
+    @file_put_contents($phpErrorLog, "[" . date('Y-m-d H:i:s') . "] PHP Error Log Initialized\n");
+    @chmod($phpErrorLog, 0644);
+}
+
+/**
+ * ROBUST Early error logging function (before ErrorLogger class loads)
+ * This GUARANTEES log file creation
+ */
 function earlyLog($message, $level = 'ERROR', $context = []) {
-    $logsDir = __DIR__ . '/logs';
-    $timestamp = date('Y-m-d H:i:s');
+    global $logsDir;
+    
+    // Ensure logs directory exists
+    if (!is_dir($logsDir)) {
+        @mkdir($logsDir, 0755, true);
+    }
+    
+    $timestamp = date('Y-m-d H:i:s.') . substr(microtime(), 2, 3);
     $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
     $uri = $_SERVER['REQUEST_URI'] ?? 'cli';
     $method = $_SERVER['REQUEST_METHOD'] ?? 'CLI';
     
+    // Create detailed log entry
     $logEntry = json_encode([
         'timestamp' => $timestamp,
         'level' => $level,
@@ -36,24 +58,56 @@ function earlyLog($message, $level = 'ERROR', $context = []) {
         'ip' => $ip,
         'method' => $method,
         'uri' => $uri,
-        'context' => $context
-    ], JSON_UNESCAPED_SLASHES) . "\n";
+        'context' => $context,
+        'memory' => memory_get_usage(true),
+        'peak_memory' => memory_get_peak_usage(true)
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
     
-    @file_put_contents($logsDir . '/error-' . date('Y-m-d') . '.log', $logEntry, FILE_APPEND | LOCK_EX);
+    // Determine log file based on level
+    $logFile = (in_array($level, ['ERROR', 'CRITICAL'])) 
+        ? $logsDir . '/error-' . date('Y-m-d') . '.log'
+        : $logsDir . '/app-' . date('Y-m-d') . '.log';
+    
+    // Write to log file
+    $result = @file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
+    
+    // If writing failed, try to create the file first
+    if ($result === false) {
+        @touch($logFile);
+        @chmod($logFile, 0644);
+        @file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
+    }
     
     // Also log to PHP's default error log for redundancy
     error_log("[{$level}] {$message} - URI: {$uri}");
+    
+    return $result !== false;
 }
 
-// Catch fatal errors
+// Log startup
+earlyLog("API Server Starting", 'INFO', [
+    'php_version' => PHP_VERSION,
+    'server' => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown',
+    'logs_dir' => $logsDir,
+    'logs_writable' => is_writable($logsDir)
+]);
+
+// Catch fatal errors - CRITICAL for debugging
 register_shutdown_function(function() {
     $error = error_get_last();
     if ($error && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
-        // Log to our custom log file
-        earlyLog("FATAL: {$error['message']} in {$error['file']}:{$error['line']}", 'CRITICAL', [
+        // Log to our custom log file with full details
+        earlyLog("FATAL ERROR: {$error['message']}", 'CRITICAL', [
             'file' => $error['file'],
             'line' => $error['line'],
-            'type' => $error['type']
+            'type' => $error['type'],
+            'type_name' => match($error['type']) {
+                E_ERROR => 'E_ERROR',
+                E_CORE_ERROR => 'E_CORE_ERROR',
+                E_COMPILE_ERROR => 'E_COMPILE_ERROR',
+                E_PARSE => 'E_PARSE',
+                default => 'UNKNOWN'
+            }
         ]);
         
         if (!headers_sent()) {
@@ -62,26 +116,48 @@ register_shutdown_function(function() {
         }
         echo json_encode([
             'error' => 'Internal server error',
-            'hint' => 'Check /api/logs/errors endpoint or logs/error-*.log files'
+            'message' => 'A fatal error occurred. Check logs for details.',
+            'hint' => 'Check /api/logs/ directory for error-*.log files',
+            'log_file' => 'error-' . date('Y-m-d') . '.log'
         ]);
     }
 });
 
 // Set custom error handler to log all warnings/notices
 set_error_handler(function($severity, $message, $file, $line) {
-    $level = 'WARNING';
-    if (in_array($severity, [E_ERROR, E_USER_ERROR])) $level = 'ERROR';
-    if (in_array($severity, [E_NOTICE, E_USER_NOTICE])) $level = 'INFO';
+    $level = match(true) {
+        in_array($severity, [E_ERROR, E_USER_ERROR]) => 'ERROR',
+        in_array($severity, [E_WARNING, E_USER_WARNING]) => 'WARNING',
+        in_array($severity, [E_NOTICE, E_USER_NOTICE]) => 'INFO',
+        in_array($severity, [E_DEPRECATED, E_USER_DEPRECATED]) => 'DEBUG',
+        default => 'WARNING'
+    };
     
-    earlyLog("$message", $level, ['file' => $file, 'line' => $line, 'severity' => $severity]);
+    earlyLog($message, $level, [
+        'file' => $file,
+        'line' => $line,
+        'severity' => $severity,
+        'severity_name' => match($severity) {
+            E_ERROR => 'E_ERROR',
+            E_WARNING => 'E_WARNING',
+            E_NOTICE => 'E_NOTICE',
+            E_DEPRECATED => 'E_DEPRECATED',
+            E_USER_ERROR => 'E_USER_ERROR',
+            E_USER_WARNING => 'E_USER_WARNING',
+            E_USER_NOTICE => 'E_USER_NOTICE',
+            default => 'UNKNOWN'
+        }
+    ]);
     return false; // Continue with PHP's handler
 });
 
 // Set exception handler
 set_exception_handler(function($exception) {
-    earlyLog("Uncaught exception: " . $exception->getMessage(), 'CRITICAL', [
+    earlyLog("Uncaught Exception: " . $exception->getMessage(), 'CRITICAL', [
+        'exception_class' => get_class($exception),
         'file' => $exception->getFile(),
         'line' => $exception->getLine(),
+        'code' => $exception->getCode(),
         'trace' => $exception->getTraceAsString()
     ]);
     
@@ -92,7 +168,9 @@ set_exception_handler(function($exception) {
     echo json_encode([
         'error' => 'Internal server error',
         'message' => $exception->getMessage(),
-        'hint' => 'Check logs for stack trace'
+        'exception' => get_class($exception),
+        'hint' => 'Check logs for stack trace',
+        'log_file' => 'error-' . date('Y-m-d') . '.log'
     ]);
     exit;
 });

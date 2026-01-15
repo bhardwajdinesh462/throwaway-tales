@@ -17,6 +17,17 @@ export interface Domain {
   created_at: string;
 }
 
+// Check if email is actually expired based on time
+const isEmailExpired = (expiresAt: string): boolean => {
+  try {
+    const expiry = new Date(expiresAt).getTime();
+    const now = Date.now();
+    return expiry <= now;
+  } catch {
+    return true;
+  }
+};
+
 export interface TempEmail {
   id: string;
   user_id: string | null;
@@ -492,34 +503,58 @@ export const useSecureEmailService = () => {
       // Use API function to validate emails
       if (emailIds.length > 0) {
         try {
-          // First try preferred email with token validation
+        // First try preferred email with token validation
           if (preferredId && tokens[preferredId]) {
             console.log(`[email-service] Validating preferred email: ${preferredId}`);
-            const { data: preferredResult, error: preferredError } = await api.functions.invoke<any>('validate-temp-email', {
-              body: { tempEmailId: preferredId, token: tokens[preferredId] },
-            });
+            
+            try {
+              const { data: preferredResult, error: preferredError } = await api.functions.invoke<any>('validate-temp-email', {
+                body: { tempEmailId: preferredId, token: tokens[preferredId] },
+              });
 
-            // Handle retryable errors (503) - skip validation and generate new immediately
-            if (preferredError || preferredResult?.retryable) {
-              console.warn('[email-service] Validation failed or backend busy, generating new email immediately');
+              // Handle network errors or backend unavailable - try to use cached email without strict validation
+              if (preferredError) {
+                console.warn('[email-service] Validation API failed, attempting local validation');
+                
+                // Try to fetch email directly from database as fallback
+                const { data: emailData, error: dbError } = await api.db.query<TempEmail[]>('temp_emails', {
+                  filter: { id: preferredId },
+                  limit: 1
+                });
+                
+                if (!dbError && emailData?.[0] && !isEmailExpired(emailData[0].expires_at)) {
+                  console.log(`[email-service] Using cached email after validation failure: ${emailData[0].address}`);
+                  setCurrentEmail({ ...emailData[0], secret_token: tokens[preferredId] });
+                  setIsLoading(false);
+                  return;
+                }
+                
+                // If even that fails, generate new email
+                console.warn('[email-service] Could not validate or fetch email, generating new');
+                await generateEmail(domains[0]?.id);
+                return;
+              }
+              
+              if (preferredResult?.valid && preferredResult?.email) {
+                console.log(`[email-service] Preferred email is valid: ${preferredResult.email.address}`);
+                setCurrentEmail({ ...preferredResult.email, secret_token: tokens[preferredId] });
+                setIsLoading(false);
+                return;
+              } else {
+                console.log(`[email-service] Preferred email invalid or expired, clearing...`);
+                try {
+                  localStorage.removeItem(CURRENT_EMAIL_ID_KEY);
+                  delete tokens[preferredId];
+                  localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(tokens));
+                } catch {
+                  // ignore
+                }
+              }
+            } catch (validationError) {
+              console.error('[email-service] Email validation threw error:', validationError);
+              // On any error, try to generate new email
               await generateEmail(domains[0]?.id);
               return;
-            }
-            
-            if (preferredResult?.valid && preferredResult?.email) {
-              console.log(`[email-service] Preferred email is valid: ${preferredResult.email.address}`);
-              setCurrentEmail({ ...preferredResult.email, secret_token: tokens[preferredId] });
-              setIsLoading(false);
-              return;
-            } else {
-              console.log(`[email-service] Preferred email invalid or expired, clearing...`);
-              try {
-                localStorage.removeItem(CURRENT_EMAIL_ID_KEY);
-                delete tokens[preferredId];
-                localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(tokens));
-              } catch {
-                // ignore
-              }
             }
           }
 
@@ -527,42 +562,68 @@ export const useSecureEmailService = () => {
           const remainingEmailIds = Object.keys(tokens);
           if (remainingEmailIds.length > 0) {
             console.log(`[email-service] Checking ${remainingEmailIds.length} remaining stored emails...`);
-            const { data: bulkResult, error: bulkError } = await api.functions.invoke<any>('validate-temp-email', {
-              body: { emailIds: remainingEmailIds },
-            });
-
-            // Handle retryable errors - generate new email immediately
-            if (bulkError || bulkResult?.retryable) {
-              console.warn('[email-service] Bulk validation failed or backend busy, generating new email immediately');
-              await generateEmail(domains[0]?.id);
-              return;
-            }
             
-            if (bulkResult?.valid && bulkResult?.email) {
-              console.log(`[email-service] Found valid email: ${bulkResult.email.address}`);
-              
-              // Clean up stale tokens (only keep valid ones)
-              if (bulkResult.validEmailIds) {
-                const validSet = new Set(bulkResult.validEmailIds);
-                const cleanedTokens: Record<string, string> = {};
-                for (const id of remainingEmailIds) {
-                  if (validSet.has(id)) {
-                    cleanedTokens[id] = tokens[id];
+            try {
+              const { data: bulkResult, error: bulkError } = await api.functions.invoke<any>('validate-temp-email', {
+                body: { emailIds: remainingEmailIds },
+              });
+
+              // Handle errors - try direct DB lookup as fallback
+              if (bulkError) {
+                console.warn('[email-service] Bulk validation failed, trying direct DB lookup');
+                
+                // Try direct database query as fallback
+                for (const emailId of remainingEmailIds) {
+                  const { data: emailData, error: dbError } = await api.db.query<TempEmail[]>('temp_emails', {
+                    filter: { id: emailId },
+                    limit: 1
+                  });
+                  
+                  if (!dbError && emailData?.[0] && !isEmailExpired(emailData[0].expires_at)) {
+                    console.log(`[email-service] Found valid email via direct lookup: ${emailData[0].address}`);
+                    localStorage.setItem(CURRENT_EMAIL_ID_KEY, emailId);
+                    setCurrentEmail({ ...emailData[0], secret_token: tokens[emailId] });
+                    setIsLoading(false);
+                    return;
                   }
                 }
-                try {
-                  localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(cleanedTokens));
-                  localStorage.setItem(CURRENT_EMAIL_ID_KEY, bulkResult.email.id);
-                } catch {
-                  // ignore
-                }
+                
+                // If no valid email found, generate new
+                await generateEmail(domains[0]?.id);
+                return;
               }
+              
+              if (bulkResult?.valid && bulkResult?.email) {
+                console.log(`[email-service] Found valid email: ${bulkResult.email.address}`);
+                
+                // Clean up stale tokens (only keep valid ones)
+                if (bulkResult.validEmailIds) {
+                  const validSet = new Set(bulkResult.validEmailIds);
+                  const cleanedTokens: Record<string, string> = {};
+                  for (const id of remainingEmailIds) {
+                    if (validSet.has(id)) {
+                      cleanedTokens[id] = tokens[id];
+                    }
+                  }
+                  try {
+                    localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(cleanedTokens));
+                    localStorage.setItem(CURRENT_EMAIL_ID_KEY, bulkResult.email.id);
+                  } catch {
+                    // ignore
+                  }
+                }
 
-              setCurrentEmail({ ...bulkResult.email, secret_token: tokens[bulkResult.email.id] });
-              setIsLoading(false);
+                setCurrentEmail({ ...bulkResult.email, secret_token: tokens[bulkResult.email.id] });
+                setIsLoading(false);
+                return;
+              } else {
+                console.log('[email-service] No valid emails found from stored tokens');
+              }
+            } catch (bulkValidationError) {
+              console.error('[email-service] Bulk validation threw error:', bulkValidationError);
+              // Generate new email on any error
+              await generateEmail(domains[0]?.id);
               return;
-            } else {
-              console.log('[email-service] No valid emails found from stored tokens');
             }
           }
         } catch (error) {

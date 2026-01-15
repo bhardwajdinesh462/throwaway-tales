@@ -1,49 +1,145 @@
+# TempMail Unified .htaccess - Handles both SPA and PHP API routing
+# This single file manages all routing for the application
+
 <IfModule mod_rewrite.c>
-  RewriteEngine On
+    RewriteEngine On
+    RewriteBase /
 
-  # If you host the frontend in a subfolder, update RewriteBase accordingly.
-  RewriteBase /
+    # ===========================================
+    # API ROUTING (PHP Backend)
+    # ===========================================
+    
+    # Handle OPTIONS preflight requests for CORS on API routes
+    RewriteCond %{REQUEST_METHOD} OPTIONS
+    RewriteCond %{REQUEST_URI} ^/api/ [NC]
+    RewriteRule ^api/(.*)$ api/index.php [QSA,L]
 
-  # Don't rewrite real files or directories (e.g. /assets, /api)
-  RewriteCond %{REQUEST_FILENAME} -f [OR]
-  RewriteCond %{REQUEST_FILENAME} -d
-  RewriteRule ^ - [L]
+    # Route all /api/* requests to PHP backend
+    # Skip if it's an actual file in the api directory
+    RewriteCond %{REQUEST_URI} ^/api/ [NC]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^api/(.*)$ api/index.php [QSA,L]
 
-  # SPA fallback: route everything else to index.html
-  RewriteRule ^ index.html [L]
+    # ===========================================
+    # SPA ROUTING (React Frontend)
+    # ===========================================
+    
+    # Don't rewrite API requests (they're handled above)
+    RewriteCond %{REQUEST_URI} !^/api/ [NC]
+    
+    # Don't rewrite actual files (assets, images, etc.)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    
+    # Don't rewrite actual directories
+    RewriteCond %{REQUEST_FILENAME} !-d
+    
+    # Route everything else to index.html for React Router
+    RewriteRule ^ index.html [L]
 </IfModule>
 
-# Ensure proper MIME types for assets
-<IfModule mod_mime.c>
-  AddType text/css .css
-  AddType application/javascript .js
-  AddType application/json .json
-  AddType image/svg+xml .svg
-  AddType font/woff .woff
-  AddType font/woff2 .woff2
+# Fallback for servers without mod_rewrite
+<IfModule !mod_rewrite.c>
+    ErrorDocument 404 /index.html
 </IfModule>
 
-# Basic security headers
+# ===========================================
+# CORS HEADERS (for API requests)
+# ===========================================
 <IfModule mod_headers.c>
-  Header always set X-Content-Type-Options "nosniff"
-  Header always set X-Frame-Options "SAMEORIGIN"
-  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    # Apply CORS headers only to API requests
+    <If "%{REQUEST_URI} =~ m#^/api/#">
+        Header always set Access-Control-Allow-Origin "*"
+        Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, Accept, X-Debug-Token"
+        Header always set Access-Control-Max-Age "86400"
+    </If>
+    
+    # Security headers for all requests
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
 
-# Enable gzip compression for better performance
+# ===========================================
+# MIME TYPES
+# ===========================================
+<IfModule mod_mime.c>
+    AddType text/css .css
+    AddType application/javascript .js
+    AddType application/json .json
+    AddType image/svg+xml .svg
+    AddType font/woff .woff
+    AddType font/woff2 .woff2
+</IfModule>
+
+# ===========================================
+# COMPRESSION
+# ===========================================
 <IfModule mod_deflate.c>
-  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json image/svg+xml
+    AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json image/svg+xml
 </IfModule>
 
-# Cache static assets
+# ===========================================
+# CACHING
+# ===========================================
 <IfModule mod_expires.c>
-  ExpiresActive On
-  ExpiresByType text/css "access plus 1 year"
-  ExpiresByType application/javascript "access plus 1 year"
-  ExpiresByType image/png "access plus 1 year"
-  ExpiresByType image/jpeg "access plus 1 year"
-  ExpiresByType image/gif "access plus 1 year"
-  ExpiresByType image/svg+xml "access plus 1 year"
-  ExpiresByType font/woff "access plus 1 year"
-  ExpiresByType font/woff2 "access plus 1 year"
+    ExpiresActive On
+    ExpiresByType text/css "access plus 1 year"
+    ExpiresByType application/javascript "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/gif "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 1 year"
+    ExpiresByType font/woff "access plus 1 year"
+    ExpiresByType font/woff2 "access plus 1 year"
+</IfModule>
+
+# ===========================================
+# SECURITY
+# ===========================================
+
+# Disable directory listing
+Options -Indexes
+
+# Enable following symbolic links
+Options +FollowSymLinks
+
+# Protect sensitive files in API directory
+<FilesMatch "^(config\.php|\.env|composer\.json|composer\.lock)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Block access to log files
+<FilesMatch "\.log$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Block access to SQL files
+<FilesMatch "\.sql$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# PHP settings for API directory (if mod_php available)
+<IfModule mod_php.c>
+    php_flag display_errors off
+    php_flag log_errors on
 </IfModule>

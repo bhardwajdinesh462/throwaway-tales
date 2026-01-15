@@ -22,7 +22,7 @@ if (!is_dir($logsDir)) {
 ini_set('error_log', $logsDir . '/php-errors.log');
 
 // Early error logging function (before ErrorLogger class loads)
-function earlyLog($message, $level = 'ERROR') {
+function earlyLog($message, $level = 'ERROR', $context = []) {
     $logsDir = __DIR__ . '/logs';
     $timestamp = date('Y-m-d H:i:s');
     $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
@@ -35,10 +35,14 @@ function earlyLog($message, $level = 'ERROR') {
         'message' => $message,
         'ip' => $ip,
         'method' => $method,
-        'uri' => $uri
+        'uri' => $uri,
+        'context' => $context
     ], JSON_UNESCAPED_SLASHES) . "\n";
     
     @file_put_contents($logsDir . '/error-' . date('Y-m-d') . '.log', $logEntry, FILE_APPEND | LOCK_EX);
+    
+    // Also log to PHP's default error log for redundancy
+    error_log("[{$level}] {$message} - URI: {$uri}");
 }
 
 // Catch fatal errors
@@ -46,7 +50,11 @@ register_shutdown_function(function() {
     $error = error_get_last();
     if ($error && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
         // Log to our custom log file
-        earlyLog("FATAL: {$error['message']} in {$error['file']}:{$error['line']}", 'CRITICAL');
+        earlyLog("FATAL: {$error['message']} in {$error['file']}:{$error['line']}", 'CRITICAL', [
+            'file' => $error['file'],
+            'line' => $error['line'],
+            'type' => $error['type']
+        ]);
         
         if (!headers_sent()) {
             header('Content-Type: application/json');
@@ -65,8 +73,28 @@ set_error_handler(function($severity, $message, $file, $line) {
     if (in_array($severity, [E_ERROR, E_USER_ERROR])) $level = 'ERROR';
     if (in_array($severity, [E_NOTICE, E_USER_NOTICE])) $level = 'INFO';
     
-    earlyLog("$level: $message in $file:$line", $level);
+    earlyLog("$message", $level, ['file' => $file, 'line' => $line, 'severity' => $severity]);
     return false; // Continue with PHP's handler
+});
+
+// Set exception handler
+set_exception_handler(function($exception) {
+    earlyLog("Uncaught exception: " . $exception->getMessage(), 'CRITICAL', [
+        'file' => $exception->getFile(),
+        'line' => $exception->getLine(),
+        'trace' => $exception->getTraceAsString()
+    ]);
+    
+    if (!headers_sent()) {
+        header('Content-Type: application/json');
+        http_response_code(500);
+    }
+    echo json_encode([
+        'error' => 'Internal server error',
+        'message' => $exception->getMessage(),
+        'hint' => 'Check logs for stack trace'
+    ]);
+    exit;
 });
 
 // Security headers
@@ -80,6 +108,7 @@ $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? '';
 $blockedAgents = ['sqlmap', 'nikto', 'nessus', 'nmap', 'hydra', 'acunetix'];
 foreach ($blockedAgents as $blocked) {
     if (stripos($userAgent, $blocked) !== false) {
+        earlyLog("Blocked suspicious user agent: {$userAgent}", 'WARNING');
         http_response_code(403);
         exit;
     }
@@ -97,6 +126,7 @@ $earlyReqUri = $_SERVER['REQUEST_URI'];
 $earlyReqPath = parse_url($earlyReqUri, PHP_URL_PATH);
 $earlyReqPath = str_replace('/api', '', $earlyReqPath);
 $earlyReqPath = trim($earlyReqPath, '/');
+
 
 // Public endpoints exempt from rate limiting (read-only, frequently accessed)
 $rateLimitExempt = [

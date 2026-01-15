@@ -1,33 +1,72 @@
 # TempMail PHP Backend - cPanel-Safe .htaccess
 # URL rewriting and security settings
 
-RewriteEngine On
+# Enable the rewrite engine
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Handle OPTIONS preflight requests for CORS
+    RewriteCond %{REQUEST_METHOD} OPTIONS
+    RewriteRule ^(.*)$ index.php [QSA,L]
 
-# Don't rewrite actual files or directories
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
+    # Don't rewrite actual files or directories
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
 
-# Route everything to index.php
-RewriteRule ^(.*)$ index.php [QSA,L]
+    # Route everything to index.php
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+# Fallback for servers without mod_rewrite
+<IfModule !mod_rewrite.c>
+    # Use ErrorDocument to handle 404s if mod_rewrite is not available
+    ErrorDocument 404 /api/index.php
+</IfModule>
 
 # Enable CORS for API requests (if mod_headers is available)
 <IfModule mod_headers.c>
     Header always set Access-Control-Allow-Origin "*"
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, Accept"
+    Header always set Access-Control-Max-Age "86400"
+</IfModule>
+
+# Set default content type for PHP files
+<IfModule mod_mime.c>
+    AddType application/json .json
 </IfModule>
 
 # Disable directory listing
 Options -Indexes
 
+# Enable following symbolic links
+Options +FollowSymLinks
+
 # Protect sensitive files
 <FilesMatch "^(config\.php|\.env|composer\.json|composer\.lock)$">
-    Order allow,deny
-    Deny from all
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
 </FilesMatch>
 
 # Block access to log files directly
 <FilesMatch "\.log$">
-    Order allow,deny
-    Deny from all
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
 </FilesMatch>
+
+# PHP settings (if allowed by server)
+<IfModule mod_php.c>
+    php_flag display_errors off
+    php_flag log_errors on
+    php_value error_log logs/php-errors.log
+</IfModule>

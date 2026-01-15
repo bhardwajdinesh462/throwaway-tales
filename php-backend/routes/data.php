@@ -1,24 +1,61 @@
 <?php
 /**
  * Data Routes - Database CRUD operations
+ * With comprehensive error logging
  */
+
+// Import error logging helper if available
+if (!function_exists('logApiError')) {
+    function logApiError($message, $context = []) {
+        $logsDir = dirname(__DIR__) . '/logs';
+        if (!is_dir($logsDir)) {
+            @mkdir($logsDir, 0755, true);
+        }
+        
+        $logEntry = json_encode([
+            'timestamp' => date('Y-m-d H:i:s'),
+            'level' => 'ERROR',
+            'message' => $message,
+            'ip' => $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            'method' => $_SERVER['REQUEST_METHOD'] ?? 'CLI',
+            'uri' => $_SERVER['REQUEST_URI'] ?? 'cli',
+            'context' => $context
+        ], JSON_UNESCAPED_SLASHES) . "\n";
+        
+        @file_put_contents($logsDir . '/api-' . date('Y-m-d') . '.log', $logEntry, FILE_APPEND | LOCK_EX);
+    }
+}
 
 /**
  * Wrapper function called by index.php router
  * Converts path segments to a path string and calls handleData
  */
 function handleDataRoute($segments, $method, $body, $pdo, $config) {
-    // segments = ['data', 'tablename'] or ['data', 'tablename', 'upsert'] or ['data', 'settings', 'batch']
-    array_shift($segments); // Remove 'data' prefix
-    $path = implode('/', $segments);
-    
-    // Handle batch settings endpoint for optimized loading
-    if ($path === 'settings/batch' && $method === 'GET') {
-        handleBatchSettings($pdo);
-        return;
+    try {
+        // segments = ['data', 'tablename'] or ['data', 'tablename', 'upsert'] or ['data', 'settings', 'batch']
+        array_shift($segments); // Remove 'data' prefix
+        $path = implode('/', $segments);
+        
+        // Handle batch settings endpoint for optimized loading
+        if ($path === 'settings/batch' && $method === 'GET') {
+            handleBatchSettings($pdo);
+            return;
+        }
+        
+        return handleData($path, $method, $body, $pdo, $config);
+    } catch (Exception $e) {
+        logApiError("Data route error: " . $e->getMessage(), [
+            'segments' => $segments,
+            'method' => $method,
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        http_response_code(500);
+        echo json_encode([
+            'error' => 'Internal server error',
+            'message' => $e->getMessage()
+        ]);
     }
-    
-    return handleData($path, $method, $body, $pdo, $config);
 }
 
 /**
@@ -62,8 +99,18 @@ function handleBatchSettings($pdo) {
         
         echo json_encode(['data' => $results]);
     } catch (PDOException $e) {
+        logApiError("Batch settings query failed: " . $e->getMessage(), [
+            'keys' => $keys
+        ]);
         http_response_code(500);
         echo json_encode(['error' => 'Failed to fetch settings: ' . $e->getMessage()]);
+    } catch (Exception $e) {
+        logApiError("Batch settings error: " . $e->getMessage(), [
+            'keys' => $keys,
+            'trace' => $e->getTraceAsString()
+        ]);
+        http_response_code(500);
+        echo json_encode(['error' => 'Internal error']);
     }
 }
 

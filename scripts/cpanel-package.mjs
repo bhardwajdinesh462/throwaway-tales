@@ -341,19 +341,21 @@ async function main() {
   await mkdirp(PUBLIC_HTML_DIR);
   await mkdirp(API_DIR);
 
-  // Copy frontend build
+  // Copy frontend build (includes the unified .htaccess from public/)
   await copyDir(DIST_DIR, PUBLIC_HTML_DIR);
-  logVerbose("Copied frontend build");
+  logVerbose("Copied frontend build (includes unified .htaccess)");
 
-  // Copy backend into /api
+  // Copy backend into /api (excluding any .htaccess since we use unified one in public_html)
   await copyDir(PHP_BACKEND_DIR, API_DIR, {
     filter: (srcPath, entry) => {
       // Never ship config.php (only example)
       if (entry.isFile() && path.basename(srcPath) === "config.php") return false;
+      // Skip .htaccess - we use unified one from public/
+      if (entry.isFile() && path.basename(srcPath) === ".htaccess") return false;
       return true;
     },
   });
-  logVerbose("Copied PHP backend");
+  logVerbose("Copied PHP backend (using unified .htaccess)");
 
   // Create version file
   const versionInfo = {

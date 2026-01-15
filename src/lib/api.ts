@@ -476,11 +476,16 @@ export const auth = {
 
   // Auth state change listener
   onAuthStateChange(callback: (event: string, session: Session | null) => void): { unsubscribe: () => void } {
+    // Track whether cleanup has been called and the subscription reference
+    let isUnsubscribed = false;
+    let subscriptionOrInterval: any = null;
+    
     if (USE_SUPABASE) {
-      // This will be set up synchronously from cached client or async
-      let subscription: any = null;
-      
+      // Set up Supabase listener asynchronously
       getSupabaseClient().then(supabase => {
+        // Don't set up if already unsubscribed
+        if (isUnsubscribed) return;
+        
         if (supabase) {
           const { data } = supabase.auth.onAuthStateChange((event: string, session: any) => {
             const mappedSession: Session | null = session ? {
@@ -496,14 +501,22 @@ export const auth = {
             } : null;
             callback(event, mappedSession);
           });
-          subscription = data.subscription;
+          subscriptionOrInterval = data.subscription;
+          
+          // If unsubscribed while waiting for async, clean up now
+          if (isUnsubscribed && subscriptionOrInterval?.unsubscribe) {
+            subscriptionOrInterval.unsubscribe();
+          }
         }
+      }).catch(err => {
+        console.warn('[API] Failed to set up auth state listener:', err);
       });
       
       return {
         unsubscribe: () => {
-          if (subscription) {
-            subscription.unsubscribe();
+          isUnsubscribed = true;
+          if (subscriptionOrInterval?.unsubscribe) {
+            subscriptionOrInterval.unsubscribe();
           }
         }
       };
@@ -511,7 +524,7 @@ export const auth = {
 
     // PHP Backend - poll for session changes
     let lastToken = getAuthToken();
-    const interval = setInterval(async () => {
+    subscriptionOrInterval = setInterval(async () => {
       const currentToken = getAuthToken();
       if (currentToken !== lastToken) {
         lastToken = currentToken;
@@ -525,7 +538,12 @@ export const auth = {
     }, 1000);
 
     return {
-      unsubscribe: () => clearInterval(interval)
+      unsubscribe: () => {
+        isUnsubscribed = true;
+        if (subscriptionOrInterval) {
+          clearInterval(subscriptionOrInterval);
+        }
+      }
     };
   },
 

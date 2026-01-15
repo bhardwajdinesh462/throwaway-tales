@@ -62,33 +62,52 @@ const EmailLimitModal = ({ isOpen, onClose, resetAt, limit }: EmailLimitModalPro
     };
     loadConfig();
 
-    // Subscribe to real-time changes
+    // Subscribe to real-time changes - only if realtime is available
     let channelRef: any = null;
-    (async () => {
-      channelRef = api.realtime.channel('limit_modal_config')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'app_settings',
-            filter: 'key=eq.limit_modal_config'
-          },
-          (payload) => {
-            if (payload.new && typeof payload.new === 'object' && 'value' in payload.new) {
-              const newValue = (payload.new as any).value;
-              if (newValue && typeof newValue === 'object') {
-                setConfig({ ...defaultConfig, ...newValue as Partial<LimitModalConfig> });
+    
+    const setupRealtime = async () => {
+      try {
+        const channel = api.realtime.channel('limit_modal_config');
+        if (channel && typeof channel.on === 'function') {
+          channelRef = channel.on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'app_settings',
+              filter: 'key=eq.limit_modal_config'
+            },
+            (payload) => {
+              if (payload.new && typeof payload.new === 'object' && 'value' in payload.new) {
+                const newValue = (payload.new as any).value;
+                if (newValue && typeof newValue === 'object') {
+                  setConfig({ ...defaultConfig, ...newValue as Partial<LimitModalConfig> });
+                }
               }
             }
-          }
-        )
-        .subscribe();
-    })();
+          );
+          await channelRef.subscribe();
+        }
+      } catch (err) {
+        // Realtime not available in self-hosted mode
+        console.debug('[EmailLimitModal] Realtime not available');
+      }
+    };
+    
+    setupRealtime();
 
     return () => {
       if (channelRef) {
-        channelRef.unsubscribe();
+        try {
+          // Use removeChannel if unsubscribe doesn't exist
+          if (typeof channelRef.unsubscribe === 'function') {
+            channelRef.unsubscribe();
+          } else if (api.realtime && typeof api.realtime.removeChannel === 'function') {
+            api.realtime.removeChannel(channelRef);
+          }
+        } catch {
+          // Ignore cleanup errors
+        }
       }
     };
   }, []);

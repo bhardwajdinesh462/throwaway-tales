@@ -48,18 +48,31 @@ export const BackendStatusProvider = ({ children }: { children: ReactNode }) => 
       
       let isHealthy = false;
       
-      if (IS_SELF_HOSTED) {
+      if (IS_SELF_HOSTED && PHP_API_URL) {
         // Use PHP API health endpoint for self-hosted
-        const response = await fetch(`${PHP_API_URL}/health`, {
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        
-        if (response.ok) {
-          const data = await response.json();
-          isHealthy = data.status === 'ok' && data.db_connected === true;
+        try {
+          const response = await fetch(`${PHP_API_URL}/health`, {
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          
+          if (response.ok) {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              const data = await response.json();
+              isHealthy = data.status === 'ok' && data.db_connected === true;
+            } else {
+              // Got HTML response (likely error page)
+              console.warn("[BackendStatus] Got non-JSON response from health endpoint");
+              isHealthy = false;
+            }
+          }
+        } catch (fetchErr) {
+          clearTimeout(timeout);
+          console.warn("[BackendStatus] PHP health check failed:", fetchErr);
+          isHealthy = false;
         }
-      } else {
+      } else if (!IS_SELF_HOSTED) {
         // Use Supabase for Cloud mode - dynamically import to avoid crashes
         try {
           const { supabase } = await import('@/integrations/supabase/client');
@@ -81,6 +94,10 @@ export const BackendStatusProvider = ({ children }: { children: ReactNode }) => 
           clearTimeout(timeout);
           isHealthy = true; // Fallback to healthy when Supabase can't load
         }
+      } else {
+        // No backend configured, assume healthy to prevent UI issues
+        clearTimeout(timeout);
+        isHealthy = true;
       }
       
       const latency = performance.now() - start;

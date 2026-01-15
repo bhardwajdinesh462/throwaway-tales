@@ -25,6 +25,8 @@ Complete guide for deploying TempMail on your own server using the PHP backend.
 
 ### Step 1: Build for Self-Hosting
 
+**IMPORTANT**: The build process MUST be run with the correct environment to ensure the frontend uses the PHP backend instead of Cloud.
+
 ```bash
 # Clone the repository
 git clone <your-repo-url>
@@ -33,9 +35,18 @@ cd tempmail
 # Install dependencies
 npm install
 
-# Build for self-hosted (cPanel) deployment
-npm run build && node scripts/cpanel-package.mjs
+# Option A: Use the automated packager (RECOMMENDED)
+node scripts/cpanel-package.mjs --zip
+
+# Option B: Manual build with self-hosted flag
+VITE_SELF_HOSTED=true npm run build
 ```
+
+**The packager script automatically:**
+- Sets `VITE_SELF_HOSTED=true` for the build
+- Validates PHP syntax
+- Creates the proper folder structure
+- Generates a ready-to-upload .tar.gz archive
 
 This creates a `cpanel-package/` directory with:
 - Frontend files (upload to web root)
@@ -342,6 +353,11 @@ chmod 755 api/logs/
 | Installation Wizard | `/api/install.php` | Setup database and admin |
 | Verify Installation | `/api/verify-installation.php?format=html` | Check everything works |
 
+**Note**: `verify-installation.php` access methods:
+- From localhost (no token needed)
+- With `?token=YOUR_DIAG_TOKEN` (set in config.php)
+- During first-time setup (before admin is created)
+
 ### Health Endpoints
 
 ```bash
@@ -356,12 +372,30 @@ curl "https://yourdomain.com/api/health/diag?token=YOUR_DIAG_TOKEN"
 
 | Issue | Solution |
 |-------|----------|
+| **Frontend shows 404 errors for API calls** | You built without `VITE_SELF_HOSTED=true`. Rebuild using `node scripts/cpanel-package.mjs` |
+| **"Failed to load domains"** | Same as above - rebuild frontend with packager script |
 | 500 Internal Server Error | Check `api/logs/php-errors.log`, verify PHP ≥ 8.0 |
-| CORS Errors | Update `cors.origins` in config.php |
+| CORS Errors | Update `cors.origins` in config.php with your domain |
 | Login Not Working | Verify JWT secret, check browser console, clear localStorage |
 | Emails Not Received | Check mailbox config, verify IMAP creds, check cron running |
 | API Returns 404 | Verify `.htaccess` exists, enable mod_rewrite |
-| Database Connection Failed | Check credentials, verify MySQL running |
+| Database Connection Failed | Check credentials in config.php, verify MySQL running |
+
+### How to Verify Backend Mode
+
+Open browser console (F12) and look for this message:
+- `[API] Backend mode: Self-hosted (PHP)` ✅ Correct for self-hosting
+- `[API] Backend mode: Cloud (Supabase)` ❌ Wrong - need to rebuild
+
+If you see "Cloud (Supabase)" but you're self-hosting, **rebuild the frontend**:
+
+```bash
+# Delete old build and rebuild
+rm -rf dist cpanel-package
+node scripts/cpanel-package.mjs --zip
+
+# Upload the new package to your server
+```
 
 ---
 

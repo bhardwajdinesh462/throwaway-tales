@@ -1,32 +1,36 @@
 # TempMail Unified .htaccess - Handles both SPA and PHP API routing
 # This single file manages all routing for the application
+# IMPORTANT: Upload this to public_html/ (root of your domain)
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /
 
     # ===========================================
-    # API ROUTING (PHP Backend)
+    # API ROUTING (PHP Backend) - MUST BE FIRST
     # ===========================================
     
     # Handle OPTIONS preflight requests for CORS on API routes
     RewriteCond %{REQUEST_METHOD} OPTIONS
-    RewriteCond %{REQUEST_URI} ^/api/ [NC]
-    RewriteRule ^api/(.*)$ api/index.php [QSA,L]
+    RewriteCond %{REQUEST_URI} ^/api [NC]
+    RewriteRule ^api/?(.*)$ api/index.php [QSA,L]
 
-    # Route all /api/* requests to PHP backend
-    # Skip if it's an actual file in the api directory
-    RewriteCond %{REQUEST_URI} ^/api/ [NC]
+    # Direct PHP file requests in /api - let them execute directly
+    RewriteCond %{REQUEST_URI} ^/api/.*\.php$ [NC]
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    # Route all other /api/* requests to PHP backend index.php
+    RewriteCond %{REQUEST_URI} ^/api [NC]
     RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteRule ^api/(.*)$ api/index.php [QSA,L]
+    RewriteRule ^api/?(.*)$ api/index.php [QSA,L]
 
     # ===========================================
     # SPA ROUTING (React Frontend)
     # ===========================================
     
     # Don't rewrite API requests (they're handled above)
-    RewriteCond %{REQUEST_URI} !^/api/ [NC]
+    RewriteCond %{REQUEST_URI} !^/api [NC]
     
     # Don't rewrite actual files (assets, images, etc.)
     RewriteCond %{REQUEST_FILENAME} !-f

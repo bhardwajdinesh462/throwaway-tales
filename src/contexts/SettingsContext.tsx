@@ -118,44 +118,70 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [appearance.faviconUrl, general.siteName, general.siteTagline]);
 
-  const fetchSettings = async () => {
-    try {
-      // Fetch both settings in parallel
-      const [appearanceRes, generalRes] = await Promise.all([
-        api.db.query<{ value: AppearanceSettings }[]>('app_settings', {
-          select: 'value',
-          filter: { key: 'appearance' },
-          order: { column: 'updated_at', ascending: false },
-          limit: 1,
-        }),
-        api.db.query<{ value: GeneralSettings }[]>('app_settings', {
-          select: 'value',
-          filter: { key: 'general' },
-          order: { column: 'updated_at', ascending: false },
-          limit: 1,
-        }),
-      ]);
+  // Debounce/cache to prevent excessive API calls
+  const lastFetchRef = useRef<number>(0);
+  const fetchPromiseRef = useRef<Promise<void> | null>(null);
+  const FETCH_COOLDOWN_MS = 5000; // Don't refetch within 5 seconds
 
-      // Update appearance
-      if (!appearanceRes.error && appearanceRes.data && appearanceRes.data.length > 0 && appearanceRes.data[0].value) {
-        const dbAppearance = appearanceRes.data[0].value;
-        const merged = { ...defaultAppearance, ...dbAppearance };
-        setAppearance(merged);
-        storage.set(APPEARANCE_KEY, merged);
-      }
-
-      // Update general
-      if (!generalRes.error && generalRes.data && generalRes.data.length > 0 && generalRes.data[0].value) {
-        const dbGeneral = generalRes.data[0].value;
-        const merged = { ...defaultGeneral, ...dbGeneral };
-        setGeneral(merged);
-        storage.set(GENERAL_KEY, merged);
-      }
-    } catch (e) {
-      console.error('Error fetching settings:', e);
-    } finally {
-      setIsLoading(false);
+  const fetchSettings = async (force = false) => {
+    const now = Date.now();
+    
+    // If we're already fetching, return the existing promise
+    if (fetchPromiseRef.current) {
+      return fetchPromiseRef.current;
     }
+    
+    // Skip if we fetched recently (unless forced)
+    if (!force && now - lastFetchRef.current < FETCH_COOLDOWN_MS) {
+      setIsLoading(false);
+      return;
+    }
+    
+    lastFetchRef.current = now;
+    
+    fetchPromiseRef.current = (async () => {
+      try {
+        // Fetch both settings in parallel with a single request where possible
+        const [appearanceRes, generalRes] = await Promise.all([
+          api.db.query<{ value: AppearanceSettings }[]>('app_settings', {
+            select: 'value',
+            filter: { key: 'appearance' },
+            order: { column: 'updated_at', ascending: false },
+            limit: 1,
+          }),
+          api.db.query<{ value: GeneralSettings }[]>('app_settings', {
+            select: 'value',
+            filter: { key: 'general' },
+            order: { column: 'updated_at', ascending: false },
+            limit: 1,
+          }),
+        ]);
+
+        // Update appearance
+        if (!appearanceRes.error && appearanceRes.data && appearanceRes.data.length > 0 && appearanceRes.data[0].value) {
+          const dbAppearance = appearanceRes.data[0].value;
+          const merged = { ...defaultAppearance, ...dbAppearance };
+          setAppearance(merged);
+          storage.set(APPEARANCE_KEY, merged);
+        }
+
+        // Update general
+        if (!generalRes.error && generalRes.data && generalRes.data.length > 0 && generalRes.data[0].value) {
+          const dbGeneral = generalRes.data[0].value;
+          const merged = { ...defaultGeneral, ...dbGeneral };
+          setGeneral(merged);
+          storage.set(GENERAL_KEY, merged);
+        }
+      } catch (e) {
+        console.error('Error fetching settings:', e);
+        // Use cached values on error - they're already set from localStorage
+      } finally {
+        setIsLoading(false);
+        fetchPromiseRef.current = null;
+      }
+    })();
+    
+    return fetchPromiseRef.current;
   };
 
   useEffect(() => {
@@ -173,7 +199,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         },
         () => {
           console.log('[SettingsContext] Settings changed, refetching...');
-          fetchSettings();
+          fetchSettings(true); // Force refetch on realtime update
         }
       );
 
@@ -188,7 +214,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   return (
-    <SettingsContext.Provider value={{ appearance, general, isLoading, refetch: fetchSettings }}>
+    <SettingsContext.Provider value={{ appearance, general, isLoading, refetch: () => fetchSettings(true) }}>
       {children}
     </SettingsContext.Provider>
   );

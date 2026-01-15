@@ -1,11 +1,33 @@
-# TempMail PHP Backend - Ultra-Minimal cPanel-Safe Version
-# Only essential URL rewriting - nothing else
+# TempMail PHP Backend - cPanel-Safe .htaccess
+# URL rewriting and security settings
 
 RewriteEngine On
 
-# If the request is for a real file or directory, serve it directly
+# Don't rewrite actual files or directories
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 
-# Otherwise, route everything to index.php
+# Route everything to index.php
 RewriteRule ^(.*)$ index.php [QSA,L]
+
+# Enable CORS for API requests (if mod_headers is available)
+<IfModule mod_headers.c>
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
+</IfModule>
+
+# Disable directory listing
+Options -Indexes
+
+# Protect sensitive files
+<FilesMatch "^(config\.php|\.env|composer\.json|composer\.lock)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Block access to log files directly
+<FilesMatch "\.log$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>

@@ -308,9 +308,13 @@ async function main() {
     const userAgent = process.env.npm_config_user_agent ?? "";
     const isBun = userAgent.startsWith("bun");
 
-    // Always set self-hosted flag for cPanel builds
+    // Always set self-hosted flag and clear Supabase vars for cPanel builds
     const buildEnv = { 
       VITE_SELF_HOSTED: "true",
+      VITE_FORCE_SELF_HOSTED: "true",
+      // Clear Supabase environment variables to ensure PHP-only mode
+      VITE_SUPABASE_URL: "",
+      VITE_SUPABASE_PUBLISHABLE_KEY: "",
       ...(API_URL ? { VITE_PHP_API_URL: API_URL } : {})
     };
 
